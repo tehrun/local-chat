@@ -251,6 +251,16 @@ function allOtherUsers(int $currentUserId): array
     }, $stmt->fetchAll());
 }
 
+function chatListPayload(int $currentUserId): array
+{
+    purgeExpiredMessages();
+    touchUserPresence($currentUserId);
+
+    return [
+        'users' => allOtherUsers($currentUserId),
+    ];
+}
+
 function findUserByUsername(string $username): ?array
 {
     $stmt = db()->prepare('SELECT * FROM users WHERE username = :username LIMIT 1');
