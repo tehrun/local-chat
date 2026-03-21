@@ -1312,6 +1312,30 @@ function updateActionButton() {
     }
 }
 
+function keepComposerFocused() {
+    if (!canChat || bodyEl.disabled) {
+        return;
+    }
+
+    requestAnimationFrame(() => {
+        bodyEl.focus({ preventScroll: true });
+        updateKeyboardOffset();
+    });
+}
+
+function preserveComposerFocus(event) {
+    if (!(event.target instanceof HTMLElement)) {
+        return;
+    }
+
+    if (bodyEl.disabled) {
+        return;
+    }
+
+    event.preventDefault();
+    keepComposerFocused();
+}
+
 function applyConversationPayload(payload) {
     if (Array.isArray(payload.messages)) {
         renderMessages(payload.messages);
@@ -1549,7 +1573,7 @@ async function sendTextMessage() {
         actionButton.disabled = false;
         imageButton.disabled = false;
         updateActionButton();
-        bodyEl.focus();
+        keepComposerFocused();
     }
 }
 
@@ -1862,6 +1886,13 @@ voiceFileInput.addEventListener('change', async () => {
         await sendSelectedVoiceFile(file);
     }
 });
+
+actionButton.addEventListener('pointerdown', preserveComposerFocus);
+actionButton.addEventListener('mousedown', preserveComposerFocus);
+actionButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
+imageButton.addEventListener('pointerdown', preserveComposerFocus);
+imageButton.addEventListener('mousedown', preserveComposerFocus);
+imageButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 
 window.visualViewport?.addEventListener('resize', updateKeyboardOffset);
 window.visualViewport?.addEventListener('scroll', updateKeyboardOffset);
