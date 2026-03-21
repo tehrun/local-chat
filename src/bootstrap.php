@@ -545,6 +545,13 @@ function chattedUsers(int $currentUserId): array
             return $rightTimestamp <=> $leftTimestamp;
         }
 
+        $leftMessageId = (int) ($left['last_message_id'] ?? 0);
+        $rightMessageId = (int) ($right['last_message_id'] ?? 0);
+
+        if ($leftMessageId !== $rightMessageId) {
+            return $rightMessageId <=> $leftMessageId;
+        }
+
         return strcasecmp((string) ($left['username'] ?? ''), (string) ($right['username'] ?? ''));
     });
 
@@ -559,7 +566,8 @@ function allOtherUsers(int $currentUserId): array
                 u.created_at,
                 up.updated_at AS presence_updated_at,
                 COUNT(m_unseen.id) AS unseen_count,
-                MAX(m_latest.created_at) AS last_message_at
+                MAX(m_latest.created_at) AS last_message_at,
+                MAX(m_latest.id) AS last_message_id
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          LEFT JOIN messages m_latest
@@ -572,6 +580,7 @@ function allOtherUsers(int $currentUserId): array
          GROUP BY u.id, u.username, u.created_at, up.updated_at
          ORDER BY CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END ASC,
                   last_message_at DESC,
+                  last_message_id DESC,
                   username ASC'
     );
     $stmt->execute(['id' => $currentUserId]);
