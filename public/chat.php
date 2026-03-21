@@ -9,7 +9,7 @@ $otherUserId = (int) ($_GET['user'] ?? 0);
 $otherUser = findUserById($otherUserId);
 
 if ($otherUser === null || $otherUser['id'] === $user['id']) {
-    header('Location: /');
+    header('Location: index.php');
     exit;
 }
 
@@ -26,8 +26,8 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
     <meta name="theme-color" content="#075e54">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Local Chat">
-    <link rel="manifest" href="/manifest.json">
-    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <title>Chat with <?= e($otherUser['username']) ?></title>
     <style>
         :root {
@@ -935,10 +935,10 @@ async function showMessageNotification(message) {
     if (registration) {
         registration.showNotification(otherUserName, {
             body,
-            icon: '/icons/icon.svg',
+            icon: 'icons/icon.svg',
             tag: `chat-${conversationUserId}`,
             renotify: true,
-            data: { url: `/chat.php?user=${conversationUserId}` },
+            data: { url: `chat.php?user=${conversationUserId}` },
         }).catch(() => {
             // Ignore notification display errors.
         });
@@ -1258,10 +1258,10 @@ function renderMessages(messages) {
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
             const image = message.image_path
-                ? `<button class="message-photo-button" type="button" data-image-src="/media.php?message=${Number(message.id)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="/media.php?message=${Number(message.id)}" alt="Shared image"></button>`
+                ? `<button class="message-photo-button" type="button" data-image-src="media.php?message=${Number(message.id)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="media.php?message=${Number(message.id)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
+                ? `<audio controls preload="none" src="media.php?message=${Number(message.id)}"></audio>`
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
@@ -1372,7 +1372,7 @@ function applyConversationPayload(payload) {
 
 async function refreshConversation() {
     try {
-        const response = await fetch(`/chat_api.php?action=messages&user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1400,7 +1400,7 @@ async function syncReadState() {
     }
 
     try {
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
             body: new URLSearchParams({ action: 'read' }),
@@ -1505,7 +1505,7 @@ function connectConversationStream() {
 
 async function syncTyping(isTyping) {
     try {
-        await fetch(`/chat_api.php?user=${conversationUserId}`, {
+        await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
             body: new URLSearchParams({ action: 'typing', typing: String(isTyping) }),
@@ -1558,7 +1558,7 @@ async function flushPendingTextQueue() {
         const nextMessage = pendingTextQueue[0];
 
         try {
-            const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
                 body: new URLSearchParams({ action: 'send_text', body: nextMessage.body }),
@@ -1676,7 +1676,7 @@ async function uploadVoiceBlob(blob, filename) {
         formData.append('action', 'send_voice');
         formData.append('voice_note', blob, filename);
 
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
             headers: { 'Accept': 'application/json' },
             body: formData,
@@ -1731,7 +1731,7 @@ async function uploadImageFile(file) {
         formData.append('action', 'send_image');
         formData.append('image_file', file, file.name || 'photo.jpg');
 
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
             headers: { 'Accept': 'application/json' },
             body: formData,
@@ -2006,7 +2006,7 @@ revokeFriendshipButton.addEventListener('click', async () => {
     revokeFriendshipButton.disabled = true;
 
     try {
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
             body: new URLSearchParams({ action: 'revoke_friendship' }),
@@ -2062,7 +2062,7 @@ document.addEventListener('click', markUserInteraction, { passive: true });
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {
+        navigator.serviceWorker.register('sw.js').catch(() => {
             // Ignore service worker registration errors.
         });
     });
@@ -2075,7 +2075,7 @@ window.addEventListener('beforeunload', () => {
     stopPollingConversation();
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false' });
-        navigator.sendBeacon(`/chat_api.php?user=${conversationUserId}`, data);
+        navigator.sendBeacon(`chat_api.php?user=${conversationUserId}`, data);
     }
 });
 
