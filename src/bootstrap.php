@@ -10,6 +10,7 @@ define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
+define('PRESENCE_TTL_SECONDS', 90);
 define('PURGE_INTERVAL_SECONDS', 30);
 
 if (!is_dir(dirname(DB_PATH))) {
@@ -93,8 +94,21 @@ function initializeDatabase(PDO $pdo): void
     }
 
     $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS user_presence (
+            user_id INTEGER PRIMARY KEY,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_typing_status_lookup
          ON typing_status (user_id, conversation_user_id, updated_at)'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_user_presence_updated
+         ON user_presence (updated_at)'
     );
 }
 
@@ -129,6 +143,54 @@ function purgeExpiredMessages(bool $force = false): void
     $lastRunAt = time();
 }
 
+function touchUserPresence(int $userId): void
+{
+    $stmt = db()->prepare(
+        'INSERT INTO user_presence (user_id, updated_at)
+         VALUES (:user_id, :updated_at)
+         ON CONFLICT(user_id)
+         DO UPDATE SET updated_at = excluded.updated_at'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'updated_at' => gmdate('c'),
+    ]);
+}
+
+function isUserOnline(int $userId): bool
+{
+    $stmt = db()->prepare(
+        'SELECT 1 FROM user_presence
+         WHERE user_id = :user_id
+           AND updated_at >= :cutoff
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'cutoff' => gmdate('c', time() - PRESENCE_TTL_SECONDS),
+    ]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+function presenceLabel(?string $updatedAt): string
+{
+    if ($updatedAt === null) {
+        return 'Offline';
+    }
+
+    $timestamp = strtotime($updatedAt);
+    if ($timestamp === false) {
+        return 'Offline';
+    }
+
+    if ($timestamp >= (time() - PRESENCE_TTL_SECONDS)) {
+        return 'Online';
+    }
+
+    return 'Last seen ' . gmdate('Y-m-d H:i:s', $timestamp) . ' UTC';
+}
+
 function currentUser(): ?array
 {
     if (!isset($_SESSION['user_id'])) {
@@ -138,7 +200,13 @@ function currentUser(): ?array
     $stmt = db()->prepare('SELECT id, username, created_at FROM users WHERE id = :id');
     $stmt->execute(['id' => $_SESSION['user_id']]);
 
-    return $stmt->fetch() ?: null;
+    $user = $stmt->fetch() ?: null;
+
+    if ($user !== null) {
+        touchUserPresence((int) $user['id']);
+    }
+
+    return $user;
 }
 
 function requireAuth(): array
@@ -155,10 +223,23 @@ function requireAuth(): array
 
 function allOtherUsers(int $currentUserId): array
 {
-    $stmt = db()->prepare('SELECT id, username, created_at FROM users WHERE id != :id ORDER BY username ASC');
+    $stmt = db()->prepare(
+        'SELECT u.id, u.username, u.created_at, up.updated_at AS presence_updated_at
+         FROM users u
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         WHERE u.id != :id
+         ORDER BY username ASC'
+    );
     $stmt->execute(['id' => $currentUserId]);
 
-    return $stmt->fetchAll();
+    return array_map(static function (array $user): array {
+        $user['is_online'] = isset($user['presence_updated_at'])
+            && strtotime((string) $user['presence_updated_at']) !== false
+            && strtotime((string) $user['presence_updated_at']) >= (time() - PRESENCE_TTL_SECONDS);
+        $user['presence_label'] = presenceLabel($user['presence_updated_at'] ?? null);
+
+        return $user;
+    }, $stmt->fetchAll());
 }
 
 function findUserByUsername(string $username): ?array
@@ -171,10 +252,25 @@ function findUserByUsername(string $username): ?array
 
 function findUserById(int $id): ?array
 {
-    $stmt = db()->prepare('SELECT id, username, created_at FROM users WHERE id = :id LIMIT 1');
+    $stmt = db()->prepare(
+        'SELECT u.id, u.username, u.created_at, up.updated_at AS presence_updated_at
+         FROM users u
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         WHERE u.id = :id
+         LIMIT 1'
+    );
     $stmt->execute(['id' => $id]);
 
-    return $stmt->fetch() ?: null;
+    $user = $stmt->fetch() ?: null;
+
+    if ($user !== null) {
+        $user['is_online'] = isset($user['presence_updated_at'])
+            && strtotime((string) $user['presence_updated_at']) !== false
+            && strtotime((string) $user['presence_updated_at']) >= (time() - PRESENCE_TTL_SECONDS);
+        $user['presence_label'] = presenceLabel($user['presence_updated_at'] ?? null);
+    }
+
+    return $user;
 }
 
 function registerUser(string $username, string $password): ?string
@@ -446,11 +542,17 @@ function conversationPayload(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
+    touchUserPresence($userId);
     markMessagesDelivered($userId, $otherUserId);
+    $otherUser = findUserById($otherUserId);
 
     return [
         'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
         'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+        'presence' => [
+            'is_online' => (bool) ($otherUser['is_online'] ?? false),
+            'label' => $otherUser['presence_label'] ?? 'Offline',
+        ],
     ];
 }
 

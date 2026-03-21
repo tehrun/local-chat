@@ -102,6 +102,26 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             font-size: 13px;
             color: #d7efe8;
         }
+        .presence-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            font-size: 13px;
+            color: #d7efe8;
+        }
+        .presence-light {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #98a2b3;
+            box-shadow: 0 0 0 3px rgba(255,255,255,0.14);
+            flex-shrink: 0;
+        }
+        .presence-light.online {
+            background: #25d366;
+            box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.22);
+        }
         .conversation {
             flex: 1;
             display: flex;
@@ -308,6 +328,10 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             <a class="back-link" href="/">← Chats</a>
             <div class="topbar-meta">
                 <h1><?= e($otherUser['username']) ?></h1>
+                <div class="presence-row">
+                    <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                    <span id="header-presence-label"><?= e($otherUser['presence_label'] ?? 'Offline') ?></span>
+                </div>
                 <p>Private messages auto-delete after 24 hours.</p>
             </div>
         </header>
@@ -320,6 +344,7 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"></textarea>
+                <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
             <div class="composer-help" id="composer-help">Type to send text, or tap the microphone to start and stop a voice note.</div>
@@ -332,12 +357,17 @@ const conversationUserId = <?= (int) $otherUserId ?>;
 const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
 const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
+const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
 const composerHelpEl = document.getElementById('composer-help');
+const voiceFileInput = document.getElementById('voice-file-input');
+const headerPresenceLight = document.getElementById('header-presence-light');
+const headerPresenceLabel = document.getElementById('header-presence-label');
 let renderedSignature = '';
 let localMessageCounter = 0;
 let typingTimer = null;
@@ -355,9 +385,20 @@ let shouldAutoScroll = true;
 let readSyncTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type to send text, or tap the microphone to record a voice note.';
+let otherUserOnline = initialPresence;
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function supportsCapturedVoiceUpload() {
+    return Boolean(voiceFileInput);
+}
+
+function updatePresence(isOnline, label) {
+    otherUserOnline = Boolean(isOnline);
+    headerPresenceLight.classList.toggle('online', otherUserOnline);
+    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
 }
 
 const buttonIcons = {
@@ -572,7 +613,13 @@ function updateActionButton() {
     const hasText = bodyEl.value.trim() !== '';
     actionButton.innerHTML = hasText ? buttonIcons.send : buttonIcons.mic;
     actionButton.classList.remove('recording');
-    actionButton.setAttribute('aria-label', hasText ? 'Send message' : 'Start voice recording');
+    if (hasText) {
+        actionButton.setAttribute('aria-label', 'Send message');
+    } else if (supportsInlineVoiceRecording()) {
+        actionButton.setAttribute('aria-label', 'Start voice recording');
+    } else {
+        actionButton.setAttribute('aria-label', 'Record or upload a voice note');
+    }
 }
 
 function applyConversationPayload(payload) {
@@ -581,6 +628,9 @@ function applyConversationPayload(payload) {
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
+    }
+    if (payload.presence) {
+        updatePresence(payload.presence.is_online, payload.presence.label);
     }
     setTypingVisible(Boolean(payload.typing));
 }
@@ -865,12 +915,42 @@ async function uploadVoiceBlob(blob, filename) {
     }
 }
 
+async function sendSelectedVoiceFile(file) {
+    if (!(file instanceof File) || file.size === 0) {
+        showError('Please choose a voice note to send.');
+        return;
+    }
+
+    showHint('Uploading voice note…');
+    actionButton.disabled = true;
+    isSending = true;
+
+    try {
+        await uploadVoiceBlob(file, file.name || 'voice-note');
+    } finally {
+        isSending = false;
+        actionButton.disabled = false;
+        voiceFileInput.value = '';
+        updateActionButton();
+    }
+}
+
+async function openVoiceFallbackPicker() {
+    if (!supportsCapturedVoiceUpload() || isSending) {
+        showError('Voice capture is not available on this device/browser.');
+        return;
+    }
+
+    showHint('Use your phone recorder to capture a voice note, then send it here.');
+    voiceFileInput.click();
+}
+
 async function startRecording() {
     if (bodyEl.value.trim() !== '' || isSending || recordingMode) {
         return;
     }
     if (!supportsInlineVoiceRecording()) {
-        showError('Inline voice recording is not supported on this device/browser.');
+        await openVoiceFallbackPicker();
         return;
     }
 
@@ -972,8 +1052,20 @@ async function toggleRecording() {
         return;
     }
 
+    if (!supportsInlineVoiceRecording()) {
+        await openVoiceFallbackPicker();
+        return;
+    }
+
     await startRecording();
 }
+
+voiceFileInput.addEventListener('change', async () => {
+    const [file] = voiceFileInput.files || [];
+    if (file) {
+        await sendSelectedVoiceFile(file);
+    }
+});
 
 bodyEl.addEventListener('input', () => {
     autoResizeComposer();
@@ -1030,6 +1122,7 @@ composerHelpEl.textContent = supportsInlineVoiceRecording()
     ? 'Type to send text, or tap the microphone to start and stop a voice note.'
     : 'Type to send text, or tap the microphone to open your device audio recorder and send a voice note.';
 renderMessages(initialMessages);
+updatePresence(initialPresence, initialPresenceLabel);
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
