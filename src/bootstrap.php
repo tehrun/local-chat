@@ -70,6 +70,16 @@ function initializeDatabase(PDO $pdo): void
             FOREIGN KEY(conversation_user_id) REFERENCES users(id)
         )'
     );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
+         ON messages (sender_id, recipient_id, created_at, id)'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_typing_status_lookup
+         ON typing_status (user_id, conversation_user_id, updated_at)'
+    );
 }
 
 function purgeExpiredMessages(): void
@@ -186,6 +196,11 @@ function conversationMessages(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
+    return conversationMessagesWithoutMaintenance($userId, $otherUserId);
+}
+
+function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): array
+{
     $stmt = db()->prepare(
         'SELECT m.*, u.username AS sender_name
          FROM messages m
@@ -327,6 +342,11 @@ function isUserTyping(int $userId, int $otherUserId): bool
 {
     purgeExpiredMessages();
 
+    return isUserTypingWithoutMaintenance($userId, $otherUserId);
+}
+
+function isUserTypingWithoutMaintenance(int $userId, int $otherUserId): bool
+{
     $stmt = db()->prepare(
         'SELECT 1 FROM typing_status
          WHERE user_id = :user_id
@@ -342,6 +362,16 @@ function isUserTyping(int $userId, int $otherUserId): bool
     ]);
 
     return (bool) $stmt->fetchColumn();
+}
+
+function conversationPayload(int $userId, int $otherUserId): array
+{
+    purgeExpiredMessages();
+
+    return [
+        'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
+        'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+    ];
 }
 
 function jsonResponse(array $payload, int $statusCode = 200): void

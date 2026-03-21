@@ -15,10 +15,7 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
 
 if ($action === 'messages') {
-    jsonResponse([
-        'messages' => conversationMessages((int) $user['id'], $otherUserId),
-        'typing' => isUserTyping((int) $user['id'], $otherUserId),
-    ]);
+    jsonResponse(conversationPayload((int) $user['id'], $otherUserId));
 }
 
 if ($action === 'typing') {
@@ -42,8 +39,7 @@ if ($action === 'send_text') {
 
     jsonResponse([
         'ok' => true,
-        'messages' => conversationMessages((int) $user['id'], $otherUserId),
-        'typing' => isUserTyping((int) $user['id'], $otherUserId),
+        ...conversationPayload((int) $user['id'], $otherUserId),
     ]);
 }
 
@@ -56,8 +52,7 @@ if ($action === 'send_voice') {
 
     jsonResponse([
         'ok' => true,
-        'messages' => conversationMessages((int) $user['id'], $otherUserId),
-        'typing' => isUserTyping((int) $user['id'], $otherUserId),
+        ...conversationPayload((int) $user['id'], $otherUserId),
     ]);
 }
 
