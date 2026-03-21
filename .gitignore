@@ -1,0 +1,3 @@
+storage/db/*.sqlite
+storage/uploads/*
+!storage/uploads/.gitkeep
