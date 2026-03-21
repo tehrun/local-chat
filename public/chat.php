@@ -83,10 +83,33 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             box-shadow: var(--shadow);
         }
         .back-link {
+            width: 40px;
+            height: 40px;
+            flex: 0 0 40px;
+            border-radius: 50%;
             color: #dff6f1;
             text-decoration: none;
-            font-size: 14px;
-            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(11, 20, 26, 0.18);
+            transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .back-link:hover,
+        .back-link:focus-visible {
+            background: rgba(11, 20, 26, 0.3);
+        }
+        .back-link:active {
+            transform: scale(0.96);
+        }
+        .back-link svg {
+            width: 22px;
+            height: 22px;
+            stroke: currentColor;
+            stroke-width: 2.4;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         .topbar-meta {
             min-width: 0;
@@ -325,7 +348,11 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
-            <a class="back-link" href="/">← Chats</a>
+            <a class="back-link" href="/" aria-label="Back to chats">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M15 6l-6 6 6 6"></path>
+                </svg>
+            </a>
             <div class="topbar-meta">
                 <h1><?= e($otherUser['username']) ?></h1>
                 <div class="presence-row">
