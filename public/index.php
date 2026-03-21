@@ -48,6 +48,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#075e54">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Local Chat">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <title>Local Chat</title>
     <style>
         :root {
@@ -111,14 +117,25 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             align-items: center;
             gap: 10px;
             flex-shrink: 0;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
-        .user-chip {
+        .user-chip,
+        .install-button {
             padding: 8px 12px;
             border-radius: 999px;
             background: rgba(255,255,255,0.14);
             font-size: 13px;
             color: #fff;
             white-space: nowrap;
+        }
+        .install-button {
+            border: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer;
+            font-weight: 700;
+        }
+        .install-button[hidden] {
+            display: none;
         }
         .logout-button {
             border: none;
@@ -200,10 +217,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-left: 8px;
             font-size: 12px;
             color: var(--muted);
-            vertical-align: middle;
+            width: fit-content;
         }
         .presence-badge .dot {
             width: 9px;
@@ -211,6 +227,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             border-radius: 50%;
             background: #98a2b3;
             box-shadow: none;
+            flex-shrink: 0;
         }
         .presence-badge .dot.online {
             background: var(--action);
@@ -222,21 +239,14 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .chat-copy strong {
             font-size: 16px;
             line-height: 1.35;
+            display: block;
         }
         .chat-copy-head {
             display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-bottom: 4px;
-        }
-        .chat-copy span {
-            display: block;
-            color: var(--muted);
-            font-size: 14px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            margin-bottom: 0;
         }
         .chat-time {
             color: var(--muted);
@@ -258,56 +268,42 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             margin-top: 6px;
             border: none;
             border-radius: 14px;
-            background: var(--composer);
-            padding: 13px 14px;
+            padding: 12px 14px;
             font: inherit;
-            color: var(--text);
+            background: #fff;
         }
-        button.primary {
-            width: 100%;
-            border: none;
-            border-radius: 14px;
-            background: var(--action);
-            color: #fff;
-            padding: 14px;
-            font: inherit;
-            font-weight: 700;
-            cursor: pointer;
-            box-shadow: 0 8px 18px rgba(37, 211, 102, 0.28);
-        }
+        button.primary,
         button.secondary {
             width: 100%;
             border: none;
-            border-radius: 14px;
-            background: #0b141a;
-            color: #fff;
-            padding: 14px;
+            border-radius: 999px;
+            padding: 12px 16px;
             font: inherit;
             font-weight: 700;
             cursor: pointer;
         }
+        button.primary { background: var(--action); color: #fff; }
+        button.secondary { background: #dfe5e7; color: #244047; }
         .helper-row {
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
-            margin-top: auto;
-            padding: 0 4px;
+            justify-content: center;
             color: var(--muted);
-            font-size: 12px;
+            font-size: 13px;
+            padding: 0 8px;
         }
-        .dot {
-            width: 8px;
-            height: 8px;
+        .helper-row .dot {
+            width: 9px;
+            height: 9px;
             border-radius: 50%;
             background: var(--action);
             flex-shrink: 0;
         }
         @media (min-width: 721px) {
             .app {
+                min-height: 100vh;
                 box-shadow: var(--shadow);
-            }
-            .auth-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
     </style>
@@ -318,64 +314,39 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         <header class="topbar">
             <div>
                 <h1>Local Chat</h1>
-                <p><?= $user ? 'Pick a conversation, see who is online, and keep chatting.' : 'Sign in to start chatting in the same app-style layout.' ?></p>
+                <p>Simple private conversations on your local network.</p>
             </div>
-            <?php if ($user !== null): ?>
-                <div class="topbar-actions">
+            <div class="topbar-actions">
+                <?php if ($user !== null): ?>
                     <span class="user-chip"><?= e($user['username']) ?></span>
-                    <form method="post" style="margin:0;">
+                    <button class="install-button" id="install-app-button" type="button" hidden>Install app</button>
+                    <form method="post">
                         <input type="hidden" name="action" value="logout">
-                        <button class="logout-button" type="submit">Logout</button>
+                        <button class="logout-button" type="submit">Log out</button>
                     </form>
-                </div>
-            <?php endif; ?>
+                <?php endif; ?>
+            </div>
         </header>
 
         <main class="content">
-            <section class="card intro-bubble">
-                <h2 class="panel-title"><?= $user ? 'Your chats' : 'Welcome to Local Chat' ?></h2>
-                <p class="panel-text"><?= $user ? 'The home screen now matches the chat experience, while the conversation page stays the same.' : 'Create an account or sign in from a screen that looks like the real chat app, not a separate landing page.' ?></p>
-            </section>
-
             <?php if ($loginRequired): ?>
-                <div class="alerts"><div class="alert error">Please sign in before opening a conversation.</div></div>
+                <div class="alert error">Please sign in to open a conversation.</div>
             <?php endif; ?>
 
-            <?php if ($errors !== [] || $notice !== null): ?>
-                <div class="alerts">
-                    <?php foreach ($errors as $error): ?>
-                        <div class="alert error"><?= e($error) ?></div>
-                    <?php endforeach; ?>
-                    <?php if ($notice !== null): ?>
-                        <div class="alert notice"><?= e($notice) ?></div>
-                    <?php endif; ?>
-                </div>
+            <?php foreach ($errors as $error): ?>
+                <div class="alert error"><?= e($error) ?></div>
+            <?php endforeach; ?>
+
+            <?php if ($notice !== null): ?>
+                <div class="alert notice"><?= e($notice) ?></div>
             <?php endif; ?>
+
+            <div class="card intro-bubble">
+                <h2 class="panel-title">Welcome</h2>
+                <p class="panel-text">Send text messages and voice notes, see who is online, and keep chats automatically cleaned up after 24 hours.</p>
+            </div>
 
             <?php if ($user === null): ?>
-                <section class="card">
-                    <h2 class="panel-title">Preview</h2>
-                    <p class="panel-text">Once you sign in, this screen becomes your chat list and each conversation opens in the existing messenger view.</p>
-                    <div class="chat-list" style="margin-top: 14px;">
-                        <div class="chat-item">
-                            <div class="avatar">LC</div>
-                            <div class="chat-copy">
-                                <strong>Private messaging</strong>
-                                <span>Text, typing status, and hold-to-record voice notes.</span>
-                            </div>
-                            <span class="chat-time">24h</span>
-                        </div>
-                        <div class="chat-item">
-                            <div class="avatar">🔒</div>
-                            <div class="chat-copy">
-                                <strong>Auto-cleanup</strong>
-                                <span>Messages are removed automatically after 24 hours.</span>
-                            </div>
-                            <span class="chat-time">TTL</span>
-                        </div>
-                    </div>
-                </section>
-
                 <section class="auth-grid">
                     <div class="card">
                         <h2 class="panel-title">Create account</h2>
@@ -425,7 +396,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                         <strong><?= e($chatUser['username']) ?></strong>
                                         <span class="presence-badge"><span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
                                     </div>
-                                    <span>Tap to open your private conversation.</span>
                                 </div>
                                 <span class="chat-time">Chat</span>
                             </a>
@@ -436,10 +406,48 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 
             <div class="helper-row">
                 <span class="dot"></span>
-                <span>Chat layout stays mobile-first and compatible with the current conversation screen.</span>
+                <span>Now installable on supported devices and browsers.</span>
             </div>
         </main>
     </div>
 </div>
+<script>
+let deferredInstallPrompt = null;
+const installButton = document.getElementById('install-app-button');
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {
+            // Ignore service worker registration errors.
+        });
+    });
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    if (installButton) {
+        installButton.hidden = false;
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    if (installButton) {
+        installButton.hidden = true;
+    }
+});
+
+installButton?.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) {
+        return;
+    }
+
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installButton.hidden = true;
+});
+</script>
 </body>
 </html>
