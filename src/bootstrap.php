@@ -262,7 +262,30 @@ function chattedUsers(int $currentUserId): array
 
 function allOtherUsers(int $currentUserId): array
 {
-    return chattedUsers($currentUserId);
+    $stmt = db()->prepare(
+        'SELECT u.id,
+                u.username,
+                u.created_at,
+                up.updated_at AS presence_updated_at,
+                COUNT(m_unseen.id) AS unseen_count,
+                MAX(m_latest.created_at) AS last_message_at
+         FROM users u
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         LEFT JOIN messages m_latest
+            ON ((m_latest.sender_id = :id AND m_latest.recipient_id = u.id)
+             OR (m_latest.sender_id = u.id AND m_latest.recipient_id = :id))
+         LEFT JOIN messages m_unseen ON m_unseen.sender_id = u.id
+            AND m_unseen.recipient_id = :id
+            AND m_unseen.read_at IS NULL
+         WHERE u.id != :id
+         GROUP BY u.id, u.username, u.created_at, up.updated_at
+         ORDER BY CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END ASC,
+                  last_message_at DESC,
+                  username ASC'
+    );
+    $stmt->execute(['id' => $currentUserId]);
+
+    return mapUsersWithPresence($stmt->fetchAll());
 }
 
 function chatListPayload(int $currentUserId): array
@@ -271,7 +294,8 @@ function chatListPayload(int $currentUserId): array
     touchUserPresence($currentUserId);
 
     return [
-        'users' => allOtherUsers($currentUserId),
+        'chat_users' => chattedUsers($currentUserId),
+        'directory_users' => allOtherUsers($currentUserId),
     ];
 }
 
