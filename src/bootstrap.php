@@ -221,25 +221,8 @@ function requireAuth(): array
     return $user;
 }
 
-function allOtherUsers(int $currentUserId): array
+function mapUsersWithPresence(array $users): array
 {
-    $stmt = db()->prepare(
-        'SELECT u.id,
-                u.username,
-                u.created_at,
-                up.updated_at AS presence_updated_at,
-                COUNT(m.id) AS unseen_count
-         FROM users u
-         LEFT JOIN user_presence up ON up.user_id = u.id
-         LEFT JOIN messages m ON m.sender_id = u.id
-            AND m.recipient_id = :id
-            AND m.read_at IS NULL
-         WHERE u.id != :id
-         GROUP BY u.id, u.username, u.created_at, up.updated_at
-         ORDER BY username ASC'
-    );
-    $stmt->execute(['id' => $currentUserId]);
-
     return array_map(static function (array $user): array {
         $user['is_online'] = isset($user['presence_updated_at'])
             && strtotime((string) $user['presence_updated_at']) !== false
@@ -248,7 +231,38 @@ function allOtherUsers(int $currentUserId): array
         $user['unseen_count'] = (int) ($user['unseen_count'] ?? 0);
 
         return $user;
-    }, $stmt->fetchAll());
+    }, $users);
+}
+
+function chattedUsers(int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT u.id,
+                u.username,
+                u.created_at,
+                up.updated_at AS presence_updated_at,
+                COUNT(m_unseen.id) AS unseen_count,
+                MAX(m_latest.created_at) AS last_message_at
+         FROM users u
+         JOIN messages m_latest
+            ON ((m_latest.sender_id = :id AND m_latest.recipient_id = u.id)
+             OR (m_latest.sender_id = u.id AND m_latest.recipient_id = :id))
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         LEFT JOIN messages m_unseen ON m_unseen.sender_id = u.id
+            AND m_unseen.recipient_id = :id
+            AND m_unseen.read_at IS NULL
+         WHERE u.id != :id
+         GROUP BY u.id, u.username, u.created_at, up.updated_at
+         ORDER BY last_message_at DESC, username ASC'
+    );
+    $stmt->execute(['id' => $currentUserId]);
+
+    return mapUsersWithPresence($stmt->fetchAll());
+}
+
+function allOtherUsers(int $currentUserId): array
+{
+    return chattedUsers($currentUserId);
 }
 
 function chatListPayload(int $currentUserId): array

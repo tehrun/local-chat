@@ -360,6 +360,81 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             color: var(--muted);
             text-align: center;
         }
+
+        .floating-chat-launcher {
+            position: fixed;
+            right: max(18px, calc(env(safe-area-inset-right, 0px) + 18px));
+            bottom: max(94px, calc(env(safe-area-inset-bottom, 0px) + 94px));
+            z-index: 8;
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background: var(--action);
+            color: #fff;
+            box-shadow: 0 12px 26px rgba(37, 211, 102, 0.34);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .floating-chat-launcher svg {
+            width: 28px;
+            height: 28px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        .chat-switcher[hidden] {
+            display: none;
+        }
+        .chat-switcher {
+            position: fixed;
+            inset: 0;
+            z-index: 12;
+            background: rgba(11, 20, 26, 0.42);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 16px;
+        }
+        .chat-switcher-panel {
+            width: min(100%, 420px);
+            max-height: min(70vh, 560px);
+            background: rgba(247, 245, 241, 0.98);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-switcher-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 18px 12px;
+        }
+        .chat-switcher-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .chat-switcher-close {
+            border: none;
+            background: #dfe5e7;
+            color: #244047;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .chat-switcher-list {
+            overflow-y: auto;
+            padding: 0 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
         @media (min-width: 721px) {
             .app {
                 min-height: 100vh;
@@ -398,9 +473,26 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
         </div>
+
+        <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Open chats">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="6"></circle>
+                <path d="m20 20-4.35-4.35"></path>
+            </svg>
+        </button>
+        <div class="chat-switcher" id="chat-switcher" hidden>
+            <div class="chat-switcher-panel" role="dialog" aria-modal="true" aria-labelledby="chat-switcher-title">
+                <div class="chat-switcher-header">
+                    <h2 id="chat-switcher-title">Your chats</h2>
+                    <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close chat list">×</button>
+                </div>
+                <div class="chat-switcher-list" id="chat-switcher-list"></div>
+            </div>
+        </div>
     </div>
 </div>
 <script>
+
 const currentUserId = <?= (int) $user['id'] ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
 const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
@@ -409,6 +501,7 @@ const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
+const initialChatUsers = <?= json_encode(chattedUsers((int) $user['id']), JSON_THROW_ON_ERROR) ?>;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -433,9 +526,56 @@ let shouldAutoScroll = true;
 let readSyncTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.';
+renderChatSwitcher(initialChatUsers);
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
+
+const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
+const chatSwitcherEl = document.getElementById('chat-switcher');
+const chatSwitcherListEl = document.getElementById('chat-switcher-list');
+const chatSwitcherClose = document.getElementById('chat-switcher-close');
+
+function renderChatSwitcher(users) {
+    if (!chatSwitcherListEl) {
+        return;
+    }
+
+    const filteredUsers = Array.isArray(users)
+        ? users.filter((chatUser) => Number(chatUser.id) !== conversationUserId)
+        : [];
+
+    if (filteredUsers.length === 0) {
+        chatSwitcherListEl.innerHTML = '<div class="empty-state">You only have this private chat right now.</div>';
+        return;
+    }
+
+    chatSwitcherListEl.innerHTML = filteredUsers.map((chatUser) => {
+        const userId = Number(chatUser.id);
+        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const username = escapeHtml(chatUser.username || '');
+        const presenceClass = chatUser.is_online ? ' online' : '';
+
+        return `
+            <a class="chat-item" href="/chat.php?user=${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="chat-copy">
+                    <div class="chat-copy-head">
+                        <strong>${username}</strong>
+                        <span class="presence-badge">
+                            <span class="dot${presenceClass}" aria-hidden="true"></span>
+                            <span>${presenceLabel}</span>
+                        </span>
+                    </div>
+                </div>
+            </a>`;
+    }).join('');
+}
+
+function setChatSwitcherOpen(isOpen) {
+    chatSwitcherEl.hidden = !isOpen;
+}
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -1319,6 +1459,19 @@ updatePresence(initialPresence, initialPresenceLabel);
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
+
+chatSwitcherToggle?.addEventListener('click', () => setChatSwitcherOpen(true));
+chatSwitcherClose?.addEventListener('click', () => setChatSwitcherOpen(false));
+chatSwitcherEl?.addEventListener('click', (event) => {
+    if (event.target === chatSwitcherEl) {
+        setChatSwitcherOpen(false);
+    }
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        setChatSwitcherOpen(false);
+    }
+});
 
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
