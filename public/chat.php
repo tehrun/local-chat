@@ -535,6 +535,7 @@ let statusMessage = initialCanChat
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
+let notificationPermissionPromptDismissed = false;
 let canChat = initialCanChat;
 let friendshipState = initialFriendship;
 
@@ -582,8 +583,17 @@ function updateFriendshipUi() {
 
 function markUserInteraction() {
     hasInteracted = true;
+    requestNotificationPermission();
+}
 
-    if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
+function requestNotificationPermission() {
+    if (notificationPermissionRequested || notificationPermissionPromptDismissed || !('Notification' in window) || Notification.permission !== 'default') {
+        return;
+    }
+
+    const accepted = window.confirm('Would you like to receive push notifications for new activity in Local Chat?');
+    if (!accepted) {
+        notificationPermissionPromptDismissed = true;
         return;
     }
 
