@@ -301,7 +301,6 @@ const composerHelpEl = document.getElementById('composer-help');
 let renderedSignature = '';
 let typingTimer = null;
 let typingActive = false;
-let latestFetchId = 0;
 let isSending = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -310,6 +309,8 @@ let recordingStart = 0;
 let recordingMode = false;
 let pressTimer = null;
 let suppressClick = false;
+let stream = null;
+let streamReconnectTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Hold the button to record. Release to send.';
 
@@ -420,8 +421,12 @@ function updateActionButton() {
     actionButton.setAttribute('aria-label', hasText ? 'Send message' : 'Hold to record voice note');
 }
 
-async function fetchConversation() {
-    const fetchId = ++latestFetchId;
+function applyConversationPayload(payload) {
+    renderMessages(payload.messages || []);
+    setTypingVisible(Boolean(payload.typing));
+}
+
+async function refreshConversation() {
     try {
         const response = await fetch(`/chat_api.php?action=messages&user=${conversationUserId}`, {
             headers: { 'Accept': 'application/json' },
@@ -430,15 +435,49 @@ async function fetchConversation() {
         if (!response.ok) {
             return;
         }
-        const payload = await response.json();
-        if (fetchId !== latestFetchId) {
-            return;
-        }
-        renderMessages(payload.messages || []);
-        setTypingVisible(Boolean(payload.typing));
+        applyConversationPayload(await response.json());
     } catch (error) {
-        // Ignore transient polling errors.
+        // Ignore transient refresh errors.
     }
+}
+
+function scheduleStreamReconnect() {
+    if (streamReconnectTimer !== null) {
+        return;
+    }
+
+    streamReconnectTimer = window.setTimeout(() => {
+        streamReconnectTimer = null;
+        connectConversationStream();
+    }, 1500);
+}
+
+function connectConversationStream() {
+    if (!window.EventSource) {
+        refreshConversation();
+        return;
+    }
+
+    if (stream) {
+        stream.close();
+    }
+
+    stream = new EventSource(`/chat_stream.php?user=${conversationUserId}`);
+    stream.addEventListener('conversation', (event) => {
+        try {
+            applyConversationPayload(JSON.parse(event.data));
+        } catch (error) {
+            // Ignore malformed stream events and keep the connection alive.
+        }
+    });
+
+    stream.onerror = () => {
+        if (stream) {
+            stream.close();
+            stream = null;
+        }
+        scheduleStreamReconnect();
+    };
 }
 
 async function syncTyping(isTyping) {
@@ -506,8 +545,7 @@ async function sendTextMessage() {
         typingActive = false;
         clearTimeout(typingTimer);
         syncTyping(false);
-        renderMessages(payload.messages || []);
-        setTypingVisible(Boolean(payload.typing));
+        applyConversationPayload(payload);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         showHint('Hold the button to record. Release to send.');
     } catch (error) {
@@ -628,8 +666,7 @@ async function stopRecordingAndSend() {
             return;
         }
 
-        renderMessages(payload.messages || []);
-        setTypingVisible(Boolean(payload.typing));
+        applyConversationPayload(payload);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         showHint('Voice note sent. Hold again to record another one.');
     } catch (error) {
@@ -713,6 +750,9 @@ actionButton.addEventListener('pointerleave', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+    if (stream) {
+        stream.close();
+    }
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false' });
         navigator.sendBeacon(`/chat_api.php?user=${conversationUserId}`, data);
@@ -723,8 +763,14 @@ autoResizeComposer();
 updateActionButton();
 renderMessages(initialMessages);
 renderStatus();
-fetchConversation();
-setInterval(fetchConversation, 2000);
+connectConversationStream();
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !stream) {
+        refreshConversation();
+        connectConversationStream();
+    }
+});
 </script>
 </body>
 </html>
