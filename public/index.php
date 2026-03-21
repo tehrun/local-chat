@@ -495,7 +495,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <?php if ($chatUsers === []): ?>
                         <div class="card" id="chat-list-empty">
                             <h2 class="panel-title">No chats yet</h2>
-                            <p class="panel-text">Start a conversation from the magnifier button to see it here.</p>
+                            <p class="panel-text">Start a conversation from the new chat button to see it here.</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($chatUsers as $chatUser): ?>
@@ -527,10 +527,11 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 </div>
 
 <?php if ($user !== null): ?>
-    <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Find users">
+    <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Start a new chat">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <circle cx="11" cy="11" r="6"></circle>
-            <path d="m20 20-4.35-4.35"></path>
+            <path d="M12 20.25c4.97 0 9-3.53 9-7.88s-4.03-7.87-9-7.87-9 3.52-9 7.87c0 2.2 1.03 4.18 2.68 5.61L4.5 21l4.1-1.78a10.3 10.3 0 0 0 3.4.53Z"></path>
+            <path d="M12 9v6"></path>
+            <path d="M9 12h6"></path>
         </svg>
     </button>
     <div class="chat-switcher" id="chat-switcher" hidden>
@@ -641,7 +642,7 @@ function renderChatList(users) {
         chatListEl.innerHTML = `
             <div class="card" id="chat-list-empty">
                 <h2 class="panel-title">No chats yet</h2>
-                <p class="panel-text">Start a conversation from the magnifier button to see it here.</p>
+                <p class="panel-text">Start a conversation from the new chat button to see it here.</p>
             </div>`;
         return;
     }
