@@ -15,7 +15,16 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
 
 if ($action === 'messages') {
-    jsonResponse(conversationPayload((int) $user['id'], $otherUserId));
+    $payload = conversationPayload((int) $user['id'], $otherUserId);
+    $payload['signature'] = conversationStateSignature((int) $user['id'], $otherUserId);
+
+    jsonResponse($payload);
+}
+
+if ($action === 'signature') {
+    jsonResponse([
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
 }
 
 if ($action === 'revoke_friendship') {
@@ -27,7 +36,10 @@ if ($action === 'revoke_friendship') {
 
     jsonResponse([
         'ok' => true,
-        'payload' => conversationPayload((int) $user['id'], $otherUserId),
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
     ]);
 }
 
@@ -56,6 +68,7 @@ if ($action === 'read') {
         'ok' => true,
         'messages' => conversationMessagesWithoutMaintenance((int) $user['id'], $otherUserId),
         'typing' => isUserTypingWithoutMaintenance((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
     ]);
 }
 
@@ -70,6 +83,7 @@ if ($action === 'send_text') {
         'ok' => true,
         'message' => $message,
         'typing' => false,
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
     ]);
 }
 
@@ -84,6 +98,7 @@ if ($action === 'send_voice') {
         'ok' => true,
         'message' => $message,
         'typing' => false,
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
     ]);
 }
 
@@ -98,6 +113,7 @@ if ($action === 'send_image') {
         'ok' => true,
         'message' => $message,
         'typing' => false,
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
     ]);
 }
 

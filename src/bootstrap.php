@@ -842,6 +842,91 @@ function chatListPayload(int $currentUserId): array
     ];
 }
 
+function chatListStateSignature(int $currentUserId): string
+{
+    purgeExpiredMessages();
+
+    $usersStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_users,
+                MAX(id) AS latest_user_id,
+                MAX(created_at) AS latest_user_created_at
+         FROM users
+         WHERE id != :id'
+    );
+    $usersStmt->execute(['id' => $currentUserId]);
+    $usersState = $usersStmt->fetch() ?: [];
+
+    $messagesStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_messages,
+                MAX(id) AS latest_message_id,
+                MAX(created_at) AS latest_message_created_at,
+                MAX(delivered_at) AS latest_message_delivered_at,
+                MAX(read_at) AS latest_message_read_at
+         FROM messages
+         WHERE sender_id = :id OR recipient_id = :id'
+    );
+    $messagesStmt->execute(['id' => $currentUserId]);
+    $messagesState = $messagesStmt->fetch() ?: [];
+
+    $presenceStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_presence_rows,
+                MAX(updated_at) AS latest_presence_updated_at,
+                SUM(CASE WHEN updated_at >= :cutoff THEN 1 ELSE 0 END) AS online_user_count
+         FROM user_presence
+         WHERE user_id != :id'
+    );
+    $presenceStmt->execute([
+        'id' => $currentUserId,
+        'cutoff' => gmdate('c', time() - PRESENCE_TTL_SECONDS),
+    ]);
+    $presenceState = $presenceStmt->fetch() ?: [];
+
+    $friendshipsStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_friend_requests,
+                MAX(id) AS latest_friend_request_id,
+                MAX(created_at) AS latest_friend_request_created_at,
+                MAX(responded_at) AS latest_friend_request_responded_at,
+                SUM(CASE WHEN status = \'accepted\' THEN 1 ELSE 0 END) AS accepted_count,
+                SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS pending_count,
+                SUM(CASE WHEN status = \'rejected\' THEN 1 ELSE 0 END) AS rejected_count,
+                SUM(CASE WHEN status = \'revoked\' THEN 1 ELSE 0 END) AS revoked_count
+         FROM friend_requests
+         WHERE sender_id = :id OR recipient_id = :id'
+    );
+    $friendshipsStmt->execute(['id' => $currentUserId]);
+    $friendshipsState = $friendshipsStmt->fetch() ?: [];
+
+    return md5(json_encode([
+        'users' => [
+            'total' => (int) ($usersState['total_users'] ?? 0),
+            'latest_id' => (int) ($usersState['latest_user_id'] ?? 0),
+            'latest_created_at' => $usersState['latest_user_created_at'] ?? null,
+        ],
+        'messages' => [
+            'total' => (int) ($messagesState['total_messages'] ?? 0),
+            'latest_id' => (int) ($messagesState['latest_message_id'] ?? 0),
+            'latest_created_at' => $messagesState['latest_message_created_at'] ?? null,
+            'latest_delivered_at' => $messagesState['latest_message_delivered_at'] ?? null,
+            'latest_read_at' => $messagesState['latest_message_read_at'] ?? null,
+        ],
+        'presence' => [
+            'total' => (int) ($presenceState['total_presence_rows'] ?? 0),
+            'latest_updated_at' => $presenceState['latest_presence_updated_at'] ?? null,
+            'online_user_count' => (int) ($presenceState['online_user_count'] ?? 0),
+        ],
+        'friend_requests' => [
+            'total' => (int) ($friendshipsState['total_friend_requests'] ?? 0),
+            'latest_id' => (int) ($friendshipsState['latest_friend_request_id'] ?? 0),
+            'latest_created_at' => $friendshipsState['latest_friend_request_created_at'] ?? null,
+            'latest_responded_at' => $friendshipsState['latest_friend_request_responded_at'] ?? null,
+            'accepted_count' => (int) ($friendshipsState['accepted_count'] ?? 0),
+            'pending_count' => (int) ($friendshipsState['pending_count'] ?? 0),
+            'rejected_count' => (int) ($friendshipsState['rejected_count'] ?? 0),
+            'revoked_count' => (int) ($friendshipsState['revoked_count'] ?? 0),
+        ],
+    ], JSON_THROW_ON_ERROR));
+}
+
 function findUserByUsername(string $username): ?array
 {
     $stmt = db()->prepare('SELECT * FROM users WHERE username = :username LIMIT 1');
@@ -1268,6 +1353,51 @@ function conversationPayload(int $userId, int $otherUserId): array
             'label' => $otherUser['presence_label'] ?? 'Offline',
         ],
     ];
+}
+
+function conversationStateSignature(int $userId, int $otherUserId): string
+{
+    purgeExpiredMessages();
+
+    $stmt = db()->prepare(
+        'SELECT COUNT(*) AS total_messages,
+                MAX(id) AS latest_message_id,
+                MAX(created_at) AS latest_message_created_at,
+                MAX(delivered_at) AS latest_message_delivered_at,
+                MAX(read_at) AS latest_message_read_at
+         FROM messages
+         WHERE (sender_id = :user_id AND recipient_id = :other_user_id)
+            OR (sender_id = :other_user_id AND recipient_id = :user_id)'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+    $messageState = $stmt->fetch() ?: [];
+
+    $friendship = friendshipRecord($userId, $otherUserId);
+    $otherUser = findUserById($otherUserId);
+
+    return md5(json_encode([
+        'messages' => [
+            'total' => (int) ($messageState['total_messages'] ?? 0),
+            'latest_id' => (int) ($messageState['latest_message_id'] ?? 0),
+            'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
+            'latest_delivered_at' => $messageState['latest_message_delivered_at'] ?? null,
+            'latest_read_at' => $messageState['latest_message_read_at'] ?? null,
+        ],
+        'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+        'friendship' => $friendship === null ? null : [
+            'id' => (int) $friendship['id'],
+            'status' => (string) $friendship['status'],
+            'responded_at' => $friendship['responded_at'],
+            'created_at' => (string) $friendship['created_at'],
+        ],
+        'presence' => [
+            'is_online' => (bool) ($otherUser['is_online'] ?? false),
+            'label' => $otherUser['presence_label'] ?? 'Offline',
+        ],
+    ], JSON_THROW_ON_ERROR));
 }
 
 function markMessagesDelivered(int $userId, int $otherUserId): void

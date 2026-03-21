@@ -645,18 +645,23 @@ const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
 const initialChatUsers = <?= json_encode($chatUsers, JSON_THROW_ON_ERROR) ?>;
 const initialDirectoryUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
 const initialIncomingRequests = <?= json_encode($incomingRequests, JSON_THROW_ON_ERROR) ?>;
+const initialHomeSignature = <?= json_encode($user !== null ? chatListStateSignature((int) $user['id']) : '', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
 const friendRequestListEl = document.getElementById('friend-request-list');
 let chatListStream = null;
 let chatListReconnectTimer = null;
 let chatListPollTimer = null;
+let homePayloadSignature = initialHomeSignature;
 let chatListSignature = '';
 let directorySignature = '';
 let requestSignature = '';
 let seenIncomingRequestIds = new Set(initialIncomingRequests.map((request) => String(request.id || request.sender_id)));
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
+const FAST_HOME_POLL_INTERVAL_MS = 4000;
+const MAX_HOME_POLL_INTERVAL_MS = 15000;
+let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 
 const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
@@ -1022,6 +1027,13 @@ function renderChatList(users) {
 }
 
 function applyChatListPayload(payload) {
+    if (typeof payload?.signature === 'string' && payload.signature !== '') {
+        homePayloadSignature = payload.signature;
+        if (preferPolling) {
+            homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
+        }
+    }
+
     const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
     const directoryUsers = Array.isArray(payload?.directory_users) ? payload.directory_users : [];
     const incomingRequests = Array.isArray(payload?.incoming_requests) ? payload.incoming_requests : [];
@@ -1066,6 +1078,21 @@ function applyChatListPayload(payload) {
 }
 
 async function fetchChatList() {
+    const signatureResponse = await fetch('home_api.php?action=signature', {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+
+    if (!signatureResponse.ok) {
+        throw new Error(`Chat list signature request failed with ${signatureResponse.status}`);
+    }
+
+    const signaturePayload = await signatureResponse.json();
+    if (typeof signaturePayload.signature !== 'string' || signaturePayload.signature === homePayloadSignature) {
+        return null;
+    }
+
     const response = await fetch('home_api.php', {
         headers: { Accept: 'application/json' },
         credentials: 'same-origin',
@@ -1079,15 +1106,30 @@ async function fetchChatList() {
     return response.json();
 }
 
-function scheduleChatListPoll(delay = 4000) {
+function stopChatListPolling() {
     window.clearTimeout(chatListPollTimer);
+    chatListPollTimer = null;
+}
+
+function scheduleChatListPoll(delay = homePollDelay) {
+    stopChatListPolling();
     chatListPollTimer = window.setTimeout(async () => {
+        chatListPollTimer = null;
+
         try {
             const payload = await fetchChatList();
-            applyChatListPayload(payload);
-            scheduleChatListPoll(4000);
+            if (payload) {
+                applyChatListPayload(payload);
+                homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
+            } else {
+                homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 2000);
+            }
         } catch (error) {
-            scheduleChatListPoll(6000);
+            homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 3000);
+        }
+
+        if (preferPolling && currentUserId) {
+            scheduleChatListPoll(homePollDelay);
         }
     }, delay);
 }
@@ -1120,7 +1162,12 @@ function connectChatListStream() {
     };
 }
 
-applyChatListPayload({ chat_users: initialChatUsers, directory_users: initialDirectoryUsers, incoming_requests: initialIncomingRequests });
+applyChatListPayload({
+    chat_users: initialChatUsers,
+    directory_users: initialDirectoryUsers,
+    incoming_requests: initialIncomingRequests,
+    signature: initialHomeSignature,
+});
 updateLoginButtonState();
 loginUsernameInput?.addEventListener('input', updateLoginButtonState);
 loginPasswordInput?.addEventListener('input', updateLoginButtonState);

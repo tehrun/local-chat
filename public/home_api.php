@@ -6,8 +6,15 @@ require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
 $currentUserId = (int) $user['id'];
+$requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($requestMethod === 'GET' && (($_GET['action'] ?? '') === 'signature')) {
+    jsonResponse([
+        'signature' => chatListStateSignature($currentUserId),
+    ]);
+}
+
+if ($requestMethod === 'POST') {
     $action = $_POST['action'] ?? '';
     $otherUserId = (int) ($_POST['user'] ?? 0);
     $otherUser = $otherUserId > 0 ? findUserById($otherUserId) : null;
@@ -25,7 +32,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         jsonResponse([
             'ok' => true,
-            'payload' => chatListPayload($currentUserId),
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
         ]);
     }
 
@@ -38,7 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         jsonResponse([
             'ok' => true,
-            'payload' => chatListPayload($currentUserId),
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
         ]);
     }
 
@@ -51,11 +64,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         jsonResponse([
             'ok' => true,
-            'payload' => chatListPayload($currentUserId),
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
         ]);
     }
 
     jsonResponse(['error' => 'Unsupported action.'], 400);
 }
 
-jsonResponse(chatListPayload($currentUserId));
+jsonResponse(array_merge(
+    chatListPayload($currentUserId),
+    ['signature' => chatListStateSignature($currentUserId)]
+));
