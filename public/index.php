@@ -249,9 +249,25 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             margin-bottom: 0;
         }
         .chat-time {
-            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 8px;
+            border-radius: 999px;
+            background: var(--action);
+            color: #fff;
             font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
             white-space: nowrap;
+        }
+        .chat-time.is-empty {
+            background: transparent;
+            color: transparent;
+            padding: 0;
+            min-width: 0;
         }
         .auth-grid {
             display: grid;
@@ -397,7 +413,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                         <span class="presence-badge"><span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
                                     </div>
                                 </div>
-                                <span class="chat-time">Chat</span>
+                                <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
+                                <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
                             </a>
                         <?php endforeach; ?>
                     <?php endif; ?>
