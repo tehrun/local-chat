@@ -374,6 +374,47 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             direction: ltr;
             text-align: left;
         }
+        .composer-icon-button {
+            border: none;
+            width: 44px;
+            height: 44px;
+            flex: 0 0 44px;
+            border-radius: 50%;
+            background: #fff;
+            color: var(--header);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(17, 27, 33, 0.1);
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
+        .composer-icon-button:active,
+        .composer-icon-button:focus-visible {
+            transform: scale(0.96);
+            background: #f5f7fa;
+        }
+        .composer-icon-button svg {
+            width: 22px;
+            height: 22px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .composer-icon-button:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+        .message-photo {
+            display: block;
+            width: min(100%, 260px);
+            border-radius: 14px;
+            margin-top: 2px;
+            box-shadow: 0 2px 8px rgba(17, 27, 33, 0.12);
+            background: rgba(0, 0, 0, 0.04);
+        }
         .action-button {
             border: none;
             width: 52px;
@@ -479,7 +520,15 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
+                <input id="image-file-input" type="file" accept="image/*" capture="environment" style="display:none">
                 <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
+                <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
+                        <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
+                        <circle cx="9" cy="9" r="1.25"></circle>
+                    </svg>
+                </button>
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"<?= $canChat ? '' : ' disabled' ?>>
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
@@ -509,6 +558,8 @@ const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
+const imageButton = document.getElementById('image-button');
+const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
@@ -530,7 +581,7 @@ let shouldAutoScroll = true;
 let readSyncTimer = null;
 let statusState = initialCanChat && initialTyping ? 'typing' : 'hint';
 let statusMessage = initialCanChat
-    ? (initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.')
+    ? (initialTyping ? `${otherUserName} is typing…` : 'Type a message, add a photo, or tap the microphone for a voice note.')
     : 'Friend request required before messaging.';
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
@@ -547,6 +598,10 @@ function supportsCapturedVoiceUpload() {
     return Boolean(voiceFileInput);
 }
 
+function supportsImageUpload() {
+    return Boolean(imageFileInput);
+}
+
 function updatePresence(isOnline, label) {
     if (!canChat) {
         actionButton.disabled = true;
@@ -561,12 +616,13 @@ function updateFriendshipUi() {
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || isSending;
+    imageButton.disabled = !canChat || isSending;
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
 
     if (isAccepted) {
         if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
-            showHint('Type a message or tap the microphone for a voice note.');
+            showHint('Type a message, add a photo, or tap the microphone for a voice note.');
         }
         return;
     }
@@ -784,7 +840,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint(canChat ? 'Type a message or tap the microphone for a voice note.' : 'Friendship revoked. Message history is still visible, but sending is disabled.');
+        showHint(canChat ? 'Type a message, add a photo, or tap the microphone for a voice note.' : 'Friendship revoked. Message history is still visible, but sending is disabled.');
         return;
     }
 
@@ -801,6 +857,7 @@ function createPendingMessage(body, type) {
         sender_name: 'You',
         body,
         audio_path: null,
+        image_path: null,
         delivered_at: null,
         read_at: null,
         created_at: now.toISOString(),
@@ -884,6 +941,7 @@ function renderMessages(messages) {
         Boolean(message.pending),
         message.body || '',
         message.audio_path || '',
+        message.image_path || '',
     ]));
     if (signature === renderedSignature) {
         return;
@@ -893,13 +951,16 @@ function renderMessages(messages) {
     renderedSignature = signature;
 
     if (messages.length === 0) {
-        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi or tap the microphone to send a voice note.</div>';
+        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const textDirection = detectTextDirection(message.body || '');
             const body = message.body
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
+                : '';
+            const image = message.image_path
+                ? `<img class="message-photo" loading="lazy" src="/media.php?message=${Number(message.id)}" alt="Shared image">`
                 : '';
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
@@ -910,6 +971,7 @@ function renderMessages(messages) {
             return `
                 <article class="message ${isMine ? 'mine' : ''}">
                     ${body}
+                    ${image}
                     ${audio}
                     <div class="meta"><span class="meta-label">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</span>${ticks}</div>
                 </article>`;
@@ -1174,6 +1236,7 @@ async function sendTextMessage() {
     } finally {
         isSending = false;
         actionButton.disabled = false;
+        imageButton.disabled = false;
         updateActionButton();
         bodyEl.focus();
     }
@@ -1261,6 +1324,7 @@ async function sendSelectedVoiceFile(file) {
 
     showHint('Uploading voice note…');
     actionButton.disabled = true;
+    imageButton.disabled = true;
     isSending = true;
 
     try {
@@ -1268,7 +1332,68 @@ async function sendSelectedVoiceFile(file) {
     } finally {
         isSending = false;
         actionButton.disabled = false;
+        imageButton.disabled = false;
         voiceFileInput.value = '';
+        updateActionButton();
+    }
+}
+
+async function uploadImageFile(file) {
+    if (!(file instanceof File) || file.size === 0) {
+        showError('Please choose an image to send.');
+        return false;
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'send_image');
+        formData.append('image_file', file, file.name || 'photo.jpg');
+
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            body: formData,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send image.');
+            return false;
+        }
+
+        applyConversationPayload(payload);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        shouldAutoScroll = true;
+        showHint('Image sent.');
+        return true;
+    } catch (error) {
+        showError('Could not send image right now. Please try again.');
+        return false;
+    }
+}
+
+async function sendSelectedImageFile(file) {
+    if (!canChat) {
+        showError('Friendship revoked. You cannot send new messages until you are friends again.');
+        return;
+    }
+    if (!(file instanceof File) || file.size === 0) {
+        showError('Please choose an image to send.');
+        return;
+    }
+
+    showHint('Uploading image…');
+    actionButton.disabled = true;
+    imageButton.disabled = true;
+    isSending = true;
+
+    try {
+        await uploadImageFile(file);
+    } finally {
+        isSending = false;
+        actionButton.disabled = false;
+        imageButton.disabled = false;
+        imageFileInput.value = '';
         updateActionButton();
     }
 }
@@ -1356,6 +1481,7 @@ async function stopRecordingAndSend() {
     statusMessage = 'Sending voice note…';
     renderStatus();
     actionButton.disabled = true;
+    imageButton.disabled = true;
     isSending = true;
 
     const blob = await new Promise((resolve) => {
@@ -1373,6 +1499,7 @@ async function stopRecordingAndSend() {
     if (!(blob instanceof Blob) || blob.size === 0) {
         isSending = false;
         actionButton.disabled = false;
+        imageButton.disabled = false;
         showError('The voice note was empty. Please try again.');
         return;
     }
@@ -1384,6 +1511,7 @@ async function stopRecordingAndSend() {
     } finally {
         isSending = false;
         actionButton.disabled = false;
+        imageButton.disabled = false;
         updateActionButton();
     }
 }
@@ -1401,6 +1529,22 @@ async function toggleRecording() {
 
     await startRecording();
 }
+
+imageButton.addEventListener('click', () => {
+    markUserInteraction();
+    if (!canChat || isSending || !supportsImageUpload()) {
+        return;
+    }
+    imageFileInput.click();
+});
+
+imageFileInput.addEventListener('change', async () => {
+    markUserInteraction();
+    const [file] = imageFileInput.files || [];
+    if (file) {
+        await sendSelectedImageFile(file);
+    }
+});
 
 voiceFileInput.addEventListener('change', async () => {
     markUserInteraction();

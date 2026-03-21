@@ -12,7 +12,7 @@ purgeExpiredMessages();
 $stmt = db()->prepare(
     'SELECT * FROM messages
      WHERE id = :id
-       AND audio_path IS NOT NULL
+       AND (audio_path IS NOT NULL OR image_path IS NOT NULL)
        AND (sender_id = :user_id OR recipient_id = :user_id)
      LIMIT 1'
 );
@@ -24,13 +24,14 @@ $message = $stmt->fetch();
 
 if ($message === false) {
     http_response_code(404);
-    exit('Audio not found.');
+    exit('Media not found.');
 }
 
-$fullPath = BASE_PATH . '/' . $message['audio_path'];
+$relativePath = $message['image_path'] ?: $message['audio_path'];
+$fullPath = BASE_PATH . '/' . $relativePath;
 if (!is_file($fullPath)) {
     http_response_code(404);
-    exit('Audio file missing.');
+    exit('Media file missing.');
 }
 
 $finfo = new finfo(FILEINFO_MIME_TYPE);
