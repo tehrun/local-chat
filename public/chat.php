@@ -517,7 +517,15 @@ function removeMessage(messageId) {
 
 function renderMessages(messages) {
     window.__messagesState = messages;
-    const signature = JSON.stringify(messages.map((message) => [message.id, message.created_at]));
+    const signature = JSON.stringify(messages.map((message) => [
+        message.id,
+        message.created_at,
+        message.delivered_at || '',
+        message.read_at || '',
+        Boolean(message.pending),
+        message.body || '',
+        message.audio_path || '',
+    ]));
     if (signature === renderedSignature) {
         return;
     }
@@ -784,13 +792,43 @@ async function sendTextMessage() {
 }
 
 function detectAudioMimeType() {
-    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/x-m4a'];
+    const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+        'audio/mp4;codecs=mp4a.40.2',
+        'audio/x-m4a',
+        'video/webm;codecs=opus',
+        'video/webm',
+        'video/ogg;codecs=opus',
+        'video/ogg',
+    ];
+
     for (const type of candidates) {
-        if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
+        if (window.MediaRecorder && typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(type)) {
             return type;
         }
     }
+
     return '';
+}
+
+function createMediaRecorder(stream) {
+    const preferredType = detectAudioMimeType();
+    const candidateOptions = preferredType ? [{ mimeType: preferredType }, {}] : [{}];
+    let lastError = null;
+
+    for (const options of candidateOptions) {
+        try {
+            return new MediaRecorder(stream, options);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error('MediaRecorder could not be started.');
 }
 
 async function uploadVoiceBlob(blob, filename) {
@@ -837,9 +875,14 @@ async function startRecording() {
     }
 
     try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mimeType = detectAudioMimeType();
-        mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            },
+        });
+        mediaRecorder = createMediaRecorder(mediaStream);
         recordingChunks = [];
         recordingMode = true;
         recordingStart = Date.now();
@@ -855,14 +898,17 @@ async function startRecording() {
             mediaStream = null;
         }, { once: true });
 
-        mediaRecorder.start();
+        mediaRecorder.start(250);
         updateActionButton();
         showHint('Recording… tap the button again to send your voice note.');
         statusState = 'recording';
         statusMessage = 'Recording voice note…';
         renderStatus();
     } catch (error) {
-        showError('Microphone permission is required to send a voice note.');
+        const message = error instanceof Error && error.message
+            ? error.message
+            : 'Microphone permission is required to send a voice note.';
+        showError(`Could not start the in-app recorder. ${message}`);
     }
 }
 
@@ -894,6 +940,9 @@ async function stopRecordingAndSend() {
         recorder.addEventListener('stop', () => {
             resolve(new Blob(recordingChunks, { type: recorder.mimeType || 'audio/webm' }));
         }, { once: true });
+        if (typeof recorder.requestData === 'function' && recorder.state === 'recording') {
+            recorder.requestData();
+        }
         recorder.stop();
     });
 

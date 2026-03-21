@@ -312,6 +312,10 @@ function detectUploadedAudioExtension(array $file, ?string $mime): ?string
         'audio/webm' => 'webm',
         'audio/mp4' => 'm4a',
         'audio/x-m4a' => 'm4a',
+        'video/webm' => 'webm',
+        'video/webm;codecs=opus' => 'webm',
+        'video/ogg' => 'ogg',
+        'video/ogg;codecs=opus' => 'ogg',
         'video/mp4' => 'm4a',
         'application/octet-stream' => null,
     ];
@@ -351,7 +355,7 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
     $extension = detectUploadedAudioExtension($file, $mime);
 
     if ($extension === null) {
-        return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a.';
+        return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a (including browser-recorded webm/ogg notes).';
     }
 
     if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
