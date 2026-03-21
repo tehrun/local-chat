@@ -347,7 +347,8 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
         .typing-pill,
         .recording-pill,
         .hint-pill,
-        .error-pill {
+        .error-pill,
+        .connecting-pill {
             border-radius: 999px;
             padding: 7px 12px;
             font-size: 13px;
@@ -363,6 +364,10 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
         .recording-pill {
             background: #fee4e2;
             color: var(--danger);
+        }
+        .connecting-pill {
+            background: rgba(7, 94, 84, 0.14);
+            color: var(--header);
         }
         .error-pill {
             background: #fef3f2;
@@ -777,6 +782,7 @@ let pollTimer = null;
 let shouldAutoScroll = true;
 let initialScrollPending = true;
 let readSyncTimer = null;
+let streamState = preferPolling ? 'polling' : 'connecting';
 let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
 
@@ -811,7 +817,7 @@ function updatePresence(isOnline, label) {
 
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
-    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
+    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Connecting...');
 }
 
 function updateFriendshipUi() {
@@ -1028,6 +1034,8 @@ function renderStatus() {
         html = `<span class="error-pill">${escapeHtml(statusMessage)}</span>`;
     } else if (statusState === 'hint' && statusMessage !== '') {
         html = `<span class="hint-pill">${escapeHtml(statusMessage)}</span>`;
+    } else if (statusState === 'idle' && canChat && streamState === 'connecting') {
+        html = '<span class="connecting-pill">Connecting...</span>';
     }
 
     statusRowEl.innerHTML = html;
@@ -1418,6 +1426,8 @@ function startPollingConversation() {
         return;
     }
 
+    streamState = 'polling';
+    renderStatus();
     refreshConversation();
     pollTimer = window.setInterval(() => {
         refreshConversation();
@@ -1454,13 +1464,21 @@ function connectConversationStream() {
     }
 
     stopPollingConversation();
+    streamState = 'connecting';
+    renderStatus();
 
     if (stream) {
         stream.close();
     }
 
     stream = new EventSource(`/chat_stream.php?user=${conversationUserId}`);
+    stream.addEventListener('open', () => {
+        streamState = 'connected';
+        renderStatus();
+    });
     stream.addEventListener('conversation', (event) => {
+        streamState = 'connected';
+        renderStatus();
         try {
             applyConversationPayload(JSON.parse(event.data));
         } catch (error) {
@@ -1469,6 +1487,8 @@ function connectConversationStream() {
     });
 
     stream.onerror = () => {
+        streamState = 'connecting';
+        renderStatus();
         if (stream) {
             stream.close();
             stream = null;
@@ -1542,7 +1562,8 @@ async function sendTextMessage() {
     syncTyping(false);
     showHint('Sending message…');
     isSending = true;
-    actionButton.disabled = true;
+    actionButton.setAttribute('aria-disabled', 'true');
+    imageButton.setAttribute('aria-disabled', 'true');
 
     try {
         const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
@@ -1570,8 +1591,8 @@ async function sendTextMessage() {
         showError('Could not send message right now. Please try again.');
     } finally {
         isSending = false;
-        actionButton.disabled = false;
-        imageButton.disabled = false;
+        actionButton.removeAttribute('aria-disabled');
+        imageButton.removeAttribute('aria-disabled');
         updateActionButton();
         keepComposerFocused();
     }
@@ -1979,8 +2000,10 @@ revokeFriendshipButton.addEventListener('click', async () => {
     }
 });
 
-actionButton.addEventListener('click', async () => {
+actionButton.addEventListener('click', async (event) => {
+    event.preventDefault();
     markUserInteraction();
+    keepComposerFocused();
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
         return;
