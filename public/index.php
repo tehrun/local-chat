@@ -711,7 +711,7 @@ function friendshipActionMarkup(chatUser) {
         </svg>`;
 
     if (chatUser.can_chat) {
-        return `<a class="mini-button primary" href="/chat.php?user=${userId}">Open chat</a>`;
+        return '';
     }
 
     if (status === 'pending' && direction === 'incoming') {
