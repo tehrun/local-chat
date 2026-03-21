@@ -160,9 +160,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             padding: 16px;
         }
         .intro-bubble {
-            max-width: 88%;
+            width: 100%;
+            max-width: none;
             background: var(--mine);
-            margin-left: auto;
+            margin-left: 0;
         }
         .panel-title {
             margin: 0 0 6px;
@@ -397,24 +398,27 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     </div>
                 </section>
             <?php else: ?>
-                <section class="chat-list">
+                <section class="chat-list" id="chat-list">
                     <?php if ($users === []): ?>
-                        <div class="card">
+                        <div class="card" id="chat-list-empty">
                             <h2 class="panel-title">No chats yet</h2>
                             <p class="panel-text">There are no other users yet. Create another account in a second browser session to start a private chat.</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($users as $chatUser): ?>
-                            <a class="chat-item" href="/chat.php?user=<?= (int) $chatUser['id'] ?>">
+                            <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
+                            <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="/chat.php?user=<?= (int) $chatUser['id'] ?>">
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
                                         <strong><?= e($chatUser['username']) ?></strong>
-                                        <span class="presence-badge"><span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
+                                        <span class="presence-badge">
+                                            <span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" data-role="presence-dot" aria-hidden="true"></span>
+                                            <span data-role="presence-label"><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
+                                        </span>
                                     </div>
                                 </div>
-                                <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
-                                <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
+                                <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>" data-role="unseen-count"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
                             </a>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -429,8 +433,137 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     </div>
 </div>
 <script>
+const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
+const initialChatUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
+const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
+const chatListEl = document.getElementById('chat-list');
+let chatListStream = null;
+let chatListReconnectTimer = null;
+let chatListPollTimer = null;
+let chatListSignature = '';
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function renderChatList(users) {
+    if (!chatListEl) {
+        return;
+    }
+
+    if (!Array.isArray(users) || users.length === 0) {
+        chatListEl.innerHTML = `
+            <div class="card" id="chat-list-empty">
+                <h2 class="panel-title">No chats yet</h2>
+                <p class="panel-text">There are no other users yet. Create another account in a second browser session to start a private chat.</p>
+            </div>`;
+        return;
+    }
+
+    chatListEl.innerHTML = users.map((chatUser) => {
+        const userId = Number(chatUser.id);
+        const unseenCount = Number(chatUser.unseen_count || 0);
+        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const username = escapeHtml(chatUser.username || '');
+        const presenceClass = chatUser.is_online ? ' online' : '';
+        const countClass = unseenCount > 0 ? '' : ' is-empty';
+        const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
+        const countText = unseenCount > 0 ? String(unseenCount) : '';
+
+        return `
+            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="chat-copy">
+                    <div class="chat-copy-head">
+                        <strong>${username}</strong>
+                        <span class="presence-badge">
+                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
+                            <span data-role="presence-label">${presenceLabel}</span>
+                        </span>
+                    </div>
+                </div>
+                <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${countText}</span>
+            </a>`;
+    }).join('');
+}
+
+function applyChatListPayload(payload) {
+    const users = Array.isArray(payload?.users) ? payload.users : [];
+    const signature = JSON.stringify(users);
+
+    if (signature === chatListSignature) {
+        return;
+    }
+
+    chatListSignature = signature;
+    renderChatList(users);
+}
+
+async function fetchChatList() {
+    const response = await fetch('/home_api.php', {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Chat list request failed with ${response.status}`);
+    }
+
+    return response.json();
+}
+
+function scheduleChatListPoll(delay = 4000) {
+    window.clearTimeout(chatListPollTimer);
+    chatListPollTimer = window.setTimeout(async () => {
+        try {
+            const payload = await fetchChatList();
+            applyChatListPayload(payload);
+            scheduleChatListPoll(4000);
+        } catch (error) {
+            scheduleChatListPoll(6000);
+        }
+    }, delay);
+}
+
+function connectChatListStream() {
+    if (!currentUserId || preferPolling || typeof EventSource === 'undefined') {
+        scheduleChatListPoll(0);
+        return;
+    }
+
+    if (chatListStream) {
+        chatListStream.close();
+    }
+
+    chatListStream = new EventSource('/home_stream.php');
+
+    chatListStream.addEventListener('chat-list', (event) => {
+        try {
+            applyChatListPayload(JSON.parse(event.data));
+        } catch (error) {
+            // Ignore malformed stream payloads.
+        }
+    });
+
+    chatListStream.onerror = () => {
+        chatListStream?.close();
+        chatListStream = null;
+        window.clearTimeout(chatListReconnectTimer);
+        chatListReconnectTimer = window.setTimeout(connectChatListStream, 1500);
+    };
+}
+
+applyChatListPayload({ users: initialChatUsers });
+connectChatListStream();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
