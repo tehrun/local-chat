@@ -87,4 +87,18 @@ if ($action === 'send_voice') {
     ]);
 }
 
+if ($action === 'send_image') {
+    $message = sendImageMessage((int) $user['id'], $otherUserId, $_FILES['image_file'] ?? []);
+
+    if (is_string($message)) {
+        jsonResponse(['error' => $message], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'message' => $message,
+        'typing' => false,
+    ]);
+}
+
 jsonResponse(['error' => 'Unsupported action.'], 400);

@@ -7,6 +7,7 @@ session_start();
 define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
+define('TMP_UPLOAD_PATH', STORAGE_PATH . '/tmp');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
@@ -19,6 +20,10 @@ if (!is_dir(dirname(DB_PATH))) {
 
 if (!is_dir(UPLOAD_PATH)) {
     mkdir(UPLOAD_PATH, 0777, true);
+}
+
+if (!is_dir(TMP_UPLOAD_PATH)) {
+    mkdir(TMP_UPLOAD_PATH, 0777, true);
 }
 
 function db(): PDO
@@ -56,6 +61,7 @@ function initializeDatabase(PDO $pdo): void
             recipient_id INTEGER NOT NULL,
             body TEXT,
             audio_path TEXT,
+            image_path TEXT,
             delivered_at TEXT,
             read_at TEXT,
             created_at TEXT NOT NULL,
@@ -84,6 +90,10 @@ function initializeDatabase(PDO $pdo): void
         static fn (array $column): string => (string) $column['name'],
         $pdo->query('PRAGMA table_info(messages)')->fetchAll()
     );
+
+    if (!in_array('image_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path TEXT');
+    }
 
     if (!in_array('delivered_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at TEXT');
@@ -148,13 +158,20 @@ function purgeExpiredMessages(bool $force = false): void
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
-    $stmt = $pdo->prepare('SELECT audio_path FROM messages WHERE created_at < :cutoff AND audio_path IS NOT NULL');
+    $stmt = $pdo->prepare('SELECT audio_path, image_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL)');
     $stmt->execute(['cutoff' => $cutoff]);
 
     foreach ($stmt->fetchAll() as $row) {
-        $path = BASE_PATH . '/' . $row['audio_path'];
-        if (is_file($path)) {
-            unlink($path);
+        foreach (['audio_path', 'image_path'] as $column) {
+            $relativePath = $row[$column] ?? null;
+            if (!is_string($relativePath) || $relativePath === '') {
+                continue;
+            }
+
+            $path = BASE_PATH . '/' . $relativePath;
+            if (is_file($path)) {
+                unlink($path);
+            }
         }
     }
 
@@ -727,6 +744,7 @@ function formatMessage(array $message): array
         'sender_name' => $message['sender_name'],
         'body' => $message['body'],
         'audio_path' => $message['audio_path'],
+        'image_path' => $message['image_path'] ?? null,
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'created_at' => $message['created_at'],
@@ -846,6 +864,89 @@ function detectUploadedAudioExtension(array $file, ?string $mime): ?string
     }
 
     return null;
+}
+
+function detectUploadedImageExtension(array $file, ?string $mime): ?string
+{
+    $allowedMimeTypes = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+        'image/heic' => 'heic',
+        'image/heif' => 'heif',
+        'application/octet-stream' => null,
+    ];
+
+    if ($mime !== null && isset($allowedMimeTypes[$mime]) && $allowedMimeTypes[$mime] !== null) {
+        return $allowedMimeTypes[$mime];
+    }
+
+    $clientName = strtolower((string) ($file['name'] ?? ''));
+    $clientType = strtolower((string) ($file['type'] ?? ''));
+
+    foreach ([$clientType, $mime] as $type) {
+        if ($type !== null && isset($allowedMimeTypes[$type]) && $allowedMimeTypes[$type] !== null) {
+            return $allowedMimeTypes[$type];
+        }
+    }
+
+    $extension = strtolower((string) pathinfo($clientName, PATHINFO_EXTENSION));
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
+    if (in_array($extension, $allowedExtensions, true)) {
+        return $extension === 'jpeg' ? 'jpg' : $extension;
+    }
+
+    return null;
+}
+
+function sendImageMessage(int $senderId, int $recipientId, array $file): array|string|null
+{
+    purgeExpiredMessages();
+
+    if (!canUsersChat($senderId, $recipientId)) {
+        return 'You can only message users after they accept your friend request.';
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'Image upload failed. Please attach a photo or image file.';
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedImageExtension($file, $mime);
+
+    if ($extension === null) {
+        return 'Unsupported image type. Use jpg, png, gif, webp, heic, or heif.';
+    }
+
+    if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
+        return 'Image must be 12MB or smaller.';
+    }
+
+    $filename = sprintf('img_%s_%s.%s', $senderId, bin2hex(random_bytes(8)), $extension);
+    $target = TMP_UPLOAD_PATH . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return 'Could not save the image.';
+    }
+
+    $relativePath = 'storage/tmp/' . $filename;
+
+    $stmt = db()->prepare(
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, :created_at)'
+    );
+    $stmt->execute([
+        'sender_id' => $senderId,
+        'recipient_id' => $recipientId,
+        'image_path' => $relativePath,
+        'created_at' => gmdate('c'),
+    ]);
+
+    clearTypingStatus($senderId, $recipientId);
+
+    return findMessageById((int) db()->lastInsertId());
 }
 
 function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|string|null
