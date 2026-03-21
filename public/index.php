@@ -502,6 +502,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <button class="install-button" id="install-app-button" type="button" hidden>Install app</button>
                     <form method="post">
                         <input type="hidden" name="action" value="logout">
+                        <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
                         <button class="logout-button" type="submit">Log out</button>
                     </form>
                 <?php endif; ?>
