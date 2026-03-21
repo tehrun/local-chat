@@ -42,7 +42,9 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         body {
             margin: 0;
             min-height: 100vh;
+            min-height: 100dvh;
             height: 100vh;
+            height: 100dvh;
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
@@ -50,7 +52,9 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         }
         .app {
             min-height: 100vh;
+            min-height: 100dvh;
             height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             max-width: 720px;
@@ -59,7 +63,9 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         }
         .chat-shell {
             min-height: 100vh;
+            min-height: 100dvh;
             height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             background: transparent;
@@ -158,6 +164,7 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             display: flex;
             align-items: center;
             padding: 0 4px 10px;
+            flex-wrap: wrap;
         }
         .typing-pill,
         .recording-pill,
@@ -238,13 +245,17 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            font-size: 22px;
             box-shadow: 0 8px 18px rgba(37, 211, 102, 0.28);
             transition: transform 0.15s ease, background 0.15s ease;
             user-select: none;
             -webkit-user-select: none;
             -webkit-touch-callout: none;
             touch-action: manipulation;
+        }
+        .action-button svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
         }
         .action-button:active,
         .action-button.recording {
@@ -282,15 +293,15 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 
         <main class="conversation">
             <div class="messages" id="messages" aria-live="polite"></div>
-            <div class="status-row" id="status-row"></div>
         </main>
 
         <div class="composer-wrap">
+            <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"></textarea>
-                <button id="action-button" class="action-button" type="button" aria-label="Send message or hold to record voice note">🎤</button>
+                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
-            <div class="composer-help" id="composer-help">Type to send text, or hold the button to record a voice note.</div>
+            <div class="composer-help" id="composer-help">Type to send text, or tap the microphone to start and stop a voice note.</div>
         </div>
     </div>
 </div>
@@ -316,13 +327,26 @@ let mediaStream = null;
 let recordingChunks = [];
 let recordingStart = 0;
 let recordingMode = false;
-let pressTimer = null;
-let suppressClick = false;
 let stream = null;
 let streamReconnectTimer = null;
 let pollTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
-let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Hold the button to record. Release to send.';
+let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type to send text, or tap the microphone to record a voice note.';
+
+const buttonIcons = {
+    send: `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M3.4 20.4 20.85 12 3.4 3.6v6.53l12.47 1.87-12.47 1.87z"></path>
+        </svg>`,
+    mic: `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 15a3.75 3.75 0 0 0 3.75-3.75V6.75a3.75 3.75 0 0 0-7.5 0v4.5A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 0-1.5 0 4.5 4.5 0 0 1-9 0 .75.75 0 0 0-1.5 0 6.01 6.01 0 0 0 5.25 5.95v2.05H9a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-2.25V17.2A6.01 6.01 0 0 0 18 11.25Z"></path>
+        </svg>`,
+    stop: `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M7 7h10v10H7z"></path>
+        </svg>`,
+};
 
 function escapeHtml(value) {
     return value
@@ -375,7 +399,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint('Type to send text, or hold the button to record a voice note.');
+        showHint('Type to send text, or tap the microphone to record a voice note.');
         return;
     }
 
@@ -433,7 +457,7 @@ function renderMessages(messages) {
     renderedSignature = signature;
 
     if (messages.length === 0) {
-        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi or hold the mic button to send a voice note.</div>';
+        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi or tap the microphone to send a voice note.</div>';
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
@@ -461,16 +485,16 @@ function renderMessages(messages) {
 
 function updateActionButton() {
     if (recordingMode) {
-        actionButton.textContent = '◼';
+        actionButton.innerHTML = buttonIcons.stop;
         actionButton.classList.add('recording');
-        actionButton.setAttribute('aria-label', 'Release to send voice note');
+        actionButton.setAttribute('aria-label', 'Stop recording and send voice note');
         return;
     }
 
     const hasText = bodyEl.value.trim() !== '';
-    actionButton.textContent = hasText ? '➤' : '🎤';
+    actionButton.innerHTML = hasText ? buttonIcons.send : buttonIcons.mic;
     actionButton.classList.remove('recording');
-    actionButton.setAttribute('aria-label', hasText ? 'Send message' : 'Hold to record voice note');
+    actionButton.setAttribute('aria-label', hasText ? 'Send message' : 'Start voice recording');
 }
 
 function applyConversationPayload(payload) {
@@ -632,7 +656,7 @@ async function sendTextMessage() {
 
         replacePendingMessage(pendingMessage.id, payload.message);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        showHint('Hold the button to record. Release to send.');
+        showHint('Message sent. Tap the microphone to record a voice note if you want.');
     } catch (error) {
         removeMessage(pendingMessage.id);
         bodyEl.value = body;
@@ -686,7 +710,7 @@ async function startRecording() {
 
         mediaRecorder.start();
         updateActionButton();
-        showHint('Recording… keep holding, then release to send.');
+        showHint('Recording… tap the button again to send your voice note.');
         statusState = 'recording';
         statusMessage = 'Recording voice note…';
         renderStatus();
@@ -696,7 +720,6 @@ async function startRecording() {
 }
 
 async function stopRecordingAndSend() {
-    clearTimeout(pressTimer);
     if (!recordingMode || !mediaRecorder) {
         return;
     }
@@ -710,7 +733,7 @@ async function stopRecordingAndSend() {
     if (durationMs < 600) {
         recorder.stop();
         recordingChunks = [];
-        showHint('Hold a little longer to send a voice note.');
+        showHint('Recording was too short. Tap the microphone and speak a little longer.');
         return;
     }
 
@@ -757,7 +780,7 @@ async function stopRecordingAndSend() {
 
         applyConversationPayload(payload);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        showHint('Voice note sent. Hold again to record another one.');
+        showHint('Voice note sent. Tap the microphone to record another one.');
     } catch (error) {
         showError('Could not send voice note right now. Please try again.');
     } finally {
@@ -767,32 +790,13 @@ async function stopRecordingAndSend() {
     }
 }
 
-function cancelPendingRecord() {
-    clearTimeout(pressTimer);
-}
-
-function onPressStart(event) {
-    if (bodyEl.value.trim() !== '' || isSending) {
+async function toggleRecording() {
+    if (recordingMode) {
+        await stopRecordingAndSend();
         return;
     }
 
-    event.preventDefault();
-    suppressClick = true;
-    pressTimer = setTimeout(() => {
-        startRecording();
-    }, 180);
-}
-
-function onPressEnd(event) {
-    if (bodyEl.value.trim() !== '') {
-        return;
-    }
-
-    if (event) {
-        event.preventDefault();
-    }
-    cancelPendingRecord();
-    stopRecordingAndSend();
+    await startRecording();
 }
 
 bodyEl.addEventListener('input', () => {
@@ -813,29 +817,17 @@ bodyEl.addEventListener('keydown', (event) => {
     }
 });
 
-actionButton.addEventListener('click', (event) => {
-    if (suppressClick) {
-        suppressClick = false;
-        if (bodyEl.value.trim() === '') {
-            event.preventDefault();
-            return;
-        }
-    }
-
+actionButton.addEventListener('click', async () => {
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
+        return;
     }
-});
 
-actionButton.addEventListener('pointerdown', onPressStart);
-actionButton.addEventListener('pointerup', onPressEnd);
-actionButton.addEventListener('pointercancel', onPressEnd);
-actionButton.addEventListener('pointerleave', () => {
-    if (recordingMode) {
-        stopRecordingAndSend();
-    } else {
-        cancelPendingRecord();
+    if (isSending) {
+        return;
     }
+
+    await toggleRecording();
 });
 
 window.addEventListener('beforeunload', () => {
