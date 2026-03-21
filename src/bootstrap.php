@@ -368,10 +368,46 @@ function conversationPayload(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
+    $messages = conversationMessagesWithoutMaintenance($userId, $otherUserId);
+    $typing = isUserTypingWithoutMaintenance($userId, $otherUserId);
+
     return [
-        'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
-        'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+        'messages' => $messages,
+        'typing' => $typing,
+        'signature' => conversationSignature($messages, $typing),
     ];
+}
+
+function conversationSignature(array $messages, bool $typing): string
+{
+    $latestMessage = end($messages);
+    $latestMessageId = $latestMessage['id'] ?? 0;
+    $latestTimestamp = $latestMessage['created_at'] ?? '';
+
+    return sha1(json_encode([
+        'latest_message_id' => $latestMessageId,
+        'latest_timestamp' => $latestTimestamp,
+        'message_count' => count($messages),
+        'typing' => $typing,
+    ], JSON_THROW_ON_ERROR));
+}
+
+function waitForConversationChange(int $userId, int $otherUserId, string $lastSignature, int $timeoutSeconds = 20): array
+{
+    $startedAt = time();
+
+    do {
+        $payload = conversationPayload($userId, $otherUserId);
+        if (($payload['signature'] ?? '') !== $lastSignature) {
+            return $payload;
+        }
+
+        if (time() - $startedAt >= $timeoutSeconds) {
+            return $payload;
+        }
+
+        usleep(500000);
+    } while (true);
 }
 
 function jsonResponse(array $payload, int $statusCode = 200): void

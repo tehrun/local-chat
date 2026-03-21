@@ -27,4 +27,4 @@ Then open <http://127.0.0.1:8000>. On phones, install the app behind HTTPS or us
 - SQLite database: `storage/db/chat.sqlite`
 - Uploaded voice notes: `storage/uploads/`
 
-Messages older than 24 hours are purged automatically whenever the app loads inbox or conversation pages, before new messages are saved, and while live polling requests keep the chat updated.
+Messages older than 24 hours are purged automatically whenever the app loads inbox or conversation pages, before new messages are saved, and while live updates wait for a conversation change before returning fresh data.
