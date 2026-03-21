@@ -771,6 +771,9 @@ let localMessageCounter = 0;
 let typingTimer = null;
 let typingActive = false;
 let isSending = false;
+let activeUploadCount = 0;
+let pendingTextQueue = [];
+let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
 let recordingChunks = [];
@@ -823,8 +826,8 @@ function updatePresence(isOnline, label) {
 function updateFriendshipUi() {
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
-    actionButton.disabled = !canChat || isSending;
-    imageButton.disabled = !canChat || isSending;
+    actionButton.disabled = !canChat || activeUploadCount > 0;
+    imageButton.disabled = !canChat || activeUploadCount > 0;
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
 
@@ -1320,8 +1323,12 @@ function updateActionButton() {
     }
 }
 
-function keepComposerFocused() {
+function keepComposerFocused(force = false) {
     if (!canChat || bodyEl.disabled) {
+        return;
+    }
+
+    if (!force && document.activeElement === bodyEl) {
         return;
     }
 
@@ -1336,12 +1343,11 @@ function preserveComposerFocus(event) {
         return;
     }
 
-    if (bodyEl.disabled) {
+    if (bodyEl.disabled || document.activeElement !== bodyEl) {
         return;
     }
 
     event.preventDefault();
-    keepComposerFocused();
 }
 
 function applyConversationPayload(payload) {
@@ -1539,18 +1545,72 @@ function markTyping() {
     clearTypingSoon();
 }
 
-async function sendTextMessage() {
+async function flushPendingTextQueue() {
+    if (textSendInFlight || pendingTextQueue.length === 0) {
+        return;
+    }
+
+    textSendInFlight = true;
+    isSending = true;
+    updateFriendshipUi();
+
+    while (pendingTextQueue.length > 0) {
+        const nextMessage = pendingTextQueue[0];
+
+        try {
+            const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+                body: new URLSearchParams({ action: 'send_text', body: nextMessage.body }),
+            });
+            const payload = await response.json();
+
+            if (!response.ok) {
+                removeMessage(nextMessage.pendingId);
+                pendingTextQueue.shift();
+                bodyEl.value = nextMessage.body;
+                autoResizeComposer();
+                updateComposerDirection();
+                keepComposerFocused(true);
+                showError(payload.error || 'Could not send message.');
+                continue;
+            }
+
+            replacePendingMessage(nextMessage.pendingId, payload.message);
+            pendingTextQueue.shift();
+            if (nextMessage.shouldPinToBottom) {
+                scrollMessagesToEnd();
+            }
+            clearStatus();
+        } catch (error) {
+            showError('Could not send message right now. Please try again.');
+            break;
+        }
+    }
+
+    textSendInFlight = false;
+    isSending = pendingTextQueue.length > 0;
+    updateFriendshipUi();
+    updateActionButton();
+}
+
+function sendTextMessage() {
     const body = bodyEl.value.trim();
     if (!canChat) {
         showError('Friendship revoked. You cannot send new messages until you are friends again.');
         return;
     }
-    if (!body || isSending) {
+    if (!body) {
         return;
     }
 
     const shouldPinToBottom = isNearBottom();
     const pendingMessage = createPendingMessage(body, 'text');
+    pendingTextQueue.push({
+        body,
+        pendingId: pendingMessage.id,
+        shouldPinToBottom,
+    });
     upsertMessage(pendingMessage);
     shouldAutoScroll = shouldPinToBottom;
     bodyEl.value = '';
@@ -1560,42 +1620,9 @@ async function sendTextMessage() {
     typingActive = false;
     clearTimeout(typingTimer);
     syncTyping(false);
-    showHint('Sending message…');
-    isSending = true;
-    actionButton.setAttribute('aria-disabled', 'true');
-    imageButton.setAttribute('aria-disabled', 'true');
-
-    try {
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-            body: new URLSearchParams({ action: 'send_text', body }),
-        });
-        const payload = await response.json();
-
-        if (!response.ok) {
-            showError(payload.error || 'Could not send message.');
-            return;
-        }
-
-        replacePendingMessage(pendingMessage.id, payload.message);
-        if (shouldPinToBottom) {
-            scrollMessagesToEnd();
-        }
-        clearStatus();
-    } catch (error) {
-        removeMessage(pendingMessage.id);
-        bodyEl.value = body;
-        autoResizeComposer();
-        updateComposerDirection();
-        showError('Could not send message right now. Please try again.');
-    } finally {
-        isSending = false;
-        actionButton.removeAttribute('aria-disabled');
-        imageButton.removeAttribute('aria-disabled');
-        updateActionButton();
-        keepComposerFocused();
-    }
+    showHint(pendingTextQueue.length > 1 ? 'Queued messages are sending…' : 'Sending message…');
+    updateActionButton();
+    flushPendingTextQueue();
 }
 
 function detectAudioMimeType() {
@@ -1678,17 +1705,17 @@ async function sendSelectedVoiceFile(file) {
     }
 
     showHint('Uploading voice note…');
-    actionButton.disabled = true;
-    imageButton.disabled = true;
+    activeUploadCount += 1;
     isSending = true;
+    updateFriendshipUi();
 
     try {
         await uploadVoiceBlob(file, file.name || 'voice-note');
     } finally {
-        isSending = false;
-        actionButton.disabled = false;
-        imageButton.disabled = false;
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
         voiceFileInput.value = '';
+        updateFriendshipUi();
         updateActionButton();
     }
 }
@@ -1737,17 +1764,17 @@ async function sendSelectedImageFile(file) {
     }
 
     showHint('Uploading image…');
-    actionButton.disabled = true;
-    imageButton.disabled = true;
+    activeUploadCount += 1;
     isSending = true;
+    updateFriendshipUi();
 
     try {
         await uploadImageFile(file);
     } finally {
-        isSending = false;
-        actionButton.disabled = false;
-        imageButton.disabled = false;
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
         imageFileInput.value = '';
+        updateFriendshipUi();
         updateActionButton();
     }
 }
@@ -1834,9 +1861,9 @@ async function stopRecordingAndSend() {
     statusState = 'recording';
     statusMessage = 'Sending voice note…';
     renderStatus();
-    actionButton.disabled = true;
-    imageButton.disabled = true;
+    activeUploadCount += 1;
     isSending = true;
+    updateFriendshipUi();
 
     const blob = await new Promise((resolve) => {
         recorder.addEventListener('stop', () => {
@@ -1851,9 +1878,9 @@ async function stopRecordingAndSend() {
     recordingChunks = [];
 
     if (!(blob instanceof Blob) || blob.size === 0) {
-        isSending = false;
-        actionButton.disabled = false;
-        imageButton.disabled = false;
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
+        updateFriendshipUi();
         showError('The voice note was empty. Please try again.');
         return;
     }
@@ -1863,9 +1890,9 @@ async function stopRecordingAndSend() {
         const extension = mimeType.includes('ogg') ? 'ogg' : ((mimeType.includes('mp4') || mimeType.includes('m4a')) ? 'm4a' : 'webm');
         await uploadVoiceBlob(blob, `voice-note.${extension}`);
     } finally {
-        isSending = false;
-        actionButton.disabled = false;
-        imageButton.disabled = false;
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
+        updateFriendshipUi();
         updateActionButton();
     }
 }
@@ -2003,7 +2030,6 @@ revokeFriendshipButton.addEventListener('click', async () => {
 actionButton.addEventListener('click', async (event) => {
     event.preventDefault();
     markUserInteraction();
-    keepComposerFocused();
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
         return;
