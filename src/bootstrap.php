@@ -586,7 +586,7 @@ function allOtherUsers(int $currentUserId): array
                 u.username,
                 u.created_at,
                 up.updated_at AS presence_updated_at,
-                COUNT(m_unseen.id) AS unseen_count,
+                COUNT(DISTINCT m_unseen.id) AS unseen_count,
                 MAX(m_latest.created_at) AS last_message_at,
                 MAX(m_latest.id) AS last_message_id
          FROM users u
