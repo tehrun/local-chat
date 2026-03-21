@@ -30,6 +30,16 @@ if ($action === 'typing') {
     jsonResponse(['ok' => true]);
 }
 
+if ($action === 'read') {
+    markMessagesRead((int) $user['id'], $otherUserId);
+
+    jsonResponse([
+        'ok' => true,
+        'messages' => conversationMessagesWithoutMaintenance((int) $user['id'], $otherUserId),
+        'typing' => isUserTypingWithoutMaintenance((int) $user['id'], $otherUserId),
+    ]);
+}
+
 if ($action === 'send_text') {
     $message = sendTextMessage((int) $user['id'], $otherUserId, $_POST['body'] ?? '');
 
