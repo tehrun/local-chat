@@ -317,6 +317,82 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             background: var(--action);
             flex-shrink: 0;
         }
+
+        .floating-chat-launcher {
+            position: fixed;
+            right: max(18px, calc(env(safe-area-inset-right, 0px) + 18px));
+            bottom: max(18px, calc(env(safe-area-inset-bottom, 0px) + 18px));
+            z-index: 20;
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background: var(--action);
+            color: #fff;
+            box-shadow: 0 12px 26px rgba(37, 211, 102, 0.34);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .floating-chat-launcher svg {
+            width: 28px;
+            height: 28px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        .floating-chat-launcher[hidden],
+        .chat-switcher[hidden] {
+            display: none;
+        }
+        .chat-switcher {
+            position: fixed;
+            inset: 0;
+            z-index: 25;
+            background: rgba(11, 20, 26, 0.42);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 16px;
+        }
+        .chat-switcher-panel {
+            width: min(100%, 420px);
+            max-height: min(70vh, 560px);
+            background: rgba(247, 245, 241, 0.98);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-switcher-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 18px 12px;
+        }
+        .chat-switcher-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .chat-switcher-close {
+            border: none;
+            background: #dfe5e7;
+            color: #244047;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .chat-switcher-list {
+            overflow-y: auto;
+            padding: 0 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
         @media (min-width: 721px) {
             .app {
                 min-height: 100vh;
@@ -402,7 +478,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <?php if ($users === []): ?>
                         <div class="card" id="chat-list-empty">
                             <h2 class="panel-title">No chats yet</h2>
-                            <p class="panel-text">There are no other users yet. Create another account in a second browser session to start a private chat.</p>
+                            <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($users as $chatUser): ?>
@@ -432,6 +508,24 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         </main>
     </div>
 </div>
+
+<?php if ($user !== null): ?>
+    <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Open chats">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="6"></circle>
+            <path d="m20 20-4.35-4.35"></path>
+        </svg>
+    </button>
+    <div class="chat-switcher" id="chat-switcher" hidden>
+        <div class="chat-switcher-panel" role="dialog" aria-modal="true" aria-labelledby="chat-switcher-title">
+            <div class="chat-switcher-header">
+                <h2 id="chat-switcher-title">Your chats</h2>
+                <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close chat list">×</button>
+            </div>
+            <div class="chat-switcher-list" id="chat-switcher-list"></div>
+        </div>
+    </div>
+<?php endif; ?>
 <script>
 const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
 const initialChatUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
@@ -443,6 +537,57 @@ let chatListPollTimer = null;
 let chatListSignature = '';
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
+
+const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
+const chatSwitcherEl = document.getElementById('chat-switcher');
+const chatSwitcherListEl = document.getElementById('chat-switcher-list');
+const chatSwitcherClose = document.getElementById('chat-switcher-close');
+
+function renderChatSwitcher(users) {
+    if (!chatSwitcherListEl) {
+        return;
+    }
+
+    if (!Array.isArray(users) || users.length === 0) {
+        chatSwitcherListEl.innerHTML = `
+            <div class="card">
+                <h2 class="panel-title">No chats yet</h2>
+                <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
+            </div>`;
+        return;
+    }
+
+    chatSwitcherListEl.innerHTML = users.map((chatUser) => {
+        const userId = Number(chatUser.id);
+        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const username = escapeHtml(chatUser.username || '');
+        const presenceClass = chatUser.is_online ? ' online' : '';
+
+        return `
+            <a class="chat-item" href="/chat.php?user=${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="chat-copy">
+                    <div class="chat-copy-head">
+                        <strong>${username}</strong>
+                        <span class="presence-badge">
+                            <span class="dot${presenceClass}" aria-hidden="true"></span>
+                            <span>${presenceLabel}</span>
+                        </span>
+                    </div>
+                </div>
+            </a>`;
+    }).join('');
+}
+
+function setChatSwitcherOpen(isOpen) {
+    if (!chatSwitcherEl) {
+        return;
+    }
+
+    chatSwitcherEl.hidden = !isOpen;
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+}
 
 function escapeHtml(value) {
     return String(value)
@@ -462,7 +607,7 @@ function renderChatList(users) {
         chatListEl.innerHTML = `
             <div class="card" id="chat-list-empty">
                 <h2 class="panel-title">No chats yet</h2>
-                <p class="panel-text">There are no other users yet. Create another account in a second browser session to start a private chat.</p>
+                <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
             </div>`;
         return;
     }
@@ -505,6 +650,7 @@ function applyChatListPayload(payload) {
 
     chatListSignature = signature;
     renderChatList(users);
+    renderChatSwitcher(users);
 }
 
 async function fetchChatList() {
@@ -585,6 +731,19 @@ window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
     if (installButton) {
         installButton.hidden = true;
+    }
+});
+
+chatSwitcherToggle?.addEventListener('click', () => setChatSwitcherOpen(true));
+chatSwitcherClose?.addEventListener('click', () => setChatSwitcherOpen(false));
+chatSwitcherEl?.addEventListener('click', (event) => {
+    if (event.target === chatSwitcherEl) {
+        setChatSwitcherOpen(false);
+    }
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        setChatSwitcherOpen(false);
     }
 });
 
