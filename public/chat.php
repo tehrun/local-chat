@@ -335,11 +335,14 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             font-size: 14px;
         }
         .status-row {
-            min-height: 28px;
+            min-height: 0;
             display: flex;
             align-items: center;
             padding: 0 4px 10px;
             flex-wrap: wrap;
+        }
+        .status-row:empty {
+            padding-bottom: 0;
         }
         .typing-pill,
         .recording-pill,
@@ -774,19 +777,13 @@ let pollTimer = null;
 let shouldAutoScroll = true;
 let initialScrollPending = true;
 let readSyncTimer = null;
-let statusState = initialCanChat && initialTyping ? 'typing' : 'hint';
-let statusMessage = initialCanChat
-    ? (initialTyping ? `${otherUserName} is typing…` : 'Type a message, add a photo, or tap the microphone for a voice note.')
-    : 'Friend request required before messaging.';
+let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
+let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
 
-function getComposerHint() {
-    if (!canChat) {
-        return 'Friendship revoked. Message history is still visible, but sending is disabled.';
-    }
-
-    return bodyEl.value.trim() !== ''
-        ? 'Tap send to deliver your message.'
-        : 'Type a message, add a photo, or tap the microphone for a voice note.';
+function clearStatus() {
+    statusState = 'idle';
+    statusMessage = '';
+    renderStatus();
 }
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
@@ -827,7 +824,7 @@ function updateFriendshipUi() {
 
     if (isAccepted) {
         if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
-            showHint(getComposerHint());
+            clearStatus();
         }
         return;
     }
@@ -1018,11 +1015,6 @@ function updateKeyboardOffset() {
     const keyboardOffset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
     document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(keyboardOffset)}px`);
 
-    if (document.activeElement === bodyEl && keyboardOffset > 0) {
-        requestAnimationFrame(() => {
-            scrollMessagesToEnd('smooth');
-        });
-    }
 }
 
 function renderStatus() {
@@ -1034,7 +1026,7 @@ function renderStatus() {
         html = `<span class="recording-pill">🔴 ${escapeHtml(statusMessage)}</span>`;
     } else if (statusState === 'error') {
         html = `<span class="error-pill">${escapeHtml(statusMessage)}</span>`;
-    } else {
+    } else if (statusState === 'hint' && statusMessage !== '') {
         html = `<span class="hint-pill">${escapeHtml(statusMessage)}</span>`;
     }
 
@@ -1062,7 +1054,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint(getComposerHint());
+        clearStatus();
         return;
     }
 
@@ -1227,6 +1219,7 @@ function closeImageLightbox() {
 
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
+    const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -1242,7 +1235,6 @@ function renderMessages(messages) {
         return;
     }
 
-    const wasNearBottom = isNearBottom();
     renderedSignature = signature;
 
     if (messages.length === 0) {
@@ -1289,8 +1281,10 @@ function renderMessages(messages) {
         });
     }
 
-    if (shouldAutoScroll || wasNearBottom || initialScrollPending) {
+    if (shouldPinToBottom) {
         scrollMessagesToEnd();
+    } else {
+        updateScrollToEndButton();
     }
 
     handleIncomingMessages(previousMessages, messages);
@@ -1511,8 +1505,10 @@ async function sendTextMessage() {
         return;
     }
 
+    const shouldPinToBottom = isNearBottom();
     const pendingMessage = createPendingMessage(body, 'text');
     upsertMessage(pendingMessage);
+    shouldAutoScroll = shouldPinToBottom;
     bodyEl.value = '';
     autoResizeComposer();
     updateKeyboardOffset();
@@ -1538,8 +1534,10 @@ async function sendTextMessage() {
         }
 
         replacePendingMessage(pendingMessage.id, payload.message);
-        scrollMessagesToEnd();
-        showHint('Message sent.');
+        if (shouldPinToBottom) {
+            scrollMessagesToEnd();
+        }
+        clearStatus();
     } catch (error) {
         removeMessage(pendingMessage.id);
         bodyEl.value = body;
@@ -1878,8 +1876,8 @@ bodyEl.addEventListener('input', () => {
     updateComposerDirection();
     updateActionButton();
     markTyping();
-    if (statusState !== 'typing') {
-        showHint(getComposerHint());
+    if (statusState === 'error' && bodyEl.value.trim() !== '') {
+        clearStatus();
     }
 });
 
