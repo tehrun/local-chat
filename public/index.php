@@ -12,6 +12,8 @@ $user = currentUser();
 $authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCsrfToken();
+
     $action = $_POST['action'] ?? '';
 
     if ($action === 'register') {
@@ -37,6 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'logout') {
+        $_SESSION = [];
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
         session_destroy();
         header('Location: index.php');
         exit;
@@ -60,6 +66,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <meta name="apple-mobile-web-app-title" content="Local Chat">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title>Local Chat</title>
     <style>
         :root {
@@ -642,10 +649,11 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 <?php endif; ?>
 <script>
 const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
-const initialChatUsers = <?= json_encode($chatUsers, JSON_THROW_ON_ERROR) ?>;
-const initialDirectoryUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
-const initialIncomingRequests = <?= json_encode($incomingRequests, JSON_THROW_ON_ERROR) ?>;
-const initialHomeSignature = <?= json_encode($user !== null ? chatListStateSignature((int) $user['id']) : '', JSON_THROW_ON_ERROR) ?>;
+const initialChatUsers = <?= jsonScriptValue($chatUsers) ?>;
+const initialDirectoryUsers = <?= jsonScriptValue($users) ?>;
+const initialIncomingRequests = <?= jsonScriptValue($incomingRequests) ?>;
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const initialHomeSignature = <?= jsonScriptValue($user !== null ? chatListStateSignature((int) $user['id']) : '') ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
 const friendRequestListEl = document.getElementById('friend-request-list');
@@ -1094,7 +1102,7 @@ async function fetchChatList() {
     }
 
     const response = await fetch('home_api.php', {
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', 'X-CSRF-Token': csrfToken },
         credentials: 'same-origin',
         cache: 'no-store',
     });
@@ -1239,9 +1247,9 @@ document.addEventListener('click', async (event) => {
     try {
         const response = await fetch('home_api.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json', 'X-CSRF-Token': csrfToken },
             credentials: 'same-origin',
-            body: new URLSearchParams({ action, user: String(userId) }),
+            body: new URLSearchParams({ action, user: String(userId), csrf_token: csrfToken }),
         });
         const payload = await response.json();
 

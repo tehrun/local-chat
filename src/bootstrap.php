@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+configureSession();
 session_start();
+
+applySecurityHeaders();
 
 define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
@@ -16,6 +19,121 @@ define('TYPING_TTL_SECONDS', 8);
 define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
+
+function configureSession(): void
+{
+    if (session_status() !== PHP_SESSION_NONE) {
+        return;
+    }
+
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+
+    session_set_cookie_params([
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure' => $isHttps,
+        'path' => '/',
+    ]);
+
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.cookie_samesite', 'Lax');
+
+    if ($isHttps) {
+        ini_set('session.cookie_secure', '1');
+    }
+}
+
+function applySecurityHeaders(): void
+{
+    header_remove('X-Powered-By');
+    header('X-Frame-Options: DENY');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: same-origin');
+    header('Cross-Origin-Resource-Policy: same-origin');
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
+}
+
+
+function jsonEncodeFlags(): int
+{
+    return JSON_THROW_ON_ERROR
+        | JSON_HEX_TAG
+        | JSON_HEX_AMP
+        | JSON_HEX_APOS
+        | JSON_HEX_QUOT;
+}
+
+function encodeJson(mixed $value): string
+{
+    return json_encode($value, jsonEncodeFlags());
+}
+
+function jsonScriptValue(mixed $value): string
+{
+    return encodeJson($value);
+}
+
+function requirePositiveInt(array $source, string $key): int
+{
+    $value = $source[$key] ?? null;
+
+    if (is_int($value)) {
+        return $value > 0 ? $value : 0;
+    }
+
+    if (!is_string($value) || $value === '' || !ctype_digit($value)) {
+        return 0;
+    }
+
+    $parsed = (int) $value;
+
+    return $parsed > 0 ? $parsed : 0;
+}
+
+function isSafeStorageRelativePath(?string $relativePath): bool
+{
+    if (!is_string($relativePath) || $relativePath === '') {
+        return false;
+    }
+
+    if (str_contains($relativePath, "\0") || str_contains($relativePath, '..')) {
+        return false;
+    }
+
+    return str_starts_with($relativePath, 'storage/uploads/') || str_starts_with($relativePath, 'storage/tmp/');
+}
+
+function csrfToken(): string
+{
+    if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['csrf_token'];
+}
+
+function verifyCsrfToken(?string $token): bool
+{
+    $sessionToken = $_SESSION['csrf_token'] ?? null;
+
+    return is_string($sessionToken)
+        && is_string($token)
+        && $sessionToken !== ''
+        && hash_equals($sessionToken, $token);
+}
+
+function requireCsrfToken(): void
+{
+    $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+
+    if (!verifyCsrfToken(is_string($token) ? $token : null)) {
+        jsonResponse(['error' => 'Invalid CSRF token.'], 419);
+    }
+}
+
 
 if (!is_dir(dirname(DB_PATH))) {
     mkdir(dirname(DB_PATH), 0777, true);
@@ -308,6 +426,10 @@ function purgeExpiredMessages(bool $force = false): void
         foreach (['audio_path', 'image_path'] as $column) {
             $relativePath = $row[$column] ?? null;
             if (!is_string($relativePath) || $relativePath === '') {
+                continue;
+            }
+
+            if (!isSafeStorageRelativePath($relativePath)) {
                 continue;
             }
 
@@ -896,7 +1018,7 @@ function chatListStateSignature(int $currentUserId): string
     $friendshipsStmt->execute(['id' => $currentUserId]);
     $friendshipsState = $friendshipsStmt->fetch() ?: [];
 
-    return md5(json_encode([
+    return md5(encodeJson([
         'users' => [
             'total' => (int) ($usersState['total_users'] ?? 0),
             'latest_id' => (int) ($usersState['latest_user_id'] ?? 0),
@@ -924,7 +1046,7 @@ function chatListStateSignature(int $currentUserId): string
             'rejected_count' => (int) ($friendshipsState['rejected_count'] ?? 0),
             'revoked_count' => (int) ($friendshipsState['revoked_count'] ?? 0),
         ],
-    ], JSON_THROW_ON_ERROR));
+    ]));
 }
 
 function findUserByUsername(string $username): ?array
@@ -992,7 +1114,9 @@ function loginUser(string $username, string $password): ?string
         return 'Invalid username or password.';
     }
 
+    session_regenerate_id(true);
     $_SESSION['user_id'] = $user['id'];
+    csrfToken();
 
     return null;
 }
@@ -1035,6 +1159,31 @@ function conversationMessages(int $userId, int $otherUserId): array
     purgeExpiredMessages();
 
     return conversationMessagesWithoutMaintenance($userId, $otherUserId);
+}
+
+function conversationExistsForUser(int $userId, int $otherUserId): bool
+{
+    $stmt = db()->prepare(
+        'SELECT 1
+         FROM messages
+         WHERE ((sender_id = :user_id AND recipient_id = :other_id)
+            OR (sender_id = :other_id AND recipient_id = :user_id))
+         LIMIT 1'
+    );
+
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_id' => $otherUserId,
+    ]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+function canAccessConversation(int $userId, int $otherUserId): bool
+{
+    return canUsersChat($userId, $otherUserId)
+        || friendshipRecord($userId, $otherUserId) !== null
+        || conversationExistsForUser($userId, $otherUserId);
 }
 
 function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): array
@@ -1378,7 +1527,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
     $friendship = friendshipRecord($userId, $otherUserId);
     $otherUser = findUserById($otherUserId);
 
-    return md5(json_encode([
+    return md5(encodeJson([
         'messages' => [
             'total' => (int) ($messageState['total_messages'] ?? 0),
             'latest_id' => (int) ($messageState['latest_message_id'] ?? 0),
@@ -1397,7 +1546,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'label' => $otherUser['presence_label'] ?? 'Offline',
         ],
-    ], JSON_THROW_ON_ERROR));
+    ]));
 }
 
 function markMessagesDelivered(int $userId, int $otherUserId): void
@@ -1437,7 +1586,7 @@ function jsonResponse(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=UTF-8');
-    echo json_encode($payload, JSON_THROW_ON_ERROR);
+    echo encodeJson($payload);
     exit;
 }
 

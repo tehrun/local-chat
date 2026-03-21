@@ -5,14 +5,21 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$otherUserId = (int) ($_GET['user'] ?? $_POST['user'] ?? 0);
+$otherUserId = requirePositiveInt($_POST + $_GET, 'user');
+if ($otherUserId <= 0) {
+    jsonResponse(['error' => 'Conversation not found.'], 404);
+}
 $otherUser = findUserById($otherUserId);
 
-if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
+if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
     jsonResponse(['error' => 'Conversation not found.'], 404);
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    requireCsrfToken();
+}
 
 if ($action === 'messages') {
     $payload = conversationPayload((int) $user['id'], $otherUserId);
