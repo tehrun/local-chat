@@ -258,10 +258,35 @@ function mapUsersWithPresence(array $users): array
     }, $users);
 }
 
+function compareFriendshipPriority(array $candidate, array $current): int
+{
+    $priorityMap = [
+        'accepted' => 3,
+        'pending' => 2,
+        'rejected' => 1,
+    ];
+
+    $candidatePriority = $priorityMap[(string) ($candidate['status'] ?? '')] ?? 0;
+    $currentPriority = $priorityMap[(string) ($current['status'] ?? '')] ?? 0;
+
+    if ($candidatePriority !== $currentPriority) {
+        return $candidatePriority <=> $currentPriority;
+    }
+
+    $candidateTimestamp = strtotime((string) ($candidate['responded_at'] ?? $candidate['created_at'] ?? '')) ?: 0;
+    $currentTimestamp = strtotime((string) ($current['responded_at'] ?? $current['created_at'] ?? '')) ?: 0;
+
+    if ($candidateTimestamp !== $currentTimestamp) {
+        return $candidateTimestamp <=> $currentTimestamp;
+    }
+
+    return ((int) ($candidate['id'] ?? 0)) <=> ((int) ($current['id'] ?? 0));
+}
+
 function friendshipStatuses(int $currentUserId): array
 {
     $stmt = db()->prepare(
-        'SELECT sender_id, recipient_id, status
+        'SELECT id, sender_id, recipient_id, status, created_at, responded_at
          FROM friend_requests
          WHERE sender_id = :id OR recipient_id = :id'
     );
@@ -273,9 +298,20 @@ function friendshipStatuses(int $currentUserId): array
         $senderId = (int) $request['sender_id'];
         $recipientId = (int) $request['recipient_id'];
         $otherUserId = $senderId === $currentUserId ? $recipientId : $senderId;
-        $status = (string) $request['status'];
+        $existing = $statuses[$otherUserId] ?? null;
 
+        if ($existing !== null && compareFriendshipPriority($request, $existing) <= 0) {
+            continue;
+        }
+
+        $status = (string) $request['status'];
         $statuses[$otherUserId] = [
+            'id' => (int) $request['id'],
+            'sender_id' => $senderId,
+            'recipient_id' => $recipientId,
+            'status' => $status,
+            'created_at' => (string) $request['created_at'],
+            'responded_at' => $request['responded_at'],
             'friendship_status' => $status,
             'can_chat' => $status === 'accepted',
             'request_direction' => $senderId === $currentUserId ? 'outgoing' : 'incoming',
@@ -306,15 +342,22 @@ function friendshipRecord(int $userId, int $otherUserId): ?array
         'SELECT *
          FROM friend_requests
          WHERE (sender_id = :user_id AND recipient_id = :other_user_id)
-            OR (sender_id = :other_user_id AND recipient_id = :user_id)
-         LIMIT 1'
+            OR (sender_id = :other_user_id AND recipient_id = :user_id)'
     );
     $stmt->execute([
         'user_id' => $userId,
         'other_user_id' => $otherUserId,
     ]);
 
-    $request = $stmt->fetch() ?: null;
+    $request = null;
+
+    foreach ($stmt->fetchAll() as $candidate) {
+        if ($request !== null && compareFriendshipPriority($candidate, $request) <= 0) {
+            continue;
+        }
+
+        $request = $candidate;
+    }
 
     if ($request === null) {
         return null;
@@ -416,19 +459,47 @@ function incomingFriendRequests(int $currentUserId): array
                 fr.recipient_id,
                 fr.status,
                 fr.created_at,
+                fr.responded_at,
                 u.username AS sender_name,
                 up.updated_at AS presence_updated_at
          FROM friend_requests fr
          JOIN users u ON u.id = fr.sender_id
          LEFT JOIN user_presence up ON up.user_id = u.id
          WHERE fr.recipient_id = :id
-           AND fr.status = :status
-         ORDER BY fr.created_at DESC, fr.id DESC'
+            OR fr.sender_id = :id'
     );
     $stmt->execute([
         'id' => $currentUserId,
-        'status' => 'pending',
     ]);
+
+    $requestsBySender = [];
+
+    foreach ($stmt->fetchAll() as $request) {
+        $senderId = (int) $request['sender_id'];
+        $recipientId = (int) $request['recipient_id'];
+        $otherUserId = $senderId === $currentUserId ? $recipientId : $senderId;
+        $existing = $requestsBySender[$otherUserId] ?? null;
+
+        if ($existing !== null && compareFriendshipPriority($request, $existing) <= 0) {
+            continue;
+        }
+
+        $requestsBySender[$otherUserId] = $request;
+    }
+
+    $requests = array_filter($requestsBySender, static function (array $request) use ($currentUserId): bool {
+        return (int) $request['recipient_id'] === $currentUserId && (string) $request['status'] === 'pending';
+    });
+
+    usort($requests, static function (array $left, array $right): int {
+        $createdAtComparison = strtotime((string) $right['created_at']) <=> strtotime((string) $left['created_at']);
+
+        if ($createdAtComparison !== 0) {
+            return $createdAtComparison;
+        }
+
+        return ((int) $right['id']) <=> ((int) $left['id']);
+    });
 
     return array_map(static function (array $request): array {
         $request['id'] = (int) $request['id'];
@@ -441,7 +512,7 @@ function incomingFriendRequests(int $currentUserId): array
         $request['created_at_label'] = gmdate('Y-m-d H:i:s', strtotime((string) $request['created_at'])) . ' UTC';
 
         return $request;
-    }, $stmt->fetchAll());
+    }, $requests);
 }
 
 function friendRequestsPayload(int $currentUserId): array
