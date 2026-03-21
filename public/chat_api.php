@@ -22,7 +22,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 }
 
 if ($action === 'messages') {
-    $payload = conversationPayload((int) $user['id'], $otherUserId);
+    $limit = max(0, (int) ($_GET['limit'] ?? 0));
+    $beforeMessageId = max(0, (int) ($_GET['before'] ?? 0));
+    $payload = conversationPayload(
+        (int) $user['id'],
+        $otherUserId,
+        $limit,
+        $beforeMessageId > 0 ? $beforeMessageId : null
+    );
     $payload['signature'] = conversationStateSignature((int) $user['id'], $otherUserId);
 
     jsonResponse($payload);

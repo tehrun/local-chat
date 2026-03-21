@@ -15,7 +15,9 @@ if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConvers
 
 $canChat = canUsersChat((int) $user['id'], $otherUserId);
 $friendship = friendshipRecord((int) $user['id'], $otherUserId);
-$messages = conversationMessages((int) $user['id'], $otherUserId);
+$messageBatchSize = 15;
+$messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
+$hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
 $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
 $initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
 ?>
@@ -746,7 +748,9 @@ const currentUserId = <?= (int) $user['id'] ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 const otherUserName = <?= jsonScriptValue($otherUser['username']) ?>;
+const messageBatchSize = <?= (int) $messageBatchSize ?>;
 const initialMessages = <?= jsonScriptValue($messages) ?>;
+const initialHasMoreMessages = <?= $hasMoreMessages ? 'true' : 'false' ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
@@ -808,6 +812,8 @@ let notificationPermissionRequested = false;
 let notificationPermissionPromptDismissed = false;
 let canChat = initialCanChat;
 let friendshipState = initialFriendship;
+let hasMoreMessages = initialHasMoreMessages;
+let loadingOlderMessages = false;
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -1192,6 +1198,23 @@ function replacePendingMessage(pendingId, message) {
     renderMessages(messages);
 }
 
+function mergeMessages(existingMessages, incomingMessages) {
+    const merged = new Map();
+
+    [...existingMessages, ...incomingMessages].forEach((message) => {
+        merged.set(String(message.id), message);
+    });
+
+    return Array.from(merged.values()).sort((left, right) => {
+        const leftTime = Date.parse(left.created_at) || 0;
+        const rightTime = Date.parse(right.created_at) || 0;
+        if (leftTime === rightTime) {
+            return String(left.id).localeCompare(String(right.id));
+        }
+        return leftTime - rightTime;
+    });
+}
+
 function removeMessage(messageId) {
     renderMessages((window.__messagesState || []).filter((item) => item.id !== messageId));
 }
@@ -1358,15 +1381,23 @@ function preserveComposerFocus(event) {
     event.preventDefault();
 }
 
-function applyConversationPayload(payload) {
+function applyConversationPayload(payload, options = {}) {
+    const { appendHistory = false } = options;
+
     if (typeof payload.signature === 'string' && payload.signature !== '') {
         conversationSignature = payload.signature;
         if (preferPolling) {
             conversationPollDelay = FAST_POLL_INTERVAL_MS;
         }
     }
+    if (Object.prototype.hasOwnProperty.call(payload, 'has_more_messages')) {
+        hasMoreMessages = Boolean(payload.has_more_messages);
+    }
     if (Array.isArray(payload.messages)) {
-        renderMessages(payload.messages);
+        const nextMessages = appendHistory
+            ? mergeMessages(payload.messages, window.__messagesState || [])
+            : mergeMessages(window.__messagesState || [], payload.messages);
+        renderMessages(nextMessages);
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
@@ -1399,7 +1430,7 @@ async function refreshConversation() {
             return false;
         }
 
-        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}`, {
+        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1413,6 +1444,44 @@ async function refreshConversation() {
     } catch (error) {
         // Ignore transient refresh errors.
         return null;
+    }
+}
+
+
+async function loadOlderMessages() {
+    if (loadingOlderMessages || !hasMoreMessages) {
+        return;
+    }
+
+    const currentMessages = window.__messagesState || [];
+    const oldestMessage = currentMessages[0];
+    const oldestId = Number(oldestMessage?.id || 0);
+    if (!oldestId) {
+        hasMoreMessages = false;
+        return;
+    }
+
+    loadingOlderMessages = true;
+    const previousScrollHeight = messagesEl.scrollHeight;
+
+    try {
+        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}&before=${oldestId}`, {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            return;
+        }
+
+        applyConversationPayload(await response.json(), { appendHistory: true });
+        requestAnimationFrame(() => {
+            const nextScrollHeight = messagesEl.scrollHeight;
+            messagesEl.scrollTop += nextScrollHeight - previousScrollHeight;
+        });
+    } catch (error) {
+        // Ignore transient history loading errors.
+    } finally {
+        loadingOlderMessages = false;
     }
 }
 
@@ -2031,6 +2100,9 @@ messagesEl.addEventListener('click', (event) => {
 messagesEl.addEventListener('scroll', () => {
     shouldAutoScroll = isNearBottom();
     updateScrollToEndButton();
+    if (messagesEl.scrollTop <= 24) {
+        loadOlderMessages();
+    }
     if (shouldAutoScroll) {
         syncReadStateSoon();
     }
