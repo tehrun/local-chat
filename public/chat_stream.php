@@ -12,6 +12,8 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
     jsonResponse(['error' => 'Conversation not found.'], 404);
 }
 
+session_write_close();
+
 @set_time_limit(0);
 
 header('Content-Type: text/event-stream; charset=UTF-8');
@@ -35,6 +37,10 @@ while (!connection_aborted()) {
         echo "event: conversation\n";
         echo 'data: ' . json_encode($payload, JSON_THROW_ON_ERROR) . "\n\n";
 
+        @ob_flush();
+        flush();
+    } else {
+        echo ": keepalive\n\n";
         @ob_flush();
         flush();
     }
