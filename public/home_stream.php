@@ -16,16 +16,17 @@ header('X-Accel-Buffering: no');
 
 $lastEventId = isset($_SERVER['HTTP_LAST_EVENT_ID']) ? (int) $_SERVER['HTTP_LAST_EVENT_ID'] : 0;
 $eventId = max($lastEventId, 0);
-$lastSignature = '';
+$lastSignature = null;
 $startedAt = time();
 
 while (!connection_aborted()) {
-    $payload = chatListPayload((int) $user['id']);
-    $signature = md5(json_encode($payload, JSON_THROW_ON_ERROR));
+    $signature = chatListStateSignature((int) $user['id']);
 
     if ($signature !== $lastSignature) {
         $eventId++;
         $lastSignature = $signature;
+        $payload = chatListPayload((int) $user['id']);
+        $payload['signature'] = $signature;
 
         echo 'id: ' . $eventId . "\n";
         echo "event: chat-list\n";
