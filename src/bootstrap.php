@@ -281,8 +281,9 @@ function mapUsersWithPresence(array $users): array
 function compareFriendshipPriority(array $candidate, array $current): int
 {
     $priorityMap = [
-        'accepted' => 3,
-        'pending' => 2,
+        'accepted' => 4,
+        'pending' => 3,
+        'revoked' => 2,
         'rejected' => 1,
     ];
 
@@ -468,6 +469,32 @@ function respondToFriendRequest(int $currentUserId, int $otherUserId, string $re
         'responded_at' => gmdate('c'),
         'id' => $friendship['id'],
     ]);
+
+    return null;
+}
+
+function revokeFriendship(int $currentUserId, int $otherUserId): ?string
+{
+    $friendship = friendshipRecord($currentUserId, $otherUserId);
+
+    if ($friendship === null || $friendship['status'] !== 'accepted') {
+        return 'Friendship not found.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE friend_requests
+         SET status = :status,
+             responded_at = :responded_at
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'status' => 'revoked',
+        'responded_at' => gmdate('c'),
+        'id' => $friendship['id'],
+    ]);
+
+    clearTypingStatus($currentUserId, $otherUserId);
+    clearTypingStatus($otherUserId, $currentUserId);
 
     return null;
 }
@@ -727,10 +754,6 @@ function conversationMessages(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
-    if (!canUsersChat($userId, $otherUserId)) {
-        return [];
-    }
-
     return conversationMessagesWithoutMaintenance($userId, $otherUserId);
 }
 
@@ -947,7 +970,7 @@ function conversationPayload(int $userId, int $otherUserId): array
     $otherUser = findUserById($otherUserId);
 
     return [
-        'messages' => $allowed ? conversationMessagesWithoutMaintenance($userId, $otherUserId) : [],
+        'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
         'typing' => $allowed ? isUserTypingWithoutMaintenance($userId, $otherUserId) : false,
         'can_chat' => $allowed,
         'friendship' => friendshipRecord($userId, $otherUserId),

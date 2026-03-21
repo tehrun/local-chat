@@ -118,6 +118,44 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+        .header-icon-button {
+            width: 40px;
+            height: 40px;
+            flex: 0 0 40px;
+            border: none;
+            border-radius: 50%;
+            color: #dff6f1;
+            background: rgba(11, 20, 26, 0.18);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .header-icon-button:hover,
+        .header-icon-button:focus-visible {
+            background: rgba(11, 20, 26, 0.3);
+        }
+        .header-icon-button:active {
+            transform: scale(0.96);
+        }
+        .header-icon-button:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+        .header-icon-button.hidden {
+            visibility: hidden;
+            pointer-events: none;
+        }
+        .header-icon-button svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
         .topbar-meta {
             min-width: 0;
             flex: 1;
@@ -404,6 +442,20 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
                     <span id="header-presence-label"><?= e($otherUser['presence_label'] ?? 'Offline') ?></span>
                 </div>
             </div>
+            <button
+                id="revoke-friendship-button"
+                class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
+                type="button"
+                aria-label="Revoke friendship"
+                title="Revoke friendship"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M17 7A5 5 0 0 0 7 7"></path>
+                    <path d="M12 10v4"></path>
+                    <path d="M9.5 17h5"></path>
+                    <path d="M5 19 19 5"></path>
+                </svg>
+            </button>
         </header>
 
         <?php if (!$canChat): ?>
@@ -450,6 +502,7 @@ const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERRO
 const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
+const initialFriendship = <?= json_encode($friendship, JSON_THROW_ON_ERROR) ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
@@ -460,6 +513,7 @@ const actionButton = document.getElementById('action-button');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
+const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
 let renderedSignature = '';
 let localMessageCounter = 0;
 let typingTimer = null;
@@ -482,6 +536,8 @@ let statusMessage = initialCanChat
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
+let canChat = initialCanChat;
+let friendshipState = initialFriendship;
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -492,13 +548,37 @@ function supportsCapturedVoiceUpload() {
 }
 
 function updatePresence(isOnline, label) {
-    if (!initialCanChat) {
+    if (!canChat) {
         actionButton.disabled = true;
     }
 
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
     headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
+}
+
+function updateFriendshipUi() {
+    const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
+    canChat = isAccepted;
+    actionButton.disabled = !canChat || isSending;
+    bodyEl.disabled = !canChat;
+    revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
+
+    if (isAccepted) {
+        if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
+            showHint('Type a message or tap the microphone for a voice note.');
+        }
+        return;
+    }
+
+    if (typingActive) {
+        typingActive = false;
+        clearTimeout(typingTimer);
+    }
+
+    if (!isSending && statusState !== 'recording') {
+        showHint('Friendship revoked. Message history is still visible, but sending is disabled.');
+    }
 }
 
 function markUserInteraction() {
@@ -695,7 +775,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint('Type a message or tap the microphone for a voice note.');
+        showHint(canChat ? 'Type a message or tap the microphone for a voice note.' : 'Friendship revoked. Message history is still visible, but sending is disabled.');
         return;
     }
 
@@ -864,7 +944,14 @@ function applyConversationPayload(payload) {
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.label);
     }
-    setTypingVisible(Boolean(payload.typing));
+    if (Object.prototype.hasOwnProperty.call(payload, 'can_chat')) {
+        canChat = Boolean(payload.can_chat);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'friendship')) {
+        friendshipState = payload.friendship;
+        updateFriendshipUi();
+    }
+    setTypingVisible(Boolean(payload.typing) && canChat);
 }
 
 async function refreshConversation() {
@@ -1009,6 +1096,10 @@ function clearTypingSoon() {
 }
 
 function markTyping() {
+    if (!canChat) {
+        return;
+    }
+
     if (bodyEl.value.trim() === '') {
         if (typingActive) {
             typingActive = false;
@@ -1028,6 +1119,10 @@ function markTyping() {
 
 async function sendTextMessage() {
     const body = bodyEl.value.trim();
+    if (!canChat) {
+        showError('Friendship revoked. You cannot send new messages until you are friends again.');
+        return;
+    }
     if (!body || isSending) {
         return;
     }
@@ -1180,6 +1275,10 @@ async function openVoiceFallbackPicker() {
 }
 
 async function startRecording() {
+    if (!canChat) {
+        showError('Friendship revoked. You cannot send new messages until you are friends again.');
+        return;
+    }
     if (bodyEl.value.trim() !== '' || isSending || recordingMode) {
         return;
     }
@@ -1329,6 +1428,41 @@ messagesEl.addEventListener('scroll', () => {
     }
 });
 
+revokeFriendshipButton.addEventListener('click', async () => {
+    markUserInteraction();
+    if (!friendshipState || friendshipState.status !== 'accepted' || isSending) {
+        return;
+    }
+
+    const confirmed = window.confirm(`Revoke friendship with ${otherUserName}? Existing messages will stay, but both of you will not be able to send new messages.`);
+    if (!confirmed) {
+        return;
+    }
+
+    revokeFriendshipButton.disabled = true;
+
+    try {
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'revoke_friendship' }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not revoke friendship right now.');
+            return;
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint('Friendship revoked. Message history is still visible, but sending is disabled.');
+    } catch (error) {
+        showError('Could not revoke friendship right now. Please try again.');
+    } finally {
+        revokeFriendshipButton.disabled = false;
+    }
+});
+
 actionButton.addEventListener('click', async () => {
     markUserInteraction();
     if (bodyEl.value.trim() !== '') {
@@ -1370,6 +1504,7 @@ updateComposerDirection();
 updateActionButton();
 renderMessages(initialMessages);
 updatePresence(initialPresence, initialPresenceLabel);
+updateFriendshipUi();
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
