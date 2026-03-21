@@ -22,16 +22,16 @@ header('X-Accel-Buffering: no');
 
 $lastEventId = isset($_SERVER['HTTP_LAST_EVENT_ID']) ? (int) $_SERVER['HTTP_LAST_EVENT_ID'] : 0;
 $eventId = max($lastEventId, 0);
-$lastSignature = '';
+$lastSignature = null;
 $startedAt = time();
 
 while (!connection_aborted()) {
-    $payload = conversationPayload((int) $user['id'], $otherUserId);
-    $signature = md5(json_encode($payload, JSON_THROW_ON_ERROR));
+    $signature = conversationStateSignature((int) $user['id'], $otherUserId);
 
     if ($signature !== $lastSignature) {
         $eventId++;
         $lastSignature = $signature;
+        $payload = conversationPayload((int) $user['id'], $otherUserId);
 
         echo 'id: ' . $eventId . "\n";
         echo "event: conversation\n";

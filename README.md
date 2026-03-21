@@ -23,7 +23,7 @@ A lightweight PHP private chat app using SQLite by default, with optional MySQL 
 php -S 127.0.0.1:8000 -t public
 ```
 
-Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, the chat UI automatically falls back to short polling instead of Server-Sent Events so message sends do not get blocked by the single-worker server. On phones, install the app behind HTTPS or use a secure local tunnel so the browser can grant microphone access for hold-to-record voice notes.
+Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, the chat UI automatically falls back to short polling instead of Server-Sent Events so message sends do not get blocked by the single-worker server. On regular multi-worker hosting, the conversation page keeps a single SSE connection open and now checks a lightweight conversation signature before reloading the full payload, which cuts down repeated message reads against the database. On phones, install the app behind HTTPS or use a secure local tunnel so the browser can grant microphone access for hold-to-record voice notes.
 
 ## Storage
 
