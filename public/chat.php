@@ -343,7 +343,11 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         .action-button svg {
             width: 24px;
             height: 24px;
-            fill: currentColor;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         .action-button:active,
         .action-button.recording {
@@ -470,7 +474,14 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"></textarea>
                 <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
-                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
+                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
+                        <path d="M18 11.25a6 6 0 0 1-12 0"></path>
+                        <path d="M12 17.25V20"></path>
+                        <path d="M9.5 20h5"></path>
+                    </svg>
+                </button>
             </div>
         </div>
 
@@ -696,15 +707,19 @@ function handleIncomingMessages(previousMessages, nextMessages) {
 const buttonIcons = {
     send: `
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M3.4 20.4 20.85 12 3.4 3.6v6.53l12.47 1.87-12.47 1.87z"></path>
+            <path d="M4 12 19 5l-3.5 14-4.5-5-7-.5Z"></path>
+            <path d="M10.5 13.5 19 5"></path>
         </svg>`,
     mic: `
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 15a3.75 3.75 0 0 0 3.75-3.75V6.75a3.75 3.75 0 0 0-7.5 0v4.5A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 0-1.5 0 4.5 4.5 0 0 1-9 0 .75.75 0 0 0-1.5 0 6.01 6.01 0 0 0 5.25 5.95v2.05H9a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-2.25V17.2A6.01 6.01 0 0 0 18 11.25Z"></path>
+            <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
+            <path d="M18 11.25a6 6 0 0 1-12 0"></path>
+            <path d="M12 17.25V20"></path>
+            <path d="M9.5 20h5"></path>
         </svg>`,
     stop: `
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M7 7h10v10H7z"></path>
+            <rect x="7" y="7" width="10" height="10" rx="1.5"></rect>
         </svg>`,
 };
 

@@ -9,20 +9,24 @@ purgeExpiredMessages();
 $errors = [];
 $notice = null;
 $user = currentUser();
+$authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'register') {
+        $authMode = 'register';
         $error = registerUser($_POST['username'] ?? '', $_POST['password'] ?? '');
         if ($error !== null) {
             $errors[] = $error;
         } else {
             $notice = 'Registration successful. Please sign in.';
+            $authMode = 'login';
         }
     }
 
     if ($action === 'login') {
+        $authMode = 'login';
         $error = loginUser($_POST['username'] ?? '', $_POST['password'] ?? '');
         if ($error !== null) {
             $errors[] = $error;
@@ -41,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $user = currentUser();
 $users = $user ? allOtherUsers((int) $user['id']) : [];
+$chatUsers = $user ? chattedUsers((int) $user['id']) : [];
 $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 ?>
 <!DOCTYPE html>
@@ -301,6 +306,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         button.primary { background: var(--action); color: #fff; }
         button.secondary { background: #dfe5e7; color: #244047; }
+        .auth-switch {
+            margin-top: 14px;
+            text-align: center;
+            font-size: 14px;
+            color: var(--muted);
+        }
+        .auth-switch a {
+            color: var(--header);
+            font-weight: 700;
+            text-decoration: none;
+        }
         .helper-row {
             display: inline-flex;
             align-items: center;
@@ -317,7 +333,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             background: var(--action);
             flex-shrink: 0;
         }
-
         .floating-chat-launcher {
             position: fixed;
             right: max(18px, calc(env(safe-area-inset-right, 0px) + 18px));
@@ -442,46 +457,48 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             <?php if ($user === null): ?>
                 <section class="auth-grid">
                     <div class="card">
-                        <h2 class="panel-title">Create account</h2>
-                        <form method="post">
-                            <input type="hidden" name="action" value="register">
-                            <label>
-                                Username
-                                <input type="text" name="username" minlength="3" required>
-                            </label>
-                            <label>
-                                Password
-                                <input type="password" name="password" minlength="6" required>
-                            </label>
-                            <button class="primary" type="submit">Register</button>
-                        </form>
-                    </div>
-
-                    <div class="card">
-                        <h2 class="panel-title">Sign in</h2>
-                        <form method="post">
-                            <input type="hidden" name="action" value="login">
-                            <label>
-                                Username
-                                <input type="text" name="username" required>
-                            </label>
-                            <label>
-                                Password
-                                <input type="password" name="password" required>
-                            </label>
-                            <button class="secondary" type="submit">Login</button>
-                        </form>
+                        <?php if ($authMode === 'register'): ?>
+                            <h2 class="panel-title">Create account</h2>
+                            <form method="post">
+                                <input type="hidden" name="action" value="register">
+                                <label>
+                                    Username
+                                    <input type="text" name="username" minlength="3" required>
+                                </label>
+                                <label>
+                                    Password
+                                    <input type="password" name="password" minlength="6" required>
+                                </label>
+                                <button class="primary" type="submit">Register</button>
+                            </form>
+                            <p class="auth-switch">Already have an account? <a href="/">Sign in</a></p>
+                        <?php else: ?>
+                            <h2 class="panel-title">Sign in</h2>
+                            <form method="post">
+                                <input type="hidden" name="action" value="login">
+                                <label>
+                                    Username
+                                    <input type="text" name="username" required>
+                                </label>
+                                <label>
+                                    Password
+                                    <input type="password" name="password" required>
+                                </label>
+                                <button class="secondary" type="submit">Login</button>
+                            </form>
+                            <p class="auth-switch">Don&apos;t have an account? <a href="/?auth=register">Create one</a></p>
+                        <?php endif; ?>
                     </div>
                 </section>
             <?php else: ?>
                 <section class="chat-list" id="chat-list">
-                    <?php if ($users === []): ?>
+                    <?php if ($chatUsers === []): ?>
                         <div class="card" id="chat-list-empty">
                             <h2 class="panel-title">No chats yet</h2>
-                            <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
+                            <p class="panel-text">Start a conversation from the magnifier button to see it here.</p>
                         </div>
                     <?php else: ?>
-                        <?php foreach ($users as $chatUser): ?>
+                        <?php foreach ($chatUsers as $chatUser): ?>
                             <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
                             <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="/chat.php?user=<?= (int) $chatUser['id'] ?>">
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
@@ -510,7 +527,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 </div>
 
 <?php if ($user !== null): ?>
-    <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Open chats">
+    <button class="floating-chat-launcher" id="chat-switcher-toggle" type="button" aria-label="Find users">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <circle cx="11" cy="11" r="6"></circle>
             <path d="m20 20-4.35-4.35"></path>
@@ -519,8 +536,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <div class="chat-switcher" id="chat-switcher" hidden>
         <div class="chat-switcher-panel" role="dialog" aria-modal="true" aria-labelledby="chat-switcher-title">
             <div class="chat-switcher-header">
-                <h2 id="chat-switcher-title">Your chats</h2>
-                <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close chat list">×</button>
+                <h2 id="chat-switcher-title">All users</h2>
+                <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close user list">×</button>
             </div>
             <div class="chat-switcher-list" id="chat-switcher-list"></div>
         </div>
@@ -528,13 +545,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 <?php endif; ?>
 <script>
 const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
-const initialChatUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
+const initialChatUsers = <?= json_encode($chatUsers, JSON_THROW_ON_ERROR) ?>;
+const initialDirectoryUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
 let chatListStream = null;
 let chatListReconnectTimer = null;
 let chatListPollTimer = null;
 let chatListSignature = '';
+let directorySignature = '';
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
 
@@ -542,6 +561,41 @@ const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
 const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
+
+function renderUserEntries(users, includeUnseenCount) {
+    if (!Array.isArray(users) || users.length === 0) {
+        return '';
+    }
+
+    return users.map((chatUser) => {
+        const userId = Number(chatUser.id);
+        const unseenCount = Number(chatUser.unseen_count || 0);
+        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const username = escapeHtml(chatUser.username || '');
+        const presenceClass = chatUser.is_online ? ' online' : '';
+        const countClass = unseenCount > 0 ? '' : ' is-empty';
+        const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
+        const countMarkup = includeUnseenCount
+            ? `<span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>`
+            : '';
+
+        return `
+            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="chat-copy">
+                    <div class="chat-copy-head">
+                        <strong>${username}</strong>
+                        <span class="presence-badge">
+                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
+                            <span data-role="presence-label">${presenceLabel}</span>
+                        </span>
+                    </div>
+                </div>
+                ${countMarkup}
+            </a>`;
+    }).join('');
+}
 
 function renderChatSwitcher(users) {
     if (!chatSwitcherListEl) {
@@ -551,33 +605,13 @@ function renderChatSwitcher(users) {
     if (!Array.isArray(users) || users.length === 0) {
         chatSwitcherListEl.innerHTML = `
             <div class="card">
-                <h2 class="panel-title">No chats yet</h2>
-                <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
+                <h2 class="panel-title">No other users yet</h2>
+                <p class="panel-text">Create another account on this network to start chatting.</p>
             </div>`;
         return;
     }
 
-    chatSwitcherListEl.innerHTML = users.map((chatUser) => {
-        const userId = Number(chatUser.id);
-        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
-        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
-        const username = escapeHtml(chatUser.username || '');
-        const presenceClass = chatUser.is_online ? ' online' : '';
-
-        return `
-            <a class="chat-item" href="/chat.php?user=${userId}">
-                <div class="avatar">${avatar}</div>
-                <div class="chat-copy">
-                    <div class="chat-copy-head">
-                        <strong>${username}</strong>
-                        <span class="presence-badge">
-                            <span class="dot${presenceClass}" aria-hidden="true"></span>
-                            <span>${presenceLabel}</span>
-                        </span>
-                    </div>
-                </div>
-            </a>`;
-    }).join('');
+    chatSwitcherListEl.innerHTML = renderUserEntries(users, false);
 }
 
 function setChatSwitcherOpen(isOpen) {
@@ -607,50 +641,29 @@ function renderChatList(users) {
         chatListEl.innerHTML = `
             <div class="card" id="chat-list-empty">
                 <h2 class="panel-title">No chats yet</h2>
-                <p class="panel-text">You will see people here after you have exchanged messages with them.</p>
+                <p class="panel-text">Start a conversation from the magnifier button to see it here.</p>
             </div>`;
         return;
     }
 
-    chatListEl.innerHTML = users.map((chatUser) => {
-        const userId = Number(chatUser.id);
-        const unseenCount = Number(chatUser.unseen_count || 0);
-        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
-        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
-        const username = escapeHtml(chatUser.username || '');
-        const presenceClass = chatUser.is_online ? ' online' : '';
-        const countClass = unseenCount > 0 ? '' : ' is-empty';
-        const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
-        const countText = unseenCount > 0 ? String(unseenCount) : '';
-
-        return `
-            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
-                <div class="avatar">${avatar}</div>
-                <div class="chat-copy">
-                    <div class="chat-copy-head">
-                        <strong>${username}</strong>
-                        <span class="presence-badge">
-                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
-                            <span data-role="presence-label">${presenceLabel}</span>
-                        </span>
-                    </div>
-                </div>
-                <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${countText}</span>
-            </a>`;
-    }).join('');
+    chatListEl.innerHTML = renderUserEntries(users, true);
 }
 
 function applyChatListPayload(payload) {
-    const users = Array.isArray(payload?.users) ? payload.users : [];
-    const signature = JSON.stringify(users);
+    const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
+    const directoryUsers = Array.isArray(payload?.directory_users) ? payload.directory_users : [];
+    const nextChatSignature = JSON.stringify(chatUsers);
+    const nextDirectorySignature = JSON.stringify(directoryUsers);
 
-    if (signature === chatListSignature) {
-        return;
+    if (nextChatSignature !== chatListSignature) {
+        chatListSignature = nextChatSignature;
+        renderChatList(chatUsers);
     }
 
-    chatListSignature = signature;
-    renderChatList(users);
-    renderChatSwitcher(users);
+    if (nextDirectorySignature !== directorySignature) {
+        directorySignature = nextDirectorySignature;
+        renderChatSwitcher(directoryUsers);
+    }
 }
 
 async function fetchChatList() {
@@ -708,7 +721,7 @@ function connectChatListStream() {
     };
 }
 
-applyChatListPayload({ users: initialChatUsers });
+applyChatListPayload({ chat_users: initialChatUsers, directory_users: initialDirectoryUsers });
 connectChatListStream();
 
 if ('serviceWorker' in navigator) {
