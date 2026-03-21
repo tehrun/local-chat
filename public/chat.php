@@ -42,12 +42,15 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         body {
             margin: 0;
             min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
         }
         .app {
             min-height: 100vh;
+            height: 100vh;
             display: flex;
             flex-direction: column;
             max-width: 720px;
@@ -56,6 +59,7 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         }
         .chat-shell {
             min-height: 100vh;
+            height: 100vh;
             display: flex;
             flex-direction: column;
             background: transparent;
@@ -104,9 +108,11 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             overflow-y: auto;
             display: flex;
             flex-direction: column;
+            justify-content: flex-end;
             gap: 10px;
             padding: 6px 4px 18px;
             scroll-behavior: smooth;
+            overscroll-behavior: contain;
         }
         .empty-state,
         .message {
@@ -200,7 +206,7 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         }
         .composer {
             display: flex;
-            align-items: flex-end;
+            align-items: center;
             gap: 10px;
             background: var(--composer);
             border-radius: 26px;
@@ -212,11 +218,12 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             border: none;
             background: transparent;
             resize: none;
-            min-height: 24px;
+            min-height: 44px;
             max-height: 110px;
             font: inherit;
+            line-height: 1.4;
             color: var(--text);
-            padding: 6px 4px;
+            padding: 11px 4px 9px;
             outline: none;
         }
         .action-button {
@@ -327,8 +334,8 @@ function escapeHtml(value) {
 }
 
 function autoResizeComposer() {
-    bodyEl.style.height = '24px';
-    bodyEl.style.height = `${Math.min(bodyEl.scrollHeight, 110)}px`;
+    bodyEl.style.height = '44px';
+    bodyEl.style.height = `${Math.max(44, Math.min(bodyEl.scrollHeight, 110))}px`;
 }
 
 function renderStatus() {
