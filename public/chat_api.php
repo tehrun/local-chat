@@ -13,9 +13,14 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
+$canChat = canUsersChat((int) $user['id'], $otherUserId);
 
 if ($action === 'messages') {
     jsonResponse(conversationPayload((int) $user['id'], $otherUserId));
+}
+
+if (!$canChat) {
+    jsonResponse(['error' => 'You can only chat after the friend request is accepted.'], 403);
 }
 
 if ($action === 'typing') {

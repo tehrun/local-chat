@@ -110,6 +110,30 @@ function initializeDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_user_presence_updated
          ON user_presence (updated_at)'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS friend_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            recipient_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            responded_at TEXT,
+            UNIQUE(sender_id, recipient_id),
+            FOREIGN KEY(sender_id) REFERENCES users(id),
+            FOREIGN KEY(recipient_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient_status
+         ON friend_requests (recipient_id, status, created_at)'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_status
+         ON friend_requests (sender_id, status, created_at)'
+    );
 }
 
 function purgeExpiredMessages(bool $force = false): void
@@ -234,6 +258,199 @@ function mapUsersWithPresence(array $users): array
     }, $users);
 }
 
+function friendshipStatuses(int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT sender_id, recipient_id, status
+         FROM friend_requests
+         WHERE sender_id = :id OR recipient_id = :id'
+    );
+    $stmt->execute(['id' => $currentUserId]);
+
+    $statuses = [];
+
+    foreach ($stmt->fetchAll() as $request) {
+        $senderId = (int) $request['sender_id'];
+        $recipientId = (int) $request['recipient_id'];
+        $otherUserId = $senderId === $currentUserId ? $recipientId : $senderId;
+        $status = (string) $request['status'];
+
+        $statuses[$otherUserId] = [
+            'friendship_status' => $status,
+            'can_chat' => $status === 'accepted',
+            'request_direction' => $senderId === $currentUserId ? 'outgoing' : 'incoming',
+        ];
+    }
+
+    return $statuses;
+}
+
+function decorateUsersWithFriendship(array $users, int $currentUserId): array
+{
+    $statuses = friendshipStatuses($currentUserId);
+
+    return array_map(static function (array $user) use ($statuses): array {
+        $friendship = $statuses[(int) $user['id']] ?? [
+            'friendship_status' => 'none',
+            'can_chat' => false,
+            'request_direction' => null,
+        ];
+
+        return array_merge($user, $friendship);
+    }, $users);
+}
+
+function friendshipRecord(int $userId, int $otherUserId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM friend_requests
+         WHERE (sender_id = :user_id AND recipient_id = :other_user_id)
+            OR (sender_id = :other_user_id AND recipient_id = :user_id)
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    $request = $stmt->fetch() ?: null;
+
+    if ($request === null) {
+        return null;
+    }
+
+    $senderId = (int) $request['sender_id'];
+
+    return [
+        'id' => (int) $request['id'],
+        'sender_id' => $senderId,
+        'recipient_id' => (int) $request['recipient_id'],
+        'status' => (string) $request['status'],
+        'created_at' => (string) $request['created_at'],
+        'responded_at' => $request['responded_at'],
+        'can_chat' => (string) $request['status'] === 'accepted',
+        'request_direction' => $senderId === $userId ? 'outgoing' : 'incoming',
+    ];
+}
+
+function canUsersChat(int $userId, int $otherUserId): bool
+{
+    $friendship = friendshipRecord($userId, $otherUserId);
+
+    return $friendship !== null && $friendship['status'] === 'accepted';
+}
+
+function sendFriendRequest(int $senderId, int $recipientId): ?string
+{
+    if ($senderId === $recipientId) {
+        return 'You cannot add yourself.';
+    }
+
+    $friendship = friendshipRecord($senderId, $recipientId);
+
+    if ($friendship !== null) {
+        if ($friendship['status'] === 'accepted') {
+            return 'You are already friends and can start chatting.';
+        }
+
+        if ($friendship['status'] === 'pending') {
+            if ($friendship['request_direction'] === 'outgoing') {
+                return 'Friend request already sent.';
+            }
+
+            return 'This user already asked to add you. Accept the request from your notifications.';
+        }
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO friend_requests (sender_id, recipient_id, status, created_at, responded_at)
+         VALUES (:sender_id, :recipient_id, :status, :created_at, NULL)
+         ON CONFLICT(sender_id, recipient_id)
+         DO UPDATE SET status = excluded.status,
+                       created_at = excluded.created_at,
+                       responded_at = NULL'
+    );
+    $stmt->execute([
+        'sender_id' => $senderId,
+        'recipient_id' => $recipientId,
+        'status' => 'pending',
+        'created_at' => gmdate('c'),
+    ]);
+
+    return null;
+}
+
+function respondToFriendRequest(int $currentUserId, int $otherUserId, string $response): ?string
+{
+    if (!in_array($response, ['accepted', 'rejected'], true)) {
+        return 'Unsupported response.';
+    }
+
+    $friendship = friendshipRecord($currentUserId, $otherUserId);
+
+    if ($friendship === null || $friendship['status'] !== 'pending' || $friendship['request_direction'] !== 'incoming') {
+        return 'Friend request not found.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE friend_requests
+         SET status = :status,
+             responded_at = :responded_at
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'status' => $response,
+        'responded_at' => gmdate('c'),
+        'id' => $friendship['id'],
+    ]);
+
+    return null;
+}
+
+function incomingFriendRequests(int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT fr.id,
+                fr.sender_id,
+                fr.recipient_id,
+                fr.status,
+                fr.created_at,
+                u.username AS sender_name,
+                up.updated_at AS presence_updated_at
+         FROM friend_requests fr
+         JOIN users u ON u.id = fr.sender_id
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         WHERE fr.recipient_id = :id
+           AND fr.status = :status
+         ORDER BY fr.created_at DESC, fr.id DESC'
+    );
+    $stmt->execute([
+        'id' => $currentUserId,
+        'status' => 'pending',
+    ]);
+
+    return array_map(static function (array $request): array {
+        $request['id'] = (int) $request['id'];
+        $request['sender_id'] = (int) $request['sender_id'];
+        $request['recipient_id'] = (int) $request['recipient_id'];
+        $request['is_online'] = isset($request['presence_updated_at'])
+            && strtotime((string) $request['presence_updated_at']) !== false
+            && strtotime((string) $request['presence_updated_at']) >= (time() - PRESENCE_TTL_SECONDS);
+        $request['presence_label'] = presenceLabel($request['presence_updated_at'] ?? null);
+        $request['created_at_label'] = gmdate('Y-m-d H:i:s', strtotime((string) $request['created_at'])) . ' UTC';
+
+        return $request;
+    }, $stmt->fetchAll());
+}
+
+function friendRequestsPayload(int $currentUserId): array
+{
+    return [
+        'incoming_requests' => incomingFriendRequests($currentUserId),
+    ];
+}
+
 function chattedUsers(int $currentUserId): array
 {
     $stmt = db()->prepare(
@@ -257,7 +474,7 @@ function chattedUsers(int $currentUserId): array
     );
     $stmt->execute(['id' => $currentUserId]);
 
-    return mapUsersWithPresence($stmt->fetchAll());
+    return decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
 }
 
 function allOtherUsers(int $currentUserId): array
@@ -285,7 +502,7 @@ function allOtherUsers(int $currentUserId): array
     );
     $stmt->execute(['id' => $currentUserId]);
 
-    return mapUsersWithPresence($stmt->fetchAll());
+    return decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
 }
 
 function chatListPayload(int $currentUserId): array
@@ -296,6 +513,7 @@ function chatListPayload(int $currentUserId): array
     return [
         'chat_users' => chattedUsers($currentUserId),
         'directory_users' => allOtherUsers($currentUserId),
+        'incoming_requests' => incomingFriendRequests($currentUserId),
     ];
 }
 
@@ -405,6 +623,10 @@ function conversationMessages(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
+    if (!canUsersChat($userId, $otherUserId)) {
+        return [];
+    }
+
     return conversationMessagesWithoutMaintenance($userId, $otherUserId);
 }
 
@@ -430,6 +652,10 @@ function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): 
 function sendTextMessage(int $senderId, int $recipientId, string $body): array|string|null
 {
     purgeExpiredMessages();
+
+    if (!canUsersChat($senderId, $recipientId)) {
+        return 'You can only message users after they accept your friend request.';
+    }
 
     $body = trim($body);
     if ($body === '') {
@@ -499,6 +725,10 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
 {
     purgeExpiredMessages();
 
+    if (!canUsersChat($senderId, $recipientId)) {
+        return 'You can only message users after they accept your friend request.';
+    }
+
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return 'Voice upload failed. Please attach an audio file.';
     }
@@ -543,6 +773,10 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
 function updateTypingStatus(int $userId, int $otherUserId): void
 {
     purgeExpiredMessages();
+
+    if (!canUsersChat($userId, $otherUserId)) {
+        return;
+    }
 
     $stmt = db()->prepare(
         'INSERT INTO typing_status (user_id, conversation_user_id, updated_at)
@@ -600,12 +834,19 @@ function conversationPayload(int $userId, int $otherUserId): array
     purgeExpiredMessages();
 
     touchUserPresence($userId);
-    markMessagesDelivered($userId, $otherUserId);
+    $allowed = canUsersChat($userId, $otherUserId);
+
+    if ($allowed) {
+        markMessagesDelivered($userId, $otherUserId);
+    }
+
     $otherUser = findUserById($otherUserId);
 
     return [
-        'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
-        'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+        'messages' => $allowed ? conversationMessagesWithoutMaintenance($userId, $otherUserId) : [],
+        'typing' => $allowed ? isUserTypingWithoutMaintenance($userId, $otherUserId) : false,
+        'can_chat' => $allowed,
+        'friendship' => friendshipRecord($userId, $otherUserId),
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'label' => $otherUser['presence_label'] ?? 'Offline',
