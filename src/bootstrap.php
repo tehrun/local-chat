@@ -224,10 +224,18 @@ function requireAuth(): array
 function allOtherUsers(int $currentUserId): array
 {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.created_at, up.updated_at AS presence_updated_at
+        'SELECT u.id,
+                u.username,
+                u.created_at,
+                up.updated_at AS presence_updated_at,
+                COUNT(m.id) AS unseen_count
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
+         LEFT JOIN messages m ON m.sender_id = u.id
+            AND m.recipient_id = :id
+            AND m.read_at IS NULL
          WHERE u.id != :id
+         GROUP BY u.id, u.username, u.created_at, up.updated_at
          ORDER BY username ASC'
     );
     $stmt->execute(['id' => $currentUserId]);
@@ -237,6 +245,7 @@ function allOtherUsers(int $currentUserId): array
             && strtotime((string) $user['presence_updated_at']) !== false
             && strtotime((string) $user['presence_updated_at']) >= (time() - PRESENCE_TTL_SECONDS);
         $user['presence_label'] = presenceLabel($user['presence_updated_at'] ?? null);
+        $user['unseen_count'] = (int) ($user['unseen_count'] ?? 0);
 
         return $user;
     }, $stmt->fetchAll());
