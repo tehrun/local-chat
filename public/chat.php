@@ -450,10 +450,9 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
                 title="Revoke friendship"
             >
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M17 7A5 5 0 0 0 7 7"></path>
-                    <path d="M12 10v4"></path>
-                    <path d="M9.5 17h5"></path>
-                    <path d="M5 19 19 5"></path>
+                    <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M17 11h4"></path>
                 </svg>
             </button>
         </header>
