@@ -47,4 +47,18 @@ if ($action === 'send_text') {
     ]);
 }
 
+if ($action === 'send_voice') {
+    $error = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
+
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'messages' => conversationMessages((int) $user['id'], $otherUserId),
+        'typing' => isUserTyping((int) $user['id'], $otherUserId),
+    ]);
+}
+
 jsonResponse(['error' => 'Unsupported action.'], 400);

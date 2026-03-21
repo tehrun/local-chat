@@ -13,22 +13,6 @@ if ($otherUser === null || $otherUser['id'] === $user['id']) {
     exit;
 }
 
-$errors = [];
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'send_voice') {
-        $error = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
-        if ($error !== null) {
-            $errors[] = $error;
-        } else {
-            header('Location: /chat.php?user=' . $otherUserId);
-            exit;
-        }
-    }
-}
-
 $messages = conversationMessages((int) $user['id'], $otherUserId);
 $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 ?>
@@ -36,195 +20,298 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Chat with <?= e($otherUser['username']) ?></title>
     <style>
+        :root {
+            color-scheme: light;
+            --bg: #efeae2;
+            --panel: #f7f5f1;
+            --header: #075e54;
+            --composer: #f0f2f5;
+            --mine: #dcf8c6;
+            --theirs: #ffffff;
+            --text: #111b21;
+            --muted: #667781;
+            --action: #25d366;
+            --action-active: #128c7e;
+            --danger: #b42318;
+            --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
+        }
+        * { box-sizing: border-box; }
         body {
             margin: 0;
-            background: #eef2ff;
+            min-height: 100vh;
             font-family: Arial, sans-serif;
-            color: #111827;
+            background: var(--bg);
+            color: var(--text);
         }
-        .container {
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 24px;
-        }
-        .card {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 12px 40px rgba(15, 23, 42, 0.1);
-            padding: 24px;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-        .messages {
+        .app {
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
-            gap: 14px;
-            margin-bottom: 12px;
-            max-height: 460px;
+            max-width: 720px;
+            margin: 0 auto;
+            background: linear-gradient(180deg, #0b141a 0, #0b141a 72px, var(--bg) 72px);
+        }
+        .chat-shell {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: transparent;
+        }
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 14px;
+            background: var(--header);
+            color: #fff;
+            box-shadow: var(--shadow);
+        }
+        .back-link {
+            color: #dff6f1;
+            text-decoration: none;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .topbar-meta {
+            min-width: 0;
+            flex: 1;
+        }
+        .topbar-meta h1 {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.2;
+        }
+        .topbar-meta p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #d7efe8;
+        }
+        .conversation {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 14px 12px 0;
+        }
+        .messages {
+            flex: 1;
             overflow-y: auto;
-            padding-right: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 6px 4px 18px;
+            scroll-behavior: smooth;
+        }
+        .empty-state,
+        .message {
+            max-width: min(82%, 420px);
+            border-radius: 18px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+            word-break: break-word;
+        }
+        .empty-state {
+            max-width: 100%;
+            align-self: center;
+            background: rgba(255,255,255,0.72);
+            color: var(--muted);
+            text-align: center;
+            margin-top: 16px;
         }
         .message {
-            max-width: 75%;
-            padding: 14px;
-            border-radius: 14px;
-            background: #f3f4f6;
+            background: var(--theirs);
+            align-self: flex-start;
         }
-        .mine {
+        .message.mine {
+            background: var(--mine);
             align-self: flex-end;
-            background: #dbeafe;
         }
-        textarea, input[type="file"], button {
-            width: 100%;
-            box-sizing: border-box;
-            margin-bottom: 12px;
-            border-radius: 10px;
-            border: 1px solid #d1d5db;
-            padding: 12px;
+        .message-text {
+            white-space: pre-wrap;
+            line-height: 1.45;
             font-size: 15px;
         }
-        textarea { min-height: 110px; resize: vertical; }
-        button {
-            border: none;
-            background: #2563eb;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
+        .message audio {
+            width: min(240px, 100%);
+            margin-top: 6px;
         }
-        button:disabled {
-            opacity: 0.7;
-            cursor: wait;
+        .meta {
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--muted);
+            text-align: right;
         }
-        .grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
+        .status-row {
+            min-height: 28px;
+            display: flex;
+            align-items: center;
+            padding: 0 4px 10px;
         }
-        .alert {
-            padding: 12px 14px;
-            border-radius: 10px;
-            margin-bottom: 12px;
-            background: #fee2e2;
-            color: #991b1b;
-        }
-        .status {
-            min-height: 24px;
-            margin-bottom: 12px;
-            color: #4b5563;
-            font-size: 14px;
-        }
-        .typing {
+        .typing-pill,
+        .recording-pill,
+        .hint-pill,
+        .error-pill {
+            border-radius: 999px;
+            padding: 7px 12px;
+            font-size: 13px;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: #eef2ff;
-            color: #3730a3;
-            border-radius: 999px;
-            padding: 8px 12px;
         }
-        .dot-group {
-            display: inline-flex;
-            gap: 4px;
+        .typing-pill,
+        .hint-pill {
+            background: rgba(255, 255, 255, 0.82);
+            color: #41525d;
         }
+        .recording-pill {
+            background: #fee4e2;
+            color: var(--danger);
+        }
+        .error-pill {
+            background: #fef3f2;
+            color: var(--danger);
+        }
+        .dot-group { display: inline-flex; gap: 4px; }
         .dot {
             width: 6px;
             height: 6px;
             border-radius: 999px;
-            background: #3730a3;
+            background: currentColor;
             animation: pulse 1.2s infinite ease-in-out;
         }
         .dot:nth-child(2) { animation-delay: 0.15s; }
         .dot:nth-child(3) { animation-delay: 0.3s; }
         @keyframes pulse {
-            0%, 80%, 100% { opacity: 0.35; transform: scale(0.85); }
+            0%, 80%, 100% { opacity: 0.35; transform: scale(0.8); }
             40% { opacity: 1; transform: scale(1); }
         }
-        a { color: #1d4ed8; text-decoration: none; }
-        .meta {
-            font-size: 12px;
-            color: #6b7280;
-            margin-bottom: 8px;
+        .composer-wrap {
+            position: sticky;
+            bottom: 0;
+            z-index: 4;
+            padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+            background: linear-gradient(180deg, rgba(239,234,226,0) 0%, rgba(239,234,226,0.96) 18%, rgba(239,234,226,1) 45%);
         }
-        @media (max-width: 800px) {
-            .grid { grid-template-columns: 1fr; }
-            .message { max-width: 100%; }
-            .header { flex-direction: column; align-items: start; }
+        .composer {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            background: var(--composer);
+            border-radius: 26px;
+            padding: 10px;
+            box-shadow: var(--shadow);
+        }
+        .composer textarea {
+            flex: 1;
+            border: none;
+            background: transparent;
+            resize: none;
+            min-height: 24px;
+            max-height: 110px;
+            font: inherit;
+            color: var(--text);
+            padding: 6px 4px;
+            outline: none;
+        }
+        .action-button {
+            border: none;
+            width: 52px;
+            height: 52px;
+            flex: 0 0 52px;
+            border-radius: 50%;
+            background: var(--action);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 22px;
+            box-shadow: 0 8px 18px rgba(37, 211, 102, 0.28);
+            transition: transform 0.15s ease, background 0.15s ease;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+        .action-button:active,
+        .action-button.recording {
+            transform: scale(0.96);
+            background: var(--action-active);
+        }
+        .action-button:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+        .composer-help {
+            margin: 8px 6px 0;
+            font-size: 12px;
+            color: var(--muted);
+            text-align: center;
+        }
+        @media (min-width: 721px) {
+            .app {
+                min-height: 100vh;
+                box-shadow: var(--shadow);
+            }
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <div class="card">
-        <div class="header">
-            <div>
-                <a href="/">&larr; Back to users</a>
-                <h1>Chat with <?= e($otherUser['username']) ?></h1>
-                <p>Messages and voice notes are private and automatically deleted after 24 hours.</p>
+<div class="app">
+    <div class="chat-shell">
+        <header class="topbar">
+            <a class="back-link" href="/">← Chats</a>
+            <div class="topbar-meta">
+                <h1><?= e($otherUser['username']) ?></h1>
+                <p>Private messages auto-delete after 24 hours.</p>
             </div>
-        </div>
+        </header>
 
-        <?php foreach ($errors as $error): ?>
-            <div class="alert"><?= e($error) ?></div>
-        <?php endforeach; ?>
+        <main class="conversation">
+            <div class="messages" id="messages" aria-live="polite"></div>
+            <div class="status-row" id="status-row"></div>
+        </main>
 
-        <div class="grid">
-            <div>
-                <div class="messages" id="messages" aria-live="polite"></div>
-                <div class="status" id="typing-indicator" <?= $otherUserTyping ? '' : 'hidden' ?>>
-                    <span class="typing">
-                        <?= e($otherUser['username']) ?> is typing
-                        <span class="dot-group" aria-hidden="true">
-                            <span class="dot"></span>
-                            <span class="dot"></span>
-                            <span class="dot"></span>
-                        </span>
-                    </span>
-                </div>
+        <div class="composer-wrap">
+            <div class="composer">
+                <textarea id="message-body" rows="1" placeholder="Message"></textarea>
+                <button id="action-button" class="action-button" type="button" aria-label="Send message or hold to record voice note">🎤</button>
             </div>
-            <div>
-                <div class="alert" id="text-error" hidden></div>
-                <form method="post" id="text-form">
-                    <input type="hidden" name="action" value="send_text">
-                    <h3>Send text</h3>
-                    <textarea name="body" id="message-body" placeholder="Write a private message..." required></textarea>
-                    <button type="submit" id="send-button">Send message</button>
-                </form>
-
-                <form method="post" enctype="multipart/form-data">
-                    <input type="hidden" name="action" value="send_voice">
-                    <h3>Send voice note</h3>
-                    <input type="file" name="voice_note" accept="audio/*" required>
-                    <button type="submit">Upload voice note</button>
-                </form>
-            </div>
+            <div class="composer-help" id="composer-help">Type to send text, or hold the button to record a voice note.</div>
         </div>
     </div>
 </div>
 <script>
 const currentUserId = <?= (int) $user['id'] ?>;
-const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
+const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
 const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
 const messagesEl = document.getElementById('messages');
-const typingEl = document.getElementById('typing-indicator');
-const form = document.getElementById('text-form');
+const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
-const sendButton = document.getElementById('send-button');
-const errorEl = document.getElementById('text-error');
+const actionButton = document.getElementById('action-button');
+const composerHelpEl = document.getElementById('composer-help');
 let renderedSignature = '';
-let pollTimer = null;
 let typingTimer = null;
 let typingActive = false;
 let latestFetchId = 0;
+let isSending = false;
+let mediaRecorder = null;
+let mediaStream = null;
+let recordingChunks = [];
+let recordingStart = 0;
+let recordingMode = false;
+let pressTimer = null;
+let suppressClick = false;
+let statusState = initialTyping ? 'typing' : 'hint';
+let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Hold the button to record. Release to send.';
 
 function escapeHtml(value) {
     return value
@@ -235,37 +322,82 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+function autoResizeComposer() {
+    bodyEl.style.height = '24px';
+    bodyEl.style.height = `${Math.min(bodyEl.scrollHeight, 110)}px`;
+}
+
+function renderStatus() {
+    let html = '';
+
+    if (statusState === 'typing') {
+        html = `<span class="typing-pill">${escapeHtml(statusMessage)} <span class="dot-group" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></span>`;
+    } else if (statusState === 'recording') {
+        html = `<span class="recording-pill">🔴 ${escapeHtml(statusMessage)}</span>`;
+    } else if (statusState === 'error') {
+        html = `<span class="error-pill">${escapeHtml(statusMessage)}</span>`;
+    } else {
+        html = `<span class="hint-pill">${escapeHtml(statusMessage)}</span>`;
+    }
+
+    statusRowEl.innerHTML = html;
+}
+
+function showHint(message) {
+    statusState = 'hint';
+    statusMessage = message;
+    renderStatus();
+}
+
+function showError(message) {
+    statusState = 'error';
+    statusMessage = message;
+    renderStatus();
+}
+
+function setTypingVisible(isVisible) {
+    if (recordingMode) {
+        return;
+    }
+
+    if (isVisible) {
+        statusState = 'typing';
+        statusMessage = `${otherUserName} is typing…`;
+    } else if (statusState === 'typing') {
+        showHint('Type to send text, or hold the button to record a voice note.');
+        return;
+    }
+
+    renderStatus();
+}
+
 function renderMessages(messages) {
     const signature = JSON.stringify(messages.map((message) => [message.id, message.created_at]));
     if (signature === renderedSignature) {
         return;
     }
 
-    const shouldStickToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+    const shouldStickToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
     renderedSignature = signature;
 
     if (messages.length === 0) {
-        messagesEl.innerHTML = `
-            <div class="message">
-                <div class="meta">No messages yet</div>
-                Start the conversation with a text or voice note.
-            </div>`;
+        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi or hold the mic button to send a voice note.</div>';
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const body = message.body
-                ? `<div>${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
+                ? `<div class="message-text">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
                 : '';
 
             return `
-                <div class="message ${isMine ? 'mine' : ''}">
-                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}</div>
+                <article class="message ${isMine ? 'mine' : ''}">
                     ${body}
                     ${audio}
-                </div>`;
+                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}</div>
+                </article>`;
         }).join('');
     }
 
@@ -274,13 +406,18 @@ function renderMessages(messages) {
     }
 }
 
-function setTypingVisible(isVisible) {
-    typingEl.hidden = !isVisible;
-}
+function updateActionButton() {
+    if (recordingMode) {
+        actionButton.textContent = '◼';
+        actionButton.classList.add('recording');
+        actionButton.setAttribute('aria-label', 'Release to send voice note');
+        return;
+    }
 
-function showError(message) {
-    errorEl.hidden = !message;
-    errorEl.textContent = message || '';
+    const hasText = bodyEl.value.trim() !== '';
+    actionButton.textContent = hasText ? '➤' : '🎤';
+    actionButton.classList.remove('recording');
+    actionButton.setAttribute('aria-label', hasText ? 'Send message' : 'Hold to record voice note');
 }
 
 async function fetchConversation() {
@@ -316,12 +453,7 @@ async function syncTyping(isTyping) {
     }
 }
 
-function markTyping() {
-    if (!typingActive) {
-        typingActive = true;
-        syncTyping(true);
-    }
-
+function clearTypingSoon() {
     clearTimeout(typingTimer);
     typingTimer = setTimeout(() => {
         typingActive = false;
@@ -329,17 +461,32 @@ function markTyping() {
     }, 3000);
 }
 
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    showError('');
-
-    const body = bodyEl.value.trim();
-    if (!body) {
-        showError('Message cannot be empty.');
+function markTyping() {
+    if (bodyEl.value.trim() === '') {
+        if (typingActive) {
+            typingActive = false;
+            clearTimeout(typingTimer);
+            syncTyping(false);
+        }
         return;
     }
 
-    sendButton.disabled = true;
+    if (!typingActive) {
+        typingActive = true;
+        syncTyping(true);
+    }
+
+    clearTypingSoon();
+}
+
+async function sendTextMessage() {
+    const body = bodyEl.value.trim();
+    if (!body || isSending) {
+        return;
+    }
+
+    isSending = true;
+    actionButton.disabled = true;
 
     try {
         const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
@@ -355,30 +502,214 @@ form.addEventListener('submit', async (event) => {
         }
 
         bodyEl.value = '';
+        autoResizeComposer();
         typingActive = false;
         clearTimeout(typingTimer);
         syncTyping(false);
         renderMessages(payload.messages || []);
         setTypingVisible(Boolean(payload.typing));
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        showHint('Hold the button to record. Release to send.');
     } catch (error) {
         showError('Could not send message right now. Please try again.');
     } finally {
-        sendButton.disabled = false;
+        isSending = false;
+        actionButton.disabled = false;
+        updateActionButton();
         bodyEl.focus();
+    }
+}
+
+function detectAudioMimeType() {
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    for (const type of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
+            return type;
+        }
+    }
+    return '';
+}
+
+async function startRecording() {
+    if (bodyEl.value.trim() !== '' || isSending || recordingMode) {
+        return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+        showError('Voice recording is not supported on this device/browser.');
+        return;
+    }
+
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = detectAudioMimeType();
+        mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+        recordingChunks = [];
+        recordingMode = true;
+        recordingStart = Date.now();
+
+        mediaRecorder.addEventListener('dataavailable', (event) => {
+            if (event.data && event.data.size > 0) {
+                recordingChunks.push(event.data);
+            }
+        });
+
+        mediaRecorder.addEventListener('stop', () => {
+            mediaStream?.getTracks().forEach((track) => track.stop());
+            mediaStream = null;
+        }, { once: true });
+
+        mediaRecorder.start();
+        updateActionButton();
+        showHint('Recording… keep holding, then release to send.');
+        statusState = 'recording';
+        statusMessage = 'Recording voice note…';
+        renderStatus();
+    } catch (error) {
+        showError('Microphone permission is required to send a voice note.');
+    }
+}
+
+async function stopRecordingAndSend() {
+    clearTimeout(pressTimer);
+    if (!recordingMode || !mediaRecorder) {
+        return;
+    }
+
+    const recorder = mediaRecorder;
+    const durationMs = Date.now() - recordingStart;
+    recordingMode = false;
+    mediaRecorder = null;
+    updateActionButton();
+
+    if (durationMs < 600) {
+        recorder.stop();
+        recordingChunks = [];
+        showHint('Hold a little longer to send a voice note.');
+        return;
+    }
+
+    statusState = 'recording';
+    statusMessage = 'Sending voice note…';
+    renderStatus();
+    actionButton.disabled = true;
+    isSending = true;
+
+    const blob = await new Promise((resolve) => {
+        recorder.addEventListener('stop', () => {
+            resolve(new Blob(recordingChunks, { type: recorder.mimeType || 'audio/webm' }));
+        }, { once: true });
+        recorder.stop();
+    });
+
+    recordingChunks = [];
+
+    if (!(blob instanceof Blob) || blob.size === 0) {
+        isSending = false;
+        actionButton.disabled = false;
+        showError('The voice note was empty. Please try again.');
+        return;
+    }
+
+    try {
+        const extension = blob.type.includes('ogg') ? 'ogg' : (blob.type.includes('mp4') ? 'm4a' : 'webm');
+        const formData = new FormData();
+        formData.append('action', 'send_voice');
+        formData.append('voice_note', blob, `voice-note.${extension}`);
+
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            body: formData,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send voice note.');
+            return;
+        }
+
+        renderMessages(payload.messages || []);
+        setTypingVisible(Boolean(payload.typing));
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        showHint('Voice note sent. Hold again to record another one.');
+    } catch (error) {
+        showError('Could not send voice note right now. Please try again.');
+    } finally {
+        isSending = false;
+        actionButton.disabled = false;
+        updateActionButton();
+    }
+}
+
+function cancelPendingRecord() {
+    clearTimeout(pressTimer);
+}
+
+function onPressStart(event) {
+    if (bodyEl.value.trim() !== '' || isSending) {
+        return;
+    }
+
+    event.preventDefault();
+    suppressClick = true;
+    pressTimer = setTimeout(() => {
+        startRecording();
+    }, 180);
+}
+
+function onPressEnd(event) {
+    if (bodyEl.value.trim() !== '') {
+        return;
+    }
+
+    if (event) {
+        event.preventDefault();
+    }
+    cancelPendingRecord();
+    stopRecordingAndSend();
+}
+
+bodyEl.addEventListener('input', () => {
+    autoResizeComposer();
+    updateActionButton();
+    markTyping();
+    if (statusState !== 'typing') {
+        showHint('Tap send to deliver your message.');
     }
 });
 
-bodyEl.addEventListener('input', () => {
-    if (bodyEl.value.trim() === '') {
-        if (typingActive) {
-            typingActive = false;
-            clearTimeout(typingTimer);
-            syncTyping(false);
+bodyEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        if (bodyEl.value.trim() !== '') {
+            sendTextMessage();
         }
-        return;
     }
-    markTyping();
+});
+
+actionButton.addEventListener('click', (event) => {
+    if (suppressClick) {
+        suppressClick = false;
+        if (bodyEl.value.trim() === '') {
+            event.preventDefault();
+            return;
+        }
+    }
+
+    if (bodyEl.value.trim() !== '') {
+        sendTextMessage();
+    }
+});
+
+actionButton.addEventListener('pointerdown', onPressStart);
+actionButton.addEventListener('pointerup', onPressEnd);
+actionButton.addEventListener('pointercancel', onPressEnd);
+actionButton.addEventListener('pointerleave', () => {
+    if (recordingMode) {
+        stopRecordingAndSend();
+    } else {
+        cancelPendingRecord();
+    }
 });
 
 window.addEventListener('beforeunload', () => {
@@ -388,10 +719,12 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+autoResizeComposer();
+updateActionButton();
 renderMessages(initialMessages);
-setTypingVisible(initialTyping);
-pollTimer = setInterval(fetchConversation, 2000);
+renderStatus();
 fetchConversation();
+setInterval(fetchConversation, 2000);
 </script>
 </body>
 </html>
