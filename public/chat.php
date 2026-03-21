@@ -648,7 +648,7 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                 <input id="image-file-input" type="file" accept="image/*" style="display:none">
-                <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
+                <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
                 <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
