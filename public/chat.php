@@ -208,25 +208,22 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             overscroll-behavior: contain;
         }
         .conversation-actions {
-            position: absolute;
-            right: 18px;
-            bottom: calc(96px + env(safe-area-inset-bottom, 0px));
             display: flex;
             justify-content: flex-end;
+            margin: 0 6px 8px;
             pointer-events: none;
-            z-index: 3;
         }
         .scroll-to-end-button {
             border: none;
             width: 48px;
             height: 48px;
             border-radius: 50%;
-            background: rgba(7, 94, 84, 0.94);
+            background: rgba(152, 162, 179, 0.96);
             color: #fff;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 10px 24px rgba(17, 27, 33, 0.22);
+            box-shadow: 0 10px 24px rgba(17, 27, 33, 0.18);
             cursor: pointer;
             opacity: 0;
             transform: translateY(10px);
@@ -240,7 +237,7 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
         }
         .scroll-to-end-button:hover,
         .scroll-to-end-button:focus-visible {
-            background: rgba(18, 140, 126, 0.98);
+            background: rgba(102, 112, 133, 0.98);
         }
         .scroll-to-end-button svg {
             width: 22px;
@@ -661,14 +658,6 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
 
         <main class="conversation">
             <div class="messages" id="messages" aria-live="polite"></div>
-            <div class="conversation-actions" aria-hidden="false">
-                <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="m7 10 5 5 5-5"></path>
-                        <path d="M7 5l5 5 5-5"></path>
-                    </svg>
-                </button>
-            </div>
         </main>
 
         <div id="image-lightbox" class="lightbox" aria-hidden="true" hidden>
@@ -697,6 +686,14 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
         </div>
 
         <div class="composer-wrap">
+            <div class="conversation-actions" aria-hidden="false">
+                <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m7 10 5 5 5-5"></path>
+                        <path d="M7 5l5 5 5-5"></path>
+                    </svg>
+                </button>
+            </div>
             <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
@@ -764,6 +761,7 @@ let stream = null;
 let streamReconnectTimer = null;
 let pollTimer = null;
 let shouldAutoScroll = true;
+let initialScrollPending = true;
 let readSyncTimer = null;
 let statusState = initialCanChat && initialTyping ? 'typing' : 'hint';
 let statusMessage = initialCanChat
@@ -1072,6 +1070,16 @@ function scrollMessagesToEnd(behavior = 'auto') {
     updateScrollToEndButton();
 }
 
+function ensureMessagesStayAtEnd() {
+    if (!initialScrollPending) {
+        return;
+    }
+
+    scrollMessagesToEnd();
+    requestAnimationFrame(() => scrollMessagesToEnd());
+    window.setTimeout(() => scrollMessagesToEnd(), 120);
+}
+
 function updateScrollToEndButton() {
     if (!scrollToEndButton) {
         return;
@@ -1230,12 +1238,13 @@ function renderMessages(messages) {
         }).join('');
     }
 
-    if (shouldAutoScroll || wasNearBottom) {
+    if (shouldAutoScroll || wasNearBottom || initialScrollPending) {
         scrollMessagesToEnd();
     }
 
     handleIncomingMessages(previousMessages, messages);
     updateScrollToEndButton();
+    ensureMessagesStayAtEnd();
 }
 
 function updateActionButton() {
@@ -1938,6 +1947,10 @@ updateComposerDirection();
 updateActionButton();
 renderMessages(initialMessages);
 updateScrollToEndButton();
+window.addEventListener('load', () => {
+    ensureMessagesStayAtEnd();
+    initialScrollPending = false;
+}, { once: true });
 updatePresence(initialPresence, initialPresenceLabel);
 updateFriendshipUi();
 renderStatus();
