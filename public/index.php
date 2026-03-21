@@ -724,7 +724,7 @@ function friendshipActionMarkup(chatUser) {
     return `<button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>`;
 }
 
-function renderUserEntries(users, includeUnseenCount) {
+function renderDirectoryEntries(users, includeUnseenCount) {
     if (!Array.isArray(users) || users.length === 0) {
         return '';
     }
@@ -758,6 +758,38 @@ function renderUserEntries(users, includeUnseenCount) {
                 </div>
                 <div class="user-row-actions">${friendshipActionMarkup(chatUser)}${countMarkup}</div>
             </${wrapperTag}>`;
+    }).join('');
+}
+
+function renderChatListEntries(users) {
+    if (!Array.isArray(users) || users.length === 0) {
+        return '';
+    }
+
+    return users.map((chatUser) => {
+        const userId = Number(chatUser.id);
+        const unseenCount = Number(chatUser.unseen_count || 0);
+        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const username = escapeHtml(chatUser.username || '');
+        const presenceClass = chatUser.is_online ? ' online' : '';
+        const countClass = unseenCount > 0 ? '' : ' is-empty';
+        const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
+
+        return `
+            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="chat-copy">
+                    <div class="chat-copy-head">
+                        <strong>${username}</strong>
+                        <span class="presence-badge">
+                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
+                            <span data-role="presence-label">${presenceLabel}</span>
+                        </span>
+                    </div>
+                </div>
+                <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>
+            </a>`;
     }).join('');
 }
 
@@ -837,7 +869,7 @@ function renderChatSwitcher(users) {
         return;
     }
 
-    chatSwitcherListEl.innerHTML = renderUserEntries(users, false);
+    chatSwitcherListEl.innerHTML = renderDirectoryEntries(users, false);
 }
 
 function setChatSwitcherOpen(isOpen) {
@@ -872,7 +904,7 @@ function renderChatList(users) {
         return;
     }
 
-    chatListEl.innerHTML = renderUserEntries(users, true);
+    chatListEl.innerHTML = renderChatListEntries(users);
 }
 
 function applyChatListPayload(payload) {
