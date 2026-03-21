@@ -406,13 +406,116 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             opacity: 0.7;
             cursor: wait;
         }
+        .message-photo-button {
+            display: block;
+            border: none;
+            padding: 0;
+            margin: 2px 0 0;
+            background: transparent;
+            cursor: zoom-in;
+            border-radius: 14px;
+        }
+        .message-photo-button:focus-visible {
+            outline: 2px solid rgba(37, 211, 102, 0.9);
+            outline-offset: 3px;
+        }
         .message-photo {
             display: block;
             width: min(100%, 260px);
             border-radius: 14px;
-            margin-top: 2px;
             box-shadow: 0 2px 8px rgba(17, 27, 33, 0.12);
             background: rgba(0, 0, 0, 0.04);
+        }
+        .lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: calc(20px + env(safe-area-inset-top, 0px)) 18px calc(20px + env(safe-area-inset-bottom, 0px));
+            background: rgba(11, 20, 26, 0.0);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.24s ease, background 0.24s ease;
+        }
+        .lightbox.is-visible {
+            opacity: 1;
+            pointer-events: auto;
+            background: rgba(11, 20, 26, 0.88);
+        }
+        .lightbox-inner {
+            position: relative;
+            width: min(100%, 980px);
+            max-height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            transform: translateY(24px) scale(0.94);
+            transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .lightbox.is-visible .lightbox-inner {
+            transform: translateY(0) scale(1);
+        }
+        .lightbox-toolbar {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .lightbox-button {
+            border: none;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.14);
+            color: #fff;
+            min-height: 44px;
+            padding: 12px 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font: inherit;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
+        .lightbox-button:hover,
+        .lightbox-button:focus-visible {
+            background: rgba(255,255,255,0.22);
+        }
+        .lightbox-button:active {
+            transform: scale(0.97);
+        }
+        .lightbox-button svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .lightbox-figure {
+            margin: 0;
+            max-width: 100%;
+            max-height: calc(100vh - 120px);
+            max-height: calc(100dvh - 120px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .lightbox-image {
+            display: block;
+            max-width: 100%;
+            max-height: calc(100vh - 120px);
+            max-height: calc(100dvh - 120px);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+            object-fit: contain;
         }
         .action-button {
             border: none;
@@ -515,6 +618,31 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             <div class="messages" id="messages" aria-live="polite"></div>
         </main>
 
+        <div id="image-lightbox" class="lightbox" aria-hidden="true" hidden>
+            <div class="lightbox-inner" role="dialog" aria-modal="true" aria-label="Image viewer">
+                <div class="lightbox-toolbar">
+                    <a id="lightbox-download" class="lightbox-button" href="#" download>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 3v12"></path>
+                            <path d="m7 10 5 5 5-5"></path>
+                            <path d="M5 21h14"></path>
+                        </svg>
+                        <span>Download</span>
+                    </a>
+                    <button id="lightbox-close" class="lightbox-button" type="button" aria-label="Close full screen image">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M18 6 6 18"></path>
+                            <path d="m6 6 12 12"></path>
+                        </svg>
+                        <span>Close</span>
+                    </button>
+                </div>
+                <figure class="lightbox-figure">
+                    <img id="lightbox-image" class="lightbox-image" src="" alt="Full screen shared image">
+                </figure>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer">
@@ -563,6 +691,11 @@ const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
+const imageLightbox = document.getElementById('image-lightbox');
+const lightboxImage = document.getElementById('lightbox-image');
+const lightboxDownload = document.getElementById('lightbox-download');
+const lightboxClose = document.getElementById('lightbox-close');
+let lastFocusedElement = null;
 let renderedSignature = '';
 let localMessageCounter = 0;
 let typingTimer = null;
@@ -929,6 +1062,46 @@ function removeMessage(messageId) {
     renderMessages((window.__messagesState || []).filter((item) => item.id !== messageId));
 }
 
+
+function openImageLightbox(src, filename) {
+    if (!src || !imageLightbox || !lightboxImage || !lightboxDownload) {
+        return;
+    }
+
+    lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    lightboxImage.src = src;
+    lightboxDownload.href = src;
+    lightboxDownload.setAttribute('download', filename || 'chat-image');
+    imageLightbox.hidden = false;
+    imageLightbox.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    requestAnimationFrame(() => {
+        imageLightbox.classList.add('is-visible');
+        lightboxClose?.focus();
+    });
+}
+
+function closeImageLightbox() {
+    if (!imageLightbox || imageLightbox.hidden) {
+        return;
+    }
+
+    imageLightbox.classList.remove('is-visible');
+    imageLightbox.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+
+    window.setTimeout(() => {
+        imageLightbox.hidden = true;
+        lightboxImage.src = '';
+        lightboxDownload.href = '#';
+    }, 240);
+
+    if (lastFocusedElement) {
+        lastFocusedElement.focus();
+    }
+}
+
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     window.__messagesState = messages;
@@ -959,7 +1132,7 @@ function renderMessages(messages) {
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
             const image = message.image_path
-                ? `<img class="message-photo" loading="lazy" src="/media.php?message=${Number(message.id)}" alt="Shared image">`
+                ? `<button class="message-photo-button" type="button" data-image-src="/media.php?message=${Number(message.id)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="/media.php?message=${Number(message.id)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
@@ -1573,6 +1746,16 @@ bodyEl.addEventListener('keydown', (event) => {
     }
 });
 
+messagesEl.addEventListener('click', (event) => {
+    const trigger = event.target instanceof Element ? event.target.closest('[data-image-src]') : null;
+    if (!trigger) {
+        return;
+    }
+
+    event.preventDefault();
+    openImageLightbox(trigger.getAttribute('data-image-src') || '', trigger.getAttribute('data-image-download') || 'chat-image');
+});
+
 messagesEl.addEventListener('scroll', () => {
     shouldAutoScroll = isNearBottom();
     if (shouldAutoScroll) {
@@ -1629,8 +1812,23 @@ actionButton.addEventListener('click', async () => {
     await toggleRecording();
 });
 
+lightboxClose?.addEventListener('click', () => {
+    closeImageLightbox();
+});
+
+imageLightbox?.addEventListener('click', (event) => {
+    if (event.target === imageLightbox) {
+        closeImageLightbox();
+    }
+});
+
+document.addEventListener('keydown', (event) => {
+    markUserInteraction();
+    if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
+        closeImageLightbox();
+    }
+}, { passive: true });
 document.addEventListener('click', markUserInteraction, { passive: true });
-document.addEventListener('keydown', markUserInteraction, { passive: true });
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
