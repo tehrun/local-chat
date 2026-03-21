@@ -114,7 +114,6 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
             gap: 10px;
             padding: 6px 4px 18px;
             scroll-behavior: smooth;
@@ -157,7 +156,29 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             margin-top: 8px;
             font-size: 11px;
             color: var(--muted);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
             text-align: right;
+        }
+        .meta-label {
+            min-width: 0;
+        }
+        .delivery-ticks {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 2px;
+            color: #8696a0;
+            line-height: 1;
+        }
+        .delivery-ticks.read {
+            color: #53bdeb;
+        }
+        .delivery-ticks svg {
+            width: 14px;
+            height: 10px;
+            display: block;
         }
         .status-row {
             min-height: 28px;
@@ -299,7 +320,6 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"></textarea>
-                <input id="voice-file-input" type="file" accept="audio/*,.m4a,.mp4,.webm,.ogg,.wav,.mp3" capture hidden>
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
             <div class="composer-help" id="composer-help">Type to send text, or tap the microphone to start and stop a voice note.</div>
@@ -318,7 +338,6 @@ const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
 const composerHelpEl = document.getElementById('composer-help');
-const voiceFileInput = document.getElementById('voice-file-input');
 let renderedSignature = '';
 let localMessageCounter = 0;
 let typingTimer = null;
@@ -332,15 +351,13 @@ let recordingMode = false;
 let stream = null;
 let streamReconnectTimer = null;
 let pollTimer = null;
+let shouldAutoScroll = true;
+let readSyncTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type to send text, or tap the microphone to record a voice note.';
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
-}
-
-function supportsVoiceFileCapture() {
-    return Boolean(voiceFileInput && typeof voiceFileInput.click === 'function');
 }
 
 const buttonIcons = {
@@ -426,10 +443,52 @@ function createPendingMessage(body, type) {
         sender_name: 'You',
         body,
         audio_path: null,
+        delivered_at: null,
+        read_at: null,
         created_at: now.toISOString(),
         created_at_label: `${now.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
         pending: true,
     };
+}
+
+function isNearBottom() {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
+}
+
+function deliveryState(message) {
+    if (!message || Number(message.sender_id) !== currentUserId || message.pending) {
+        return '';
+    }
+
+    if (message.read_at) {
+        return 'read';
+    }
+
+    if (message.delivered_at) {
+        return 'delivered';
+    }
+
+    return 'sent';
+}
+
+function renderDeliveryTicks(message) {
+    const state = deliveryState(message);
+    if (state === '') {
+        return '';
+    }
+
+    const singleTick = `
+        <svg viewBox="0 0 16 10" aria-hidden="true" focusable="false">
+            <path d="M1.6 5.4 4.9 8.4 14.4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>`;
+    const doubleTick = `
+        <svg viewBox="0 0 16 10" aria-hidden="true" focusable="false">
+            <path d="M1.1 5.4 4.4 8.4 8.8 3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M5.8 5.4 9.1 8.4 14.4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>`;
+    const icon = state === 'sent' ? singleTick : doubleTick;
+
+    return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
 }
 
 function upsertMessage(message) {
@@ -463,7 +522,7 @@ function renderMessages(messages) {
         return;
     }
 
-    const shouldStickToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
+    const wasNearBottom = isNearBottom();
     renderedSignature = signature;
 
     if (messages.length === 0) {
@@ -478,17 +537,18 @@ function renderMessages(messages) {
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
+            const ticks = renderDeliveryTicks(message);
 
             return `
                 <article class="message ${isMine ? 'mine' : ''}">
                     ${body}
                     ${audio}
-                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</div>
+                    <div class="meta"><span class="meta-label">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</span>${ticks}</div>
                 </article>`;
         }).join('');
     }
 
-    if (shouldStickToBottom || messagesEl.scrollTop === 0) {
+    if (shouldAutoScroll || wasNearBottom) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 }
@@ -527,9 +587,51 @@ async function refreshConversation() {
             return;
         }
         applyConversationPayload(await response.json());
+        syncReadStateSoon();
     } catch (error) {
         // Ignore transient refresh errors.
     }
+}
+
+async function syncReadState() {
+    if (document.visibilityState !== 'visible') {
+        return;
+    }
+
+    const hasUnreadInbound = (window.__messagesState || []).some((message) =>
+        Number(message.sender_id) === conversationUserId && !message.read_at
+    );
+
+    if (!hasUnreadInbound) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'read' }),
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        applyConversationPayload(await response.json());
+    } catch (error) {
+        // Ignore transient read sync errors.
+    }
+}
+
+function syncReadStateSoon() {
+    if (readSyncTimer !== null) {
+        window.clearTimeout(readSyncTimer);
+    }
+
+    readSyncTimer = window.setTimeout(() => {
+        readSyncTimer = null;
+        syncReadState();
+    }, 120);
 }
 
 function startPollingConversation() {
@@ -666,6 +768,7 @@ async function sendTextMessage() {
 
         replacePendingMessage(pendingMessage.id, payload.message);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        shouldAutoScroll = true;
         showHint('Message sent. Tap the microphone to record a voice note if you want.');
     } catch (error) {
         removeMessage(pendingMessage.id);
@@ -715,6 +818,7 @@ async function uploadVoiceBlob(blob, filename) {
 
         applyConversationPayload(payload);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        shouldAutoScroll = true;
         showHint('Voice note sent. Tap the microphone to record another one.');
         return true;
     } catch (error) {
@@ -723,36 +827,12 @@ async function uploadVoiceBlob(blob, filename) {
     }
 }
 
-async function uploadVoiceFile(file) {
-    if (!(file instanceof File)) {
-        return;
-    }
-
-    showHint('Sending voice note…');
-    actionButton.disabled = true;
-    isSending = true;
-
-    try {
-        await uploadVoiceBlob(file, file.name || 'voice-note.m4a');
-    } finally {
-        isSending = false;
-        actionButton.disabled = false;
-        updateActionButton();
-        voiceFileInput.value = '';
-    }
-}
-
 async function startRecording() {
     if (bodyEl.value.trim() !== '' || isSending || recordingMode) {
         return;
     }
     if (!supportsInlineVoiceRecording()) {
-        if (supportsVoiceFileCapture()) {
-            voiceFileInput.click();
-            showHint('Choose or record an audio clip to send a voice note.');
-        } else {
-            showError('Voice recording is not supported on this device/browser.');
-        }
+        showError('Inline voice recording is not supported on this device/browser.');
         return;
     }
 
@@ -864,13 +944,11 @@ bodyEl.addEventListener('keydown', (event) => {
     }
 });
 
-voiceFileInput.addEventListener('change', () => {
-    const [file] = voiceFileInput.files || [];
-    if (!file || isSending) {
-        return;
+messagesEl.addEventListener('scroll', () => {
+    shouldAutoScroll = isNearBottom();
+    if (shouldAutoScroll) {
+        syncReadStateSoon();
     }
-
-    uploadVoiceFile(file);
 });
 
 actionButton.addEventListener('click', async () => {
@@ -905,9 +983,11 @@ composerHelpEl.textContent = supportsInlineVoiceRecording()
 renderMessages(initialMessages);
 renderStatus();
 connectConversationStream();
+syncReadStateSoon();
 
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+        syncReadStateSoon();
         if (preferPolling) {
             startPollingConversation();
         } else if (!stream) {

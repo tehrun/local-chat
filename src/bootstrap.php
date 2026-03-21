@@ -55,6 +55,8 @@ function initializeDatabase(PDO $pdo): void
             recipient_id INTEGER NOT NULL,
             body TEXT,
             audio_path TEXT,
+            delivered_at TEXT,
+            read_at TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY(sender_id) REFERENCES users(id),
             FOREIGN KEY(recipient_id) REFERENCES users(id)
@@ -76,6 +78,19 @@ function initializeDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
          ON messages (sender_id, recipient_id, created_at, id)'
     );
+
+    $columns = array_map(
+        static fn (array $column): string => (string) $column['name'],
+        $pdo->query('PRAGMA table_info(messages)')->fetchAll()
+    );
+
+    if (!in_array('delivered_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at TEXT');
+    }
+
+    if (!in_array('read_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at TEXT');
+    }
 
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_typing_status_lookup
@@ -210,6 +225,8 @@ function formatMessage(array $message): array
         'sender_name' => $message['sender_name'],
         'body' => $message['body'],
         'audio_path' => $message['audio_path'],
+        'delivered_at' => $message['delivered_at'] ?? null,
+        'read_at' => $message['read_at'] ?? null,
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
     ];
@@ -425,10 +442,45 @@ function conversationPayload(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
 
+    markMessagesDelivered($userId, $otherUserId);
+
     return [
         'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
         'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
     ];
+}
+
+function markMessagesDelivered(int $userId, int $otherUserId): void
+{
+    $stmt = db()->prepare(
+        'UPDATE messages
+         SET delivered_at = COALESCE(delivered_at, :delivered_at)
+         WHERE sender_id = :other_user_id
+           AND recipient_id = :user_id
+           AND delivered_at IS NULL'
+    );
+    $stmt->execute([
+        'delivered_at' => gmdate('c'),
+        'other_user_id' => $otherUserId,
+        'user_id' => $userId,
+    ]);
+}
+
+function markMessagesRead(int $userId, int $otherUserId): void
+{
+    $stmt = db()->prepare(
+        'UPDATE messages
+         SET delivered_at = COALESCE(delivered_at, :read_at),
+             read_at = COALESCE(read_at, :read_at)
+         WHERE sender_id = :other_user_id
+           AND recipient_id = :user_id
+           AND read_at IS NULL'
+    );
+    $stmt->execute([
+        'read_at' => gmdate('c'),
+        'other_user_id' => $otherUserId,
+        'user_id' => $userId,
+    ]);
 }
 
 function jsonResponse(array $payload, int $statusCode = 200): void
