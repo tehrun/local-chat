@@ -44,6 +44,7 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             --action-active: #128c7e;
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
+            --keyboard-offset: 0px;
         }
         * { box-sizing: border-box; }
         body {
@@ -383,6 +384,8 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             bottom: 0;
             z-index: 4;
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+            padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
+            transition: padding-bottom 0.2s ease;
             background: linear-gradient(180deg, rgba(239,234,226,0) 0%, rgba(239,234,226,0.96) 18%, rgba(239,234,226,1) 45%);
         }
         .composer-stack {
@@ -1005,6 +1008,23 @@ function autoResizeComposer() {
     bodyEl.style.height = `${Math.max(44, Math.min(bodyEl.scrollHeight, 110))}px`;
 }
 
+function updateKeyboardOffset() {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+        document.documentElement.style.setProperty('--keyboard-offset', '0px');
+        return;
+    }
+
+    const keyboardOffset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+    document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(keyboardOffset)}px`);
+
+    if (document.activeElement === bodyEl && keyboardOffset > 0) {
+        requestAnimationFrame(() => {
+            scrollMessagesToEnd('smooth');
+        });
+    }
+}
+
 function renderStatus() {
     let html = '';
 
@@ -1495,6 +1515,7 @@ async function sendTextMessage() {
     upsertMessage(pendingMessage);
     bodyEl.value = '';
     autoResizeComposer();
+    updateKeyboardOffset();
     updateComposerDirection();
     typingActive = false;
     clearTimeout(typingTimer);
@@ -1844,6 +1865,13 @@ voiceFileInput.addEventListener('change', async () => {
     }
 });
 
+window.visualViewport?.addEventListener('resize', updateKeyboardOffset);
+window.visualViewport?.addEventListener('scroll', updateKeyboardOffset);
+bodyEl.addEventListener('focus', updateKeyboardOffset);
+bodyEl.addEventListener('blur', () => {
+    window.setTimeout(updateKeyboardOffset, 150);
+});
+
 bodyEl.addEventListener('input', () => {
     markUserInteraction();
     autoResizeComposer();
@@ -1974,6 +2002,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 autoResizeComposer();
+updateKeyboardOffset();
 updateComposerDirection();
 updateActionButton();
 renderMessages(initialMessages);
