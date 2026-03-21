@@ -13,8 +13,10 @@ if ($otherUser === null || $otherUser['id'] === $user['id']) {
     exit;
 }
 
+$canChat = canUsersChat((int) $user['id'], $otherUserId);
+$friendship = friendshipRecord((int) $user['id'], $otherUserId);
 $messages = conversationMessages((int) $user['id'], $otherUserId);
-$otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
+$otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -236,6 +238,19 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             height: 10px;
             display: block;
         }
+        .friendship-card {
+            margin: 14px 12px 0;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.88);
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+            padding: 14px 16px;
+        }
+        .friendship-card p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.5;
+            font-size: 14px;
+        }
         .status-row {
             min-height: 28px;
             display: flex;
@@ -391,6 +406,20 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             </div>
         </header>
 
+        <?php if (!$canChat): ?>
+            <div class="friendship-card">
+                <p>
+                    <?php if ($friendship !== null && $friendship['status'] === 'pending' && $friendship['request_direction'] === 'outgoing'): ?>
+                        Your friend request is pending. <?= e($otherUser['username']) ?> must accept it before you can start chatting.
+                    <?php elseif ($friendship !== null && $friendship['status'] === 'pending'): ?>
+                        <?= e($otherUser['username']) ?> already sent you a friend request. Go back home to accept it before chatting.
+                    <?php else: ?>
+                        You need to add <?= e($otherUser['username']) ?> as a friend and wait for acceptance before chatting.
+                    <?php endif; ?>
+                </p>
+            </div>
+        <?php endif; ?>
+
         <main class="conversation">
             <div class="messages" id="messages" aria-live="polite"></div>
         </main>
@@ -398,9 +427,9 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer">
-                <textarea id="message-body" rows="1" placeholder="Message"></textarea>
+                <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                 <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
-                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording">
+                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"<?= $canChat ? '' : ' disabled' ?>>
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
                         <path d="M18 11.25a6 6 0 0 1-12 0"></path>
@@ -420,6 +449,7 @@ const conversationUserId = <?= (int) $otherUserId ?>;
 const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
 const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
@@ -445,8 +475,10 @@ let streamReconnectTimer = null;
 let pollTimer = null;
 let shouldAutoScroll = true;
 let readSyncTimer = null;
-let statusState = initialTyping ? 'typing' : 'hint';
-let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.';
+let statusState = initialCanChat && initialTyping ? 'typing' : 'hint';
+let statusMessage = initialCanChat
+    ? (initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.')
+    : 'Friend request required before messaging.';
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
@@ -460,6 +492,10 @@ function supportsCapturedVoiceUpload() {
 }
 
 function updatePresence(isOnline, label) {
+    if (!initialCanChat) {
+        actionButton.disabled = true;
+    }
+
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
     headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');

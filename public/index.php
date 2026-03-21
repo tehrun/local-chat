@@ -46,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $user = currentUser();
 $users = $user ? allOtherUsers((int) $user['id']) : [];
 $chatUsers = $user ? chattedUsers((int) $user['id']) : [];
+$incomingRequests = $user ? incomingFriendRequests((int) $user['id']) : [];
 $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 ?>
 <!DOCTYPE html>
@@ -191,11 +192,43 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         .alert.error { background: #fef3f2; color: var(--danger); }
         .alert.notice { background: #ecfdf3; color: #027a48; }
+        .request-list,
         .chat-list {
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
+        .user-row-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .mini-button {
+            border: none;
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .mini-button.primary { background: var(--action); color: #fff; }
+        .mini-button.secondary { background: #dfe5e7; color: #244047; }
+        .mini-button.danger { background: #fef3f2; color: var(--danger); }
+        .mini-button:disabled { opacity: 0.65; cursor: wait; }
+        .request-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px;
+            border-radius: 18px;
+            background: var(--theirs);
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        }
+        .request-meta { min-width: 0; flex: 1; }
+        .request-meta strong { display: block; margin-bottom: 4px; }
+        .request-copy { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
         .chat-item {
             display: flex;
             align-items: center;
@@ -491,6 +524,28 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     </div>
                 </section>
             <?php else: ?>
+                <section class="request-list" id="friend-request-list">
+                    <?php if ($incomingRequests !== []): ?>
+                        <?php foreach ($incomingRequests as $request): ?>
+                            <div class="request-card" data-request-user-id="<?= (int) $request['sender_id'] ?>">
+                                <div class="avatar"><?= e(strtoupper(substr((string) $request['sender_name'], 0, 2))) ?></div>
+                                <div class="request-meta">
+                                    <strong><?= e($request['sender_name']) ?></strong>
+                                    <span class="presence-badge">
+                                        <span class="dot <?= !empty($request['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span>
+                                        <span><?= e($request['presence_label'] ?? 'Offline') ?></span>
+                                    </span>
+                                    <p class="request-copy"><?= e($request['sender_name']) ?> wants to add you as a friend.</p>
+                                </div>
+                                <div class="user-row-actions">
+                                    <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>">Accept</button>
+                                    <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>">Reject</button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </section>
+
                 <section class="chat-list" id="chat-list">
                     <?php if ($chatUsers === []): ?>
                         <div class="card" id="chat-list-empty">
@@ -548,13 +603,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
 const initialChatUsers = <?= json_encode($chatUsers, JSON_THROW_ON_ERROR) ?>;
 const initialDirectoryUsers = <?= json_encode($users, JSON_THROW_ON_ERROR) ?>;
+const initialIncomingRequests = <?= json_encode($incomingRequests, JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
+const friendRequestListEl = document.getElementById('friend-request-list');
 let chatListStream = null;
 let chatListReconnectTimer = null;
 let chatListPollTimer = null;
 let chatListSignature = '';
 let directorySignature = '';
+let requestSignature = '';
+let seenIncomingRequestIds = new Set(initialIncomingRequests.map((request) => String(request.id || request.sender_id)));
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
 
@@ -562,6 +621,79 @@ const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
 const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
+
+let notificationPermissionRequested = false;
+
+function requestNotificationPermission() {
+    if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
+        return;
+    }
+
+    notificationPermissionRequested = true;
+    Notification.requestPermission().catch(() => {
+        // Ignore notification permission errors.
+    });
+}
+
+async function playNotificationSound() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+        return;
+    }
+
+    try {
+        const audioContext = new AudioContextClass();
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const startAt = audioContext.currentTime + 0.01;
+        const endAt = startAt + 0.18;
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(932.33, startAt);
+        gainNode.gain.setValueAtTime(0.0001, startAt);
+        gainNode.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start(startAt);
+        oscillator.stop(endAt);
+
+        window.setTimeout(() => {
+            audioContext.close().catch(() => {
+                // Ignore audio context close errors.
+            });
+        }, 400);
+    } catch (error) {
+        // Ignore audio playback errors.
+    }
+}
+
+function friendshipActionMarkup(chatUser) {
+    const userId = Number(chatUser.id);
+    const status = String(chatUser.friendship_status || 'none');
+    const direction = chatUser.request_direction || '';
+
+    if (chatUser.can_chat) {
+        return `<a class="mini-button primary" href="/chat.php?user=${userId}">Open chat</a>`;
+    }
+
+    if (status === 'pending' && direction === 'incoming') {
+        return `
+            <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="${userId}">Accept</button>
+            <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="${userId}">Reject</button>`;
+    }
+
+    if (status === 'pending') {
+        return '<span class="mini-button secondary" aria-disabled="true">Request sent</span>';
+    }
+
+    return `<button class="mini-button primary" type="button" data-request-action="send_friend_request" data-user-id="${userId}">Add as friend</button>`;
+}
 
 function renderUserEntries(users, includeUnseenCount) {
     if (!Array.isArray(users) || users.length === 0) {
@@ -580,9 +712,11 @@ function renderUserEntries(users, includeUnseenCount) {
         const countMarkup = includeUnseenCount
             ? `<span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>`
             : '';
+        const wrapperTag = chatUser.can_chat ? 'a' : 'div';
+        const hrefAttr = chatUser.can_chat ? ` href="/chat.php?user=${userId}"` : '';
 
         return `
-            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
+            <${wrapperTag} class="chat-item" data-chat-user-id="${userId}"${hrefAttr}>
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
@@ -593,9 +727,71 @@ function renderUserEntries(users, includeUnseenCount) {
                         </span>
                     </div>
                 </div>
-                ${countMarkup}
-            </a>`;
+                <div class="user-row-actions">${friendshipActionMarkup(chatUser)}${countMarkup}</div>
+            </${wrapperTag}>`;
     }).join('');
+}
+
+function renderIncomingRequests(requests) {
+    if (!friendRequestListEl) {
+        return;
+    }
+
+    if (!Array.isArray(requests) || requests.length === 0) {
+        friendRequestListEl.innerHTML = '';
+        return;
+    }
+
+    friendRequestListEl.innerHTML = requests.map((request) => {
+        const userId = Number(request.sender_id);
+        const avatar = escapeHtml(String(request.sender_name || '').slice(0, 2).toUpperCase());
+        const presenceLabel = escapeHtml(request.presence_label || 'Offline');
+        const senderName = escapeHtml(request.sender_name || 'Unknown');
+        const presenceClass = request.is_online ? ' online' : '';
+        return `
+            <div class="request-card" data-request-user-id="${userId}">
+                <div class="avatar">${avatar}</div>
+                <div class="request-meta">
+                    <strong>${senderName}</strong>
+                    <span class="presence-badge">
+                        <span class="dot${presenceClass}" aria-hidden="true"></span>
+                        <span>${presenceLabel}</span>
+                    </span>
+                    <p class="request-copy">${senderName} wants to add you as a friend.</p>
+                </div>
+                <div class="user-row-actions">
+                    <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="${userId}">Accept</button>
+                    <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="${userId}">Reject</button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+async function showFriendRequestNotification(request) {
+    if (!request || document.visibilityState === 'visible') {
+        return;
+    }
+
+    await playNotificationSound();
+
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+    if (!registration) {
+        return;
+    }
+
+    registration.showNotification('New friend request', {
+        body: `${request.sender_name || 'Someone'} wants to add you as a friend.`,
+        icon: '/icons/icon.svg',
+        tag: `friend-request-${request.id || request.sender_id}`,
+        renotify: true,
+        data: { url: '/' },
+    }).catch(() => {
+        // Ignore notification errors.
+    });
 }
 
 function renderChatSwitcher(users) {
@@ -653,8 +849,10 @@ function renderChatList(users) {
 function applyChatListPayload(payload) {
     const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
     const directoryUsers = Array.isArray(payload?.directory_users) ? payload.directory_users : [];
+    const incomingRequests = Array.isArray(payload?.incoming_requests) ? payload.incoming_requests : [];
     const nextChatSignature = JSON.stringify(chatUsers);
     const nextDirectorySignature = JSON.stringify(directoryUsers);
+    const nextRequestSignature = JSON.stringify(incomingRequests);
 
     if (nextChatSignature !== chatListSignature) {
         chatListSignature = nextChatSignature;
@@ -664,6 +862,19 @@ function applyChatListPayload(payload) {
     if (nextDirectorySignature !== directorySignature) {
         directorySignature = nextDirectorySignature;
         renderChatSwitcher(directoryUsers);
+    }
+
+    if (nextRequestSignature !== requestSignature) {
+        const incomingIds = new Set(incomingRequests.map((request) => String(request.id || request.sender_id)));
+        incomingRequests.forEach((request) => {
+            const requestId = String(request.id || request.sender_id);
+            if (!seenIncomingRequestIds.has(requestId)) {
+                showFriendRequestNotification(request);
+            }
+        });
+        seenIncomingRequestIds = incomingIds;
+        requestSignature = nextRequestSignature;
+        renderIncomingRequests(incomingRequests);
     }
 }
 
@@ -722,7 +933,7 @@ function connectChatListStream() {
     };
 }
 
-applyChatListPayload({ chat_users: initialChatUsers, directory_users: initialDirectoryUsers });
+applyChatListPayload({ chat_users: initialChatUsers, directory_users: initialDirectoryUsers, incoming_requests: initialIncomingRequests });
 connectChatListStream();
 
 if ('serviceWorker' in navigator) {
@@ -748,7 +959,7 @@ window.addEventListener('appinstalled', () => {
     }
 });
 
-chatSwitcherToggle?.addEventListener('click', () => setChatSwitcherOpen(true));
+chatSwitcherToggle?.addEventListener('click', () => { requestNotificationPermission(); setChatSwitcherOpen(true); });
 chatSwitcherClose?.addEventListener('click', () => setChatSwitcherOpen(false));
 chatSwitcherEl?.addEventListener('click', (event) => {
     if (event.target === chatSwitcherEl) {
@@ -758,6 +969,43 @@ chatSwitcherEl?.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
         setChatSwitcherOpen(false);
+    }
+});
+
+document.addEventListener('click', async (event) => {
+    const target = event.target.closest('[data-request-action]');
+    if (!target) {
+        return;
+    }
+
+    requestNotificationPermission();
+
+    const action = target.dataset.requestAction;
+    const userId = Number(target.dataset.userId || 0);
+    if (!action || !userId) {
+        return;
+    }
+
+    target.disabled = true;
+
+    try {
+        const response = await fetch('/home_api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' },
+            credentials: 'same-origin',
+            body: new URLSearchParams({ action, user: String(userId) }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || `Request failed with ${response.status}`);
+        }
+
+        applyChatListPayload(payload.payload || payload);
+    } catch (error) {
+        window.alert(error.message || 'Could not update the friend request.');
+    } finally {
+        target.disabled = false;
     }
 });
 
