@@ -1477,7 +1477,7 @@ function connectConversationStream() {
         stream.close();
     }
 
-    stream = new EventSource(`/chat_stream.php?user=${conversationUserId}`);
+    stream = new EventSource(`chat_stream.php?user=${conversationUserId}`);
     stream.addEventListener('open', () => {
         streamState = 'connected';
         renderStatus();
