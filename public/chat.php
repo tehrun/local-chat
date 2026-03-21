@@ -769,6 +769,16 @@ let statusState = initialCanChat && initialTyping ? 'typing' : 'hint';
 let statusMessage = initialCanChat
     ? (initialTyping ? `${otherUserName} is typing…` : 'Type a message, add a photo, or tap the microphone for a voice note.')
     : 'Friend request required before messaging.';
+
+function getComposerHint() {
+    if (!canChat) {
+        return 'Friendship revoked. Message history is still visible, but sending is disabled.';
+    }
+
+    return bodyEl.value.trim() !== ''
+        ? 'Tap send to deliver your message.'
+        : 'Type a message, add a photo, or tap the microphone for a voice note.';
+}
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
@@ -808,7 +818,7 @@ function updateFriendshipUi() {
 
     if (isAccepted) {
         if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
-            showHint('Type a message, add a photo, or tap the microphone for a voice note.');
+            showHint(getComposerHint());
         }
         return;
     }
@@ -1026,7 +1036,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint(canChat ? 'Type a message, add a photo, or tap the microphone for a voice note.' : 'Friendship revoked. Message history is still visible, but sending is disabled.');
+        showHint(getComposerHint());
         return;
     }
 
@@ -1801,7 +1811,7 @@ bodyEl.addEventListener('input', () => {
     updateActionButton();
     markTyping();
     if (statusState !== 'typing') {
-        showHint('Tap send to deliver your message.');
+        showHint(getComposerHint());
     }
 });
 
