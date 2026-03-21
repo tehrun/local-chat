@@ -9,9 +9,12 @@ define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
 define('TMP_UPLOAD_PATH', STORAGE_PATH . '/tmp');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
+define('DEFAULT_DB_HOST', '127.0.0.1');
+define('DEFAULT_DB_PORT', '3306');
 define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
 define('PRESENCE_TTL_SECONDS', 90);
+define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
 
 if (!is_dir(dirname(DB_PATH))) {
@@ -34,16 +37,85 @@ function db(): PDO
         return $pdo;
     }
 
-    $pdo = new PDO('sqlite:' . DB_PATH);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $config = dbConfig();
+
+    if ($config['driver'] === 'mysql') {
+        $dsn = sprintf(
+            'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
+            $config['host'],
+            $config['port'],
+            $config['name']
+        );
+        $pdo = new PDO($dsn, $config['username'], $config['password'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $pdo->exec('SET NAMES utf8mb4');
+    } else {
+        $pdo = new PDO('sqlite:' . DB_PATH);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $pdo->exec('PRAGMA busy_timeout = 5000');
+        $pdo->exec('PRAGMA journal_mode = WAL');
+        $pdo->exec('PRAGMA synchronous = NORMAL');
+    }
 
     initializeDatabase($pdo);
 
     return $pdo;
 }
 
+function dbConfig(): array
+{
+    $driver = strtolower(trim((string) envValue('CHAT_DB_DRIVER', 'sqlite')));
+
+    if ($driver === 'mysql') {
+        return [
+            'driver' => 'mysql',
+            'host' => trim((string) envValue('CHAT_DB_HOST', DEFAULT_DB_HOST)),
+            'port' => trim((string) envValue('CHAT_DB_PORT', DEFAULT_DB_PORT)),
+            'name' => trim((string) envValue('CHAT_DB_NAME', '')),
+            'username' => trim((string) envValue('CHAT_DB_USER', '')),
+            'password' => (string) envValue('CHAT_DB_PASS', ''),
+        ];
+    }
+
+    return ['driver' => 'sqlite'];
+}
+
+function envValue(string $key, string $default = ''): string
+{
+    $value = getenv($key);
+
+    return $value === false ? $default : $value;
+}
+
+function dbDriver(): string
+{
+    static $driver = null;
+
+    if (is_string($driver)) {
+        return $driver;
+    }
+
+    $driver = dbConfig()['driver'];
+
+    return $driver;
+}
+
 function initializeDatabase(PDO $pdo): void
+{
+    if (dbDriver() === 'mysql') {
+        initializeMysqlDatabase($pdo);
+
+        return;
+    }
+
+    initializeSqliteDatabase($pdo);
+}
+
+function initializeSqliteDatabase(PDO $pdo): void
 {
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS users (
@@ -84,6 +156,10 @@ function initializeDatabase(PDO $pdo): void
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
          ON messages (sender_id, recipient_id, created_at, id)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_messages_pending_delivery
+         ON messages (recipient_id, sender_id, delivered_at, read_at, created_at, id)'
     );
 
     $columns = array_map(
@@ -146,6 +222,73 @@ function initializeDatabase(PDO $pdo): void
     );
 }
 
+function initializeMysqlDatabase(PDO $pdo): void
+{
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS users (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(255) NOT NULL,
+            created_at DATETIME NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            sender_id INT UNSIGNED NOT NULL,
+            recipient_id INT UNSIGNED NOT NULL,
+            body LONGTEXT NULL,
+            audio_path VARCHAR(255) NULL,
+            image_path VARCHAR(255) NULL,
+            delivered_at DATETIME NULL,
+            read_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_messages_conversation_time (sender_id, recipient_id, created_at, id),
+            INDEX idx_messages_pending_delivery (recipient_id, sender_id, delivered_at, read_at, created_at, id),
+            CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS typing_status (
+            user_id INT UNSIGNED NOT NULL,
+            conversation_user_id INT UNSIGNED NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (user_id, conversation_user_id),
+            INDEX idx_typing_status_lookup (user_id, conversation_user_id, updated_at),
+            CONSTRAINT fk_typing_status_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_typing_status_conversation_user FOREIGN KEY (conversation_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS user_presence (
+            user_id INT UNSIGNED NOT NULL PRIMARY KEY,
+            updated_at DATETIME NOT NULL,
+            INDEX idx_user_presence_updated (updated_at),
+            CONSTRAINT fk_user_presence_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS friend_requests (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            sender_id INT UNSIGNED NOT NULL,
+            recipient_id INT UNSIGNED NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            created_at DATETIME NOT NULL,
+            responded_at DATETIME NULL,
+            UNIQUE KEY uniq_friend_requests_pair (sender_id, recipient_id),
+            INDEX idx_friend_requests_recipient_status (recipient_id, status, created_at),
+            INDEX idx_friend_requests_sender_status (sender_id, status, created_at),
+            CONSTRAINT fk_friend_requests_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_friend_requests_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
 function purgeExpiredMessages(bool $force = false): void
 {
     static $lastRunAt = null;
@@ -186,16 +329,37 @@ function purgeExpiredMessages(bool $force = false): void
 
 function touchUserPresence(int $userId): void
 {
-    $stmt = db()->prepare(
-        'INSERT INTO user_presence (user_id, updated_at)
-         VALUES (:user_id, :updated_at)
-         ON CONFLICT(user_id)
-         DO UPDATE SET updated_at = excluded.updated_at'
-    );
-    $stmt->execute([
+    static $presenceWriteCache = [];
+
+    $now = time();
+    $lastWrittenAt = $presenceWriteCache[$userId] ?? 0;
+
+    if (($now - $lastWrittenAt) < PRESENCE_UPDATE_INTERVAL_SECONDS) {
+        return;
+    }
+
+    $params = [
         'user_id' => $userId,
         'updated_at' => gmdate('c'),
-    ]);
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO user_presence (user_id, updated_at)
+             VALUES (:user_id, :updated_at)
+             ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO user_presence (user_id, updated_at)
+             VALUES (:user_id, :updated_at)
+             ON CONFLICT(user_id)
+             DO UPDATE SET updated_at = excluded.updated_at'
+        );
+    }
+
+    $stmt->execute($params);
+    $presenceWriteCache[$userId] = $now;
 }
 
 function isUserOnline(int $userId): bool
@@ -445,20 +609,33 @@ function sendFriendRequest(int $senderId, int $recipientId): ?string
         }
     }
 
-    $stmt = db()->prepare(
-        'INSERT INTO friend_requests (sender_id, recipient_id, status, created_at, responded_at)
-         VALUES (:sender_id, :recipient_id, :status, :created_at, NULL)
-         ON CONFLICT(sender_id, recipient_id)
-         DO UPDATE SET status = excluded.status,
-                       created_at = excluded.created_at,
-                       responded_at = NULL'
-    );
-    $stmt->execute([
+    $params = [
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'status' => 'pending',
         'created_at' => gmdate('c'),
-    ]);
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO friend_requests (sender_id, recipient_id, status, created_at, responded_at)
+             VALUES (:sender_id, :recipient_id, :status, :created_at, NULL)
+             ON DUPLICATE KEY UPDATE status = VALUES(status),
+                                     created_at = VALUES(created_at),
+                                     responded_at = NULL'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO friend_requests (sender_id, recipient_id, status, created_at, responded_at)
+             VALUES (:sender_id, :recipient_id, :status, :created_at, NULL)
+             ON CONFLICT(sender_id, recipient_id)
+             DO UPDATE SET status = excluded.status,
+                           created_at = excluded.created_at,
+                           responded_at = NULL'
+        );
+    }
+
+    $stmt->execute($params);
 
     return null;
 }
@@ -1006,17 +1183,28 @@ function updateTypingStatus(int $userId, int $otherUserId): void
         return;
     }
 
-    $stmt = db()->prepare(
-        'INSERT INTO typing_status (user_id, conversation_user_id, updated_at)
-         VALUES (:user_id, :conversation_user_id, :updated_at)
-         ON CONFLICT(user_id, conversation_user_id)
-         DO UPDATE SET updated_at = excluded.updated_at'
-    );
-    $stmt->execute([
+    $params = [
         'user_id' => $userId,
         'conversation_user_id' => $otherUserId,
         'updated_at' => gmdate('c'),
-    ]);
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO typing_status (user_id, conversation_user_id, updated_at)
+             VALUES (:user_id, :conversation_user_id, :updated_at)
+             ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO typing_status (user_id, conversation_user_id, updated_at)
+             VALUES (:user_id, :conversation_user_id, :updated_at)
+             ON CONFLICT(user_id, conversation_user_id)
+             DO UPDATE SET updated_at = excluded.updated_at'
+        );
+    }
+
+    $stmt->execute($params);
 }
 
 function clearTypingStatus(int $userId, int $otherUserId): void
