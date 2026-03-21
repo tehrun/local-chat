@@ -1270,6 +1270,51 @@ function conversationPayload(int $userId, int $otherUserId): array
     ];
 }
 
+function conversationStateSignature(int $userId, int $otherUserId): string
+{
+    purgeExpiredMessages();
+
+    $stmt = db()->prepare(
+        'SELECT COUNT(*) AS total_messages,
+                MAX(id) AS latest_message_id,
+                MAX(created_at) AS latest_message_created_at,
+                MAX(delivered_at) AS latest_message_delivered_at,
+                MAX(read_at) AS latest_message_read_at
+         FROM messages
+         WHERE (sender_id = :user_id AND recipient_id = :other_user_id)
+            OR (sender_id = :other_user_id AND recipient_id = :user_id)'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+    $messageState = $stmt->fetch() ?: [];
+
+    $friendship = friendshipRecord($userId, $otherUserId);
+    $otherUser = findUserById($otherUserId);
+
+    return md5(json_encode([
+        'messages' => [
+            'total' => (int) ($messageState['total_messages'] ?? 0),
+            'latest_id' => (int) ($messageState['latest_message_id'] ?? 0),
+            'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
+            'latest_delivered_at' => $messageState['latest_message_delivered_at'] ?? null,
+            'latest_read_at' => $messageState['latest_message_read_at'] ?? null,
+        ],
+        'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
+        'friendship' => $friendship === null ? null : [
+            'id' => (int) $friendship['id'],
+            'status' => (string) $friendship['status'],
+            'responded_at' => $friendship['responded_at'],
+            'created_at' => (string) $friendship['created_at'],
+        ],
+        'presence' => [
+            'is_online' => (bool) ($otherUser['is_online'] ?? false),
+            'label' => $otherUser['presence_label'] ?? 'Offline',
+        ],
+    ], JSON_THROW_ON_ERROR));
+}
+
 function markMessagesDelivered(int $userId, int $otherUserId): void
 {
     $stmt = db()->prepare(

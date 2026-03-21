@@ -17,6 +17,7 @@ $canChat = canUsersChat((int) $user['id'], $otherUserId);
 $friendship = friendshipRecord((int) $user['id'], $otherUserId);
 $messages = conversationMessages((int) $user['id'], $otherUserId);
 $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
+$initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -750,6 +751,9 @@ const initialFriendship = <?= json_encode($friendship, JSON_THROW_ON_ERROR) ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
+const initialConversationSignature = <?= json_encode($initialConversationSignature, JSON_THROW_ON_ERROR) ?>;
+const FAST_POLL_INTERVAL_MS = 2500;
+const MAX_POLL_INTERVAL_MS = 12000;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -785,6 +789,8 @@ let pollTimer = null;
 let shouldAutoScroll = true;
 let initialScrollPending = true;
 let readSyncTimer = null;
+let conversationSignature = initialConversationSignature;
+let conversationPollDelay = FAST_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
 let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
@@ -1351,6 +1357,12 @@ function preserveComposerFocus(event) {
 }
 
 function applyConversationPayload(payload) {
+    if (typeof payload.signature === 'string' && payload.signature !== '') {
+        conversationSignature = payload.signature;
+        if (preferPolling) {
+            conversationPollDelay = FAST_POLL_INTERVAL_MS;
+        }
+    }
     if (Array.isArray(payload.messages)) {
         renderMessages(payload.messages);
     } else if (payload.message) {
@@ -1372,18 +1384,54 @@ function applyConversationPayload(payload) {
 
 async function refreshConversation() {
     try {
+        const signatureResponse = await fetch(`chat_api.php?action=signature&user=${conversationUserId}`, {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!signatureResponse.ok) {
+            return null;
+        }
+
+        const signaturePayload = await signatureResponse.json();
+        if (typeof signaturePayload.signature !== 'string' || signaturePayload.signature === conversationSignature) {
+            return false;
+        }
+
         const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
         if (!response.ok) {
-            return;
+            return null;
         }
+
         applyConversationPayload(await response.json());
         syncReadStateSoon();
+        return true;
     } catch (error) {
         // Ignore transient refresh errors.
+        return null;
     }
+}
+
+function scheduleConversationPoll(delay = conversationPollDelay) {
+    stopPollingConversation();
+    pollTimer = window.setTimeout(async () => {
+        pollTimer = null;
+        const didChange = await refreshConversation();
+
+        if (didChange === true) {
+            conversationPollDelay = FAST_POLL_INTERVAL_MS;
+        } else if (didChange === false) {
+            conversationPollDelay = Math.min(MAX_POLL_INTERVAL_MS, conversationPollDelay + 1500);
+        } else {
+            conversationPollDelay = Math.min(MAX_POLL_INTERVAL_MS, conversationPollDelay + 2500);
+        }
+
+        if (document.visibilityState === 'visible' && preferPolling) {
+            scheduleConversationPoll(conversationPollDelay);
+        }
+    }, delay);
 }
 
 async function syncReadState() {
@@ -1434,10 +1482,7 @@ function startPollingConversation() {
 
     streamState = 'polling';
     renderStatus();
-    refreshConversation();
-    pollTimer = window.setInterval(() => {
-        refreshConversation();
-    }, 1500);
+    scheduleConversationPoll(0);
 }
 
 function stopPollingConversation() {
