@@ -299,6 +299,7 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             <div class="status-row" id="status-row"></div>
             <div class="composer">
                 <textarea id="message-body" rows="1" placeholder="Message"></textarea>
+                <input id="voice-file-input" type="file" accept="audio/*,.m4a,.mp4,.webm,.ogg,.wav,.mp3" capture hidden>
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
             <div class="composer-help" id="composer-help">Type to send text, or tap the microphone to start and stop a voice note.</div>
@@ -317,6 +318,7 @@ const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
 const composerHelpEl = document.getElementById('composer-help');
+const voiceFileInput = document.getElementById('voice-file-input');
 let renderedSignature = '';
 let localMessageCounter = 0;
 let typingTimer = null;
@@ -332,6 +334,14 @@ let streamReconnectTimer = null;
 let pollTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type to send text, or tap the microphone to record a voice note.';
+
+function supportsInlineVoiceRecording() {
+    return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function supportsVoiceFileCapture() {
+    return Boolean(voiceFileInput && typeof voiceFileInput.click === 'function');
+}
 
 const buttonIcons = {
     send: `
@@ -680,12 +690,69 @@ function detectAudioMimeType() {
     return '';
 }
 
+async function uploadVoiceBlob(blob, filename) {
+    if (!(blob instanceof Blob) || blob.size === 0) {
+        showError('The voice note was empty. Please try again.');
+        return false;
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'send_voice');
+        formData.append('voice_note', blob, filename);
+
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            body: formData,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send voice note.');
+            return false;
+        }
+
+        applyConversationPayload(payload);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        showHint('Voice note sent. Tap the microphone to record another one.');
+        return true;
+    } catch (error) {
+        showError('Could not send voice note right now. Please try again.');
+        return false;
+    }
+}
+
+async function uploadVoiceFile(file) {
+    if (!(file instanceof File)) {
+        return;
+    }
+
+    showHint('Sending voice note…');
+    actionButton.disabled = true;
+    isSending = true;
+
+    try {
+        await uploadVoiceBlob(file, file.name || 'voice-note.m4a');
+    } finally {
+        isSending = false;
+        actionButton.disabled = false;
+        updateActionButton();
+        voiceFileInput.value = '';
+    }
+}
+
 async function startRecording() {
     if (bodyEl.value.trim() !== '' || isSending || recordingMode) {
         return;
     }
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-        showError('Voice recording is not supported on this device/browser.');
+    if (!supportsInlineVoiceRecording()) {
+        if (supportsVoiceFileCapture()) {
+            voiceFileInput.click();
+            showHint('Choose or record an audio clip to send a voice note.');
+        } else {
+            showError('Voice recording is not supported on this device/browser.');
+        }
         return;
     }
 
@@ -762,27 +829,7 @@ async function stopRecordingAndSend() {
     try {
         const mimeType = blob.type || recorder.mimeType || 'audio/webm';
         const extension = mimeType.includes('ogg') ? 'ogg' : ((mimeType.includes('mp4') || mimeType.includes('m4a')) ? 'm4a' : 'webm');
-        const formData = new FormData();
-        formData.append('action', 'send_voice');
-        formData.append('voice_note', blob, `voice-note.${extension}`);
-
-        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
-            method: 'POST',
-            headers: { 'Accept': 'application/json' },
-            body: formData,
-        });
-        const payload = await response.json();
-
-        if (!response.ok) {
-            showError(payload.error || 'Could not send voice note.');
-            return;
-        }
-
-        applyConversationPayload(payload);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        showHint('Voice note sent. Tap the microphone to record another one.');
-    } catch (error) {
-        showError('Could not send voice note right now. Please try again.');
+        await uploadVoiceBlob(blob, `voice-note.${extension}`);
     } finally {
         isSending = false;
         actionButton.disabled = false;
@@ -817,6 +864,15 @@ bodyEl.addEventListener('keydown', (event) => {
     }
 });
 
+voiceFileInput.addEventListener('change', () => {
+    const [file] = voiceFileInput.files || [];
+    if (!file || isSending) {
+        return;
+    }
+
+    uploadVoiceFile(file);
+});
+
 actionButton.addEventListener('click', async () => {
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
@@ -843,6 +899,9 @@ window.addEventListener('beforeunload', () => {
 
 autoResizeComposer();
 updateActionButton();
+composerHelpEl.textContent = supportsInlineVoiceRecording()
+    ? 'Type to send text, or tap the microphone to start and stop a voice note.'
+    : 'Type to send text, or tap the microphone to open your device audio recorder and send a voice note.';
 renderMessages(initialMessages);
 renderStatus();
 connectConversationStream();
