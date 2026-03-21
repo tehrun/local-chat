@@ -217,8 +217,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .mini-button.secondary { background: #dfe5e7; color: #244047; }
         .mini-button.danger { background: #fef3f2; color: var(--danger); }
         .mini-button.icon-button {
-            width: 34px;
-            height: 34px;
+            width: 36px;
+            height: 36px;
             padding: 0;
             display: inline-flex;
             align-items: center;
@@ -228,6 +228,16 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .mini-button.icon-button svg {
             width: 18px;
             height: 18px;
+        }
+        .mini-button.danger.icon-button {
+            background: #fdecec;
+            color: var(--danger);
+        }
+        .request-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
         }
         .mini-button:disabled { opacity: 0.65; cursor: wait; }
         .request-card {
@@ -352,9 +362,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             font: inherit;
             font-weight: 700;
             cursor: pointer;
+            transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
         }
         button.primary { background: var(--action); color: #fff; }
         button.secondary { background: #dfe5e7; color: #244047; }
+        .auth-submit-ready {
+            background: var(--action) !important;
+            color: #fff !important;
+            box-shadow: 0 8px 18px rgba(37, 211, 102, 0.24);
+        }
         .auth-switch {
             margin-top: 14px;
             text-align: center;
@@ -523,17 +539,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             <p class="auth-switch">Already have an account? <a href="/">Sign in</a></p>
                         <?php else: ?>
                             <h2 class="panel-title">Sign in</h2>
-                            <form method="post">
+                            <form method="post" id="login-form">
                                 <input type="hidden" name="action" value="login">
                                 <label>
                                     Username
-                                    <input type="text" name="username" required>
+                                    <input type="text" name="username" required data-login-field="username">
                                 </label>
                                 <label>
                                     Password
-                                    <input type="password" name="password" required>
+                                    <input type="password" name="password" required data-login-field="password">
                                 </label>
-                                <button class="secondary" type="submit">Login</button>
+                                <button class="secondary" id="login-submit" type="submit">Login</button>
                             </form>
                             <p class="auth-switch">Don&apos;t have an account? <a href="/?auth=register">Create one</a></p>
                         <?php endif; ?>
@@ -553,9 +569,18 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     </span>
                                     <p class="request-copy"><?= e($request['sender_name']) ?> wants to add you as a friend.</p>
                                 </div>
-                                <div class="user-row-actions">
-                                    <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>">Accept</button>
-                                    <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>">Reject</button>
+                                <div class="request-actions" aria-label="Friend request actions">
+                                    <button class="mini-button primary icon-button" type="button" data-request-action="accept_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>" aria-label="Accept friend request" title="Accept friend request">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                            <path d="M20 6 9 17l-5-5"></path>
+                                        </svg>
+                                    </button>
+                                    <button class="mini-button danger icon-button" type="button" data-request-action="reject_friend_request" data-user-id="<?= (int) $request['sender_id'] ?>" aria-label="Reject friend request" title="Reject friend request">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                            <path d="M18 6 6 18"></path>
+                                            <path d="m6 6 12 12"></path>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -637,8 +662,39 @@ const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
 const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
+const loginForm = document.getElementById('login-form');
+const loginSubmitButton = document.getElementById('login-submit');
+const loginUsernameInput = loginForm?.querySelector('[data-login-field="username"]') || null;
+const loginPasswordInput = loginForm?.querySelector('[data-login-field="password"]') || null;
 
 let notificationPermissionRequested = false;
+
+const personPlusIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9.5" cy="7" r="4"></circle>
+        <path d="M19 8v6"></path>
+        <path d="M22 11h-6"></path>
+    </svg>`;
+const acceptIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M20 6 9 17l-5-5"></path>
+    </svg>`;
+const rejectIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M18 6 6 18"></path>
+        <path d="m6 6 12 12"></path>
+    </svg>`;
+
+function updateLoginButtonState() {
+    if (!loginSubmitButton) {
+        return;
+    }
+
+    const hasUsername = Boolean(loginUsernameInput && loginUsernameInput.value.trim() !== '');
+    const hasPassword = Boolean(loginPasswordInput && loginPasswordInput.value.trim() !== '');
+    loginSubmitButton.classList.toggle('auth-submit-ready', hasUsername && hasPassword);
+}
 
 function requestNotificationPermission() {
     if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
@@ -693,22 +749,6 @@ function friendshipActionMarkup(chatUser) {
     const userId = Number(chatUser.id);
     const status = String(chatUser.friendship_status || 'none');
     const direction = chatUser.request_direction || '';
-    const personPlusIcon = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-            <circle cx="9.5" cy="7" r="4"></circle>
-            <path d="M19 8v6"></path>
-            <path d="M22 11h-6"></path>
-        </svg>`;
-    const acceptIcon = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M20 6 9 17l-5-5"></path>
-        </svg>`;
-    const rejectIcon = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M18 6 6 18"></path>
-            <path d="m6 6 12 12"></path>
-        </svg>`;
 
     if (chatUser.can_chat) {
         return '';
@@ -824,9 +864,9 @@ function renderIncomingRequests(requests) {
                     </span>
                     <p class="request-copy">${senderName} wants to add you as a friend.</p>
                 </div>
-                <div class="user-row-actions">
-                    <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="${userId}">Accept</button>
-                    <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="${userId}">Reject</button>
+                <div class="request-actions" aria-label="Friend request actions">
+                    <button class="mini-button primary icon-button" type="button" data-request-action="accept_friend_request" data-user-id="${userId}" aria-label="Accept friend request" title="Accept friend request">${acceptIcon}</button>
+                    <button class="mini-button danger icon-button" type="button" data-request-action="reject_friend_request" data-user-id="${userId}" aria-label="Reject friend request" title="Reject friend request">${rejectIcon}</button>
                 </div>
             </div>`;
     }).join('');
@@ -1019,6 +1059,9 @@ function connectChatListStream() {
 }
 
 applyChatListPayload({ chat_users: initialChatUsers, directory_users: initialDirectoryUsers, incoming_requests: initialIncomingRequests });
+updateLoginButtonState();
+loginUsernameInput?.addEventListener('input', updateLoginButtonState);
+loginPasswordInput?.addEventListener('input', updateLoginButtonState);
 connectChatListStream();
 
 if ('serviceWorker' in navigator) {
