@@ -200,9 +200,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-top: 2px;
+            margin-left: 8px;
             font-size: 12px;
             color: var(--muted);
+            vertical-align: middle;
         }
         .presence-badge .dot {
             width: 9px;
@@ -219,9 +220,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             flex: 1;
         }
         .chat-copy strong {
-            display: block;
-            margin-bottom: 4px;
             font-size: 16px;
+            line-height: 1.35;
+        }
+        .chat-copy-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 4px;
         }
         .chat-copy span {
             display: block;
@@ -414,8 +421,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             <a class="chat-item" href="/chat.php?user=<?= (int) $chatUser['id'] ?>">
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
                                 <div class="chat-copy">
-                                    <strong><?= e($chatUser['username']) ?></strong>
-                                    <span class="presence-badge"><span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
+                                    <div class="chat-copy-head">
+                                        <strong><?= e($chatUser['username']) ?></strong>
+                                        <span class="presence-badge"><span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" aria-hidden="true"></span><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
+                                    </div>
                                     <span>Tap to open your private conversation.</span>
                                 </div>
                                 <span class="chat-time">Chat</span>
