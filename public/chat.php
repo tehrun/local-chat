@@ -21,6 +21,11 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#075e54">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Local Chat">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <title>Chat with <?= e($otherUser['username']) ?></title>
     <style>
         :root {
@@ -359,7 +364,6 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
                     <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
                     <span id="header-presence-label"><?= e($otherUser['presence_label'] ?? 'Offline') ?></span>
                 </div>
-                <p>Private messages auto-delete after 24 hours.</p>
             </div>
         </header>
 
@@ -374,7 +378,6 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
                 <input id="voice-file-input" type="file" accept="audio/*,video/webm,video/ogg,video/mp4" capture style="display:none">
                 <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"></button>
             </div>
-            <div class="composer-help" id="composer-help">Type to send text, or tap the microphone to start and stop a voice note.</div>
         </div>
     </div>
 </div>
@@ -391,7 +394,6 @@ const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
-const composerHelpEl = document.getElementById('composer-help');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
@@ -411,8 +413,10 @@ let pollTimer = null;
 let shouldAutoScroll = true;
 let readSyncTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
-let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type to send text, or tap the microphone to record a voice note.';
+let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.';
 let otherUserOnline = initialPresence;
+let hasInteracted = false;
+let notificationPermissionRequested = false;
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -426,6 +430,108 @@ function updatePresence(isOnline, label) {
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
     headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
+}
+
+function markUserInteraction() {
+    hasInteracted = true;
+
+    if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
+        return;
+    }
+
+    notificationPermissionRequested = true;
+    Notification.requestPermission().catch(() => {
+        // Ignore notification permission errors.
+    });
+}
+
+async function playNotificationSound() {
+    if (!hasInteracted) {
+        return;
+    }
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+        return;
+    }
+
+    try {
+        const audioContext = new AudioContextClass();
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        const startAt = audioContext.currentTime + 0.01;
+        const notes = [880, 1174.66, 1567.98];
+
+        notes.forEach((frequency, index) => {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            const noteStart = startAt + (index * 0.11);
+            const noteEnd = noteStart + 0.22;
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(frequency, noteStart);
+
+            gainNode.gain.setValueAtTime(0.0001, noteStart);
+            gainNode.gain.exponentialRampToValueAtTime(0.12, noteStart + 0.03);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.start(noteStart);
+            oscillator.stop(noteEnd);
+        });
+
+        window.setTimeout(() => {
+            audioContext.close().catch(() => {
+                // Ignore audio context close errors.
+            });
+        }, 700);
+    } catch (error) {
+        // Ignore audio playback errors.
+    }
+}
+
+async function showMessageNotification(message) {
+    if (!message || Number(message.sender_id) === currentUserId) {
+        return;
+    }
+
+    await playNotificationSound();
+
+    if (document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+    const body = message.body ? message.body.slice(0, 120) : 'Sent you a voice note';
+
+    if (registration) {
+        registration.showNotification(otherUserName, {
+            body,
+            icon: '/icons/icon.svg',
+            tag: `chat-${conversationUserId}`,
+            renotify: true,
+            data: { url: `/chat.php?user=${conversationUserId}` },
+        }).catch(() => {
+            // Ignore notification display errors.
+        });
+    }
+}
+
+function handleIncomingMessages(previousMessages, nextMessages) {
+    const previousIds = new Set(previousMessages.map((message) => String(message.id)));
+    const newInboundMessages = nextMessages.filter((message) =>
+        !previousIds.has(String(message.id)) && Number(message.sender_id) === conversationUserId
+    );
+
+    if (newInboundMessages.length === 0) {
+        return;
+    }
+
+    const newestInboundMessage = newInboundMessages[newInboundMessages.length - 1];
+    showMessageNotification(newestInboundMessage);
 }
 
 const buttonIcons = {
@@ -494,7 +600,7 @@ function setTypingVisible(isVisible) {
         statusState = 'typing';
         statusMessage = `${otherUserName} is typing…`;
     } else if (statusState === 'typing') {
-        showHint('Type to send text, or tap the microphone to record a voice note.');
+        showHint('Type a message or tap the microphone for a voice note.');
         return;
     }
 
@@ -584,6 +690,7 @@ function removeMessage(messageId) {
 }
 
 function renderMessages(messages) {
+    const previousMessages = window.__messagesState || [];
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -627,6 +734,8 @@ function renderMessages(messages) {
     if (shouldAutoScroll || wasNearBottom) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+
+    handleIncomingMessages(previousMessages, messages);
 }
 
 function updateActionButton() {
@@ -854,7 +963,7 @@ async function sendTextMessage() {
         replacePendingMessage(pendingMessage.id, payload.message);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         shouldAutoScroll = true;
-        showHint('Message sent. Tap the microphone to record a voice note if you want.');
+        showHint('Message sent.');
     } catch (error) {
         removeMessage(pendingMessage.id);
         bodyEl.value = body;
@@ -934,7 +1043,7 @@ async function uploadVoiceBlob(blob, filename) {
         applyConversationPayload(payload);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         shouldAutoScroll = true;
-        showHint('Voice note sent. Tap the microphone to record another one.');
+        showHint('Voice note sent.');
         return true;
     } catch (error) {
         showError('Could not send voice note right now. Please try again.');
@@ -968,7 +1077,7 @@ async function openVoiceFallbackPicker() {
         return;
     }
 
-    showHint('Use your phone recorder to capture a voice note, then send it here.');
+    showHint('Choose or record a voice note, then send it here.');
     voiceFileInput.click();
 }
 
@@ -1088,6 +1197,7 @@ async function toggleRecording() {
 }
 
 voiceFileInput.addEventListener('change', async () => {
+    markUserInteraction();
     const [file] = voiceFileInput.files || [];
     if (file) {
         await sendSelectedVoiceFile(file);
@@ -1095,6 +1205,7 @@ voiceFileInput.addEventListener('change', async () => {
 });
 
 bodyEl.addEventListener('input', () => {
+    markUserInteraction();
     autoResizeComposer();
     updateActionButton();
     markTyping();
@@ -1120,6 +1231,7 @@ messagesEl.addEventListener('scroll', () => {
 });
 
 actionButton.addEventListener('click', async () => {
+    markUserInteraction();
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
         return;
@@ -1131,6 +1243,17 @@ actionButton.addEventListener('click', async () => {
 
     await toggleRecording();
 });
+
+document.addEventListener('click', markUserInteraction, { passive: true });
+document.addEventListener('keydown', markUserInteraction, { passive: true });
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {
+            // Ignore service worker registration errors.
+        });
+    });
+}
 
 window.addEventListener('beforeunload', () => {
     if (stream) {
@@ -1145,9 +1268,6 @@ window.addEventListener('beforeunload', () => {
 
 autoResizeComposer();
 updateActionButton();
-composerHelpEl.textContent = supportsInlineVoiceRecording()
-    ? 'Type to send text, or tap the microphone to start and stop a voice note.'
-    : 'Type to send text, or tap the microphone to open your device audio recorder and send a voice note.';
 renderMessages(initialMessages);
 updatePresence(initialPresence, initialPresenceLabel);
 renderStatus();

@@ -1,0 +1,18 @@
+{
+  "name": "Local Chat",
+  "short_name": "Local Chat",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#efeae2",
+  "theme_color": "#075e54",
+  "description": "Private local-network chat with online presence, voice notes, and message alerts.",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
