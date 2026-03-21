@@ -7,6 +7,7 @@ A lightweight PHP private chat app using SQLite. It supports:
 - mobile-first chat layout inspired by messaging apps, with the composer fixed below the conversation
 - typing indicator between private chat participants
 - hold-to-record private voice note uploads using the device microphone
+- browser notifications and alert sounds for new messages and friend requests after the first user interaction
 - automatic 24-hour retention for chat history
 
 ## Requirements

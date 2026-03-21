@@ -668,6 +668,8 @@ const loginUsernameInput = loginForm?.querySelector('[data-login-field="username
 const loginPasswordInput = loginForm?.querySelector('[data-login-field="password"]') || null;
 
 let notificationPermissionRequested = false;
+let hasInteracted = false;
+let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
 
 const personPlusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -696,6 +698,11 @@ function updateLoginButtonState() {
     loginSubmitButton.classList.toggle('auth-submit-ready', hasUsername && hasPassword);
 }
 
+function markUserInteraction() {
+    hasInteracted = true;
+    requestNotificationPermission();
+}
+
 function requestNotificationPermission() {
     if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
         return;
@@ -708,6 +715,10 @@ function requestNotificationPermission() {
 }
 
 async function playNotificationSound() {
+    if (!hasInteracted) {
+        return;
+    }
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
         return;
@@ -899,6 +910,38 @@ async function showFriendRequestNotification(request) {
     });
 }
 
+async function showUnreadMessageNotification(chatUser, increaseCount) {
+    if (!chatUser || increaseCount <= 0) {
+        return;
+    }
+
+    await playNotificationSound();
+
+    if (document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+    if (!registration) {
+        return;
+    }
+
+    const username = chatUser.username || 'Someone';
+    const body = increaseCount === 1
+        ? `${username} sent you a new message.`
+        : `${username} sent you ${increaseCount} new messages.`;
+
+    registration.showNotification('New message', {
+        body,
+        icon: '/icons/icon.svg',
+        tag: `chat-message-${chatUser.id}`,
+        renotify: true,
+        data: { url: `/chat.php?user=${Number(chatUser.id)}` },
+    }).catch(() => {
+        // Ignore notification errors.
+    });
+}
+
 function renderChatSwitcher(users) {
     if (!chatSwitcherListEl) {
         return;
@@ -978,6 +1021,18 @@ function applyChatListPayload(payload) {
     const nextChatSignature = JSON.stringify(chatUsers);
     const nextDirectorySignature = JSON.stringify(directoryUsers);
     const nextRequestSignature = JSON.stringify(incomingRequests);
+
+    chatUsers.forEach((chatUser) => {
+        const userId = String(chatUser.id);
+        const nextUnseenCount = Number(chatUser.unseen_count || 0);
+        const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
+
+        if (nextUnseenCount > previousUnseenCount) {
+            showUnreadMessageNotification(chatUser, nextUnseenCount - previousUnseenCount);
+        }
+
+        lastUnseenCounts.set(userId, nextUnseenCount);
+    });
 
     if (nextChatSignature !== chatListSignature) {
         chatListSignature = nextChatSignature;
@@ -1095,6 +1150,7 @@ chatSwitcherEl?.addEventListener('click', (event) => {
     }
 });
 document.addEventListener('keydown', (event) => {
+    markUserInteraction();
     if (event.key === 'Escape') {
         setChatSwitcherOpen(false);
         return;
@@ -1106,6 +1162,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 document.addEventListener('click', async (event) => {
+    markUserInteraction();
     if (openChatFromRow(event.target)) {
         return;
     }
