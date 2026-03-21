@@ -632,7 +632,7 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
-            <a class="back-link" href="/" aria-label="Back to chats">
+            <a class="back-link" href="index.php" aria-label="Back to chats">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M15 6l-6 6 6 6"></path>
                 </svg>
