@@ -293,6 +293,7 @@ const conversationUserId = <?= (int) $otherUserId ?>;
 const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
 const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -312,6 +313,7 @@ let pressTimer = null;
 let suppressClick = false;
 let stream = null;
 let streamReconnectTimer = null;
+let pollTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Hold the button to record. Release to send.';
 
@@ -489,7 +491,30 @@ async function refreshConversation() {
     }
 }
 
+function startPollingConversation() {
+    if (pollTimer !== null) {
+        return;
+    }
+
+    refreshConversation();
+    pollTimer = window.setInterval(() => {
+        refreshConversation();
+    }, 1500);
+}
+
+function stopPollingConversation() {
+    if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
 function scheduleStreamReconnect() {
+    if (preferPolling) {
+        startPollingConversation();
+        return;
+    }
+
     if (streamReconnectTimer !== null) {
         return;
     }
@@ -501,10 +526,12 @@ function scheduleStreamReconnect() {
 }
 
 function connectConversationStream() {
-    if (!window.EventSource) {
-        refreshConversation();
+    if (preferPolling || !window.EventSource) {
+        startPollingConversation();
         return;
     }
+
+    stopPollingConversation();
 
     if (stream) {
         stream.close();
@@ -808,6 +835,7 @@ window.addEventListener('beforeunload', () => {
     if (stream) {
         stream.close();
     }
+    stopPollingConversation();
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false' });
         navigator.sendBeacon(`/chat_api.php?user=${conversationUserId}`, data);
@@ -821,9 +849,18 @@ renderStatus();
 connectConversationStream();
 
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !stream) {
-        refreshConversation();
-        connectConversationStream();
+    if (document.visibilityState === 'visible') {
+        if (preferPolling) {
+            startPollingConversation();
+        } else if (!stream) {
+            refreshConversation();
+            connectConversationStream();
+        }
+        return;
+    }
+
+    if (preferPolling) {
+        stopPollingConversation();
     }
 });
 </script>
