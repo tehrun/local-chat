@@ -524,28 +524,31 @@ function friendRequestsPayload(int $currentUserId): array
 
 function chattedUsers(int $currentUserId): array
 {
-    $stmt = db()->prepare(
-        'SELECT u.id,
-                u.username,
-                u.created_at,
-                up.updated_at AS presence_updated_at,
-                COUNT(m_unseen.id) AS unseen_count,
-                MAX(m_latest.created_at) AS last_message_at
-         FROM users u
-         JOIN messages m_latest
-            ON ((m_latest.sender_id = :id AND m_latest.recipient_id = u.id)
-             OR (m_latest.sender_id = u.id AND m_latest.recipient_id = :id))
-         LEFT JOIN user_presence up ON up.user_id = u.id
-         LEFT JOIN messages m_unseen ON m_unseen.sender_id = u.id
-            AND m_unseen.recipient_id = :id
-            AND m_unseen.read_at IS NULL
-         WHERE u.id != :id
-         GROUP BY u.id, u.username, u.created_at, up.updated_at
-         ORDER BY last_message_at DESC, username ASC'
-    );
-    $stmt->execute(['id' => $currentUserId]);
+    $users = allOtherUsers($currentUserId);
 
-    return decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
+    $chatUsers = array_values(array_filter($users, static function (array $user): bool {
+        return !empty($user['can_chat']) || !empty($user['last_message_at']);
+    }));
+
+    usort($chatUsers, static function (array $left, array $right): int {
+        $leftHasMessages = !empty($left['last_message_at']);
+        $rightHasMessages = !empty($right['last_message_at']);
+
+        if ($leftHasMessages !== $rightHasMessages) {
+            return $rightHasMessages <=> $leftHasMessages;
+        }
+
+        $leftTimestamp = $leftHasMessages ? (strtotime((string) $left['last_message_at']) ?: 0) : 0;
+        $rightTimestamp = $rightHasMessages ? (strtotime((string) $right['last_message_at']) ?: 0) : 0;
+
+        if ($leftTimestamp !== $rightTimestamp) {
+            return $rightTimestamp <=> $leftTimestamp;
+        }
+
+        return strcasecmp((string) ($left['username'] ?? ''), (string) ($right['username'] ?? ''));
+    });
+
+    return $chatUsers;
 }
 
 function allOtherUsers(int $currentUserId): array
