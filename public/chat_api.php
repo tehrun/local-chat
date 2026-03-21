@@ -15,13 +15,6 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
 
 if ($action === 'messages') {
-    $wait = filter_var($_GET['wait'] ?? $_POST['wait'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
-    $signature = (string) ($_GET['signature'] ?? $_POST['signature'] ?? '');
-
-    if ($wait && $signature !== '') {
-        jsonResponse(waitForConversationChange((int) $user['id'], $otherUserId, $signature));
-    }
-
     jsonResponse(conversationPayload((int) $user['id'], $otherUserId));
 }
 
