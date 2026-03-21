@@ -1188,21 +1188,51 @@ function canAccessConversation(int $userId, int $otherUserId): bool
 
 function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): array
 {
-    $stmt = db()->prepare(
-        'SELECT m.*, u.username AS sender_name
-         FROM messages m
-         JOIN users u ON u.id = m.sender_id
-         WHERE ((sender_id = :user_id AND recipient_id = :other_id)
-            OR (sender_id = :other_id AND recipient_id = :user_id))
-         ORDER BY m.created_at ASC, m.id ASC'
-    );
+    return conversationMessagesPageWithoutMaintenance($userId, $otherUserId);
+}
 
-    $stmt->execute([
+function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
+{
+    $sql = 'SELECT m.*, u.username AS sender_name
+            FROM messages m
+            JOIN users u ON u.id = m.sender_id
+            WHERE ((sender_id = :user_id AND recipient_id = :other_id)
+               OR (sender_id = :other_id AND recipient_id = :user_id))';
+
+    $params = [
         'user_id' => $userId,
         'other_id' => $otherUserId,
-    ]);
+    ];
 
-    return array_map(static fn (array $message): array => formatMessage($message), $stmt->fetchAll());
+    if ($beforeMessageId !== null && $beforeMessageId > 0) {
+        $sql .= ' AND m.id < :before_message_id';
+        $params['before_message_id'] = $beforeMessageId;
+    }
+
+    if ($limit > 0) {
+        $sql .= ' ORDER BY m.created_at DESC, m.id DESC LIMIT :limit';
+    } else {
+        $sql .= ' ORDER BY m.created_at ASC, m.id ASC';
+    }
+
+    $stmt = db()->prepare($sql);
+
+    foreach ($params as $name => $value) {
+        $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
+    }
+
+    if ($limit > 0) {
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+    $messages = $stmt->fetchAll();
+
+    if ($limit > 0) {
+        $messages = array_reverse($messages);
+    }
+
+    return array_map(static fn (array $message): array => formatMessage($message), $messages);
 }
 
 function sendTextMessage(int $senderId, int $recipientId, string $body): array|string|null
@@ -1479,7 +1509,7 @@ function isUserTypingWithoutMaintenance(int $userId, int $otherUserId): bool
     return (bool) $stmt->fetchColumn();
 }
 
-function conversationPayload(int $userId, int $otherUserId): array
+function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
 {
     purgeExpiredMessages();
 
@@ -1491,9 +1521,14 @@ function conversationPayload(int $userId, int $otherUserId): array
     }
 
     $otherUser = findUserById($otherUserId);
+    $messages = conversationMessagesPageWithoutMaintenance($userId, $otherUserId, $limit, $beforeMessageId);
+    $oldestLoadedId = $messages === [] ? null : (int) ($messages[0]['id'] ?? 0);
 
     return [
-        'messages' => conversationMessagesWithoutMaintenance($userId, $otherUserId),
+        'messages' => $messages,
+        'has_more_messages' => $oldestLoadedId !== null && $oldestLoadedId > 0
+            ? conversationHasOlderMessagesWithoutMaintenance($userId, $otherUserId, $oldestLoadedId)
+            : false,
         'typing' => $allowed ? isUserTypingWithoutMaintenance($userId, $otherUserId) : false,
         'can_chat' => $allowed,
         'friendship' => friendshipRecord($userId, $otherUserId),
@@ -1502,6 +1537,26 @@ function conversationPayload(int $userId, int $otherUserId): array
             'label' => $otherUser['presence_label'] ?? 'Offline',
         ],
     ];
+}
+
+function conversationHasOlderMessagesWithoutMaintenance(int $userId, int $otherUserId, int $beforeMessageId): bool
+{
+    $stmt = db()->prepare(
+        'SELECT 1
+         FROM messages
+         WHERE (((sender_id = :user_id AND recipient_id = :other_id)
+            OR (sender_id = :other_id AND recipient_id = :user_id)))
+           AND id < :before_message_id
+         LIMIT 1'
+    );
+
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_id' => $otherUserId,
+        'before_message_id' => $beforeMessageId,
+    ]);
+
+    return (bool) $stmt->fetchColumn();
 }
 
 function conversationStateSignature(int $userId, int $otherUserId): string
