@@ -1073,7 +1073,14 @@ function isNearBottom() {
 }
 
 function scrollMessagesToEnd(behavior = 'auto') {
+    const latestMessage = messagesEl.lastElementChild;
+
     messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior });
+
+    if (latestMessage instanceof HTMLElement) {
+        latestMessage.scrollIntoView({ block: 'end', inline: 'nearest', behavior });
+    }
+
     shouldAutoScroll = true;
     updateScrollToEndButton();
 }
@@ -1244,6 +1251,22 @@ function renderMessages(messages) {
                     <div class="meta"><span class="meta-label">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</span>${ticks}</div>
                 </article>`;
         }).join('');
+
+        messagesEl.querySelectorAll('img').forEach((imageEl) => {
+            imageEl.addEventListener('load', () => {
+                if (shouldAutoScroll || isNearBottom()) {
+                    scrollMessagesToEnd();
+                }
+            }, { once: true });
+        });
+
+        messagesEl.querySelectorAll('audio').forEach((audioEl) => {
+            audioEl.addEventListener('loadedmetadata', () => {
+                if (shouldAutoScroll || isNearBottom()) {
+                    scrollMessagesToEnd();
+                }
+            }, { once: true });
+        });
     }
 
     if (shouldAutoScroll || wasNearBottom || initialScrollPending) {
