@@ -668,6 +668,7 @@ const loginUsernameInput = loginForm?.querySelector('[data-login-field="username
 const loginPasswordInput = loginForm?.querySelector('[data-login-field="password"]') || null;
 
 let notificationPermissionRequested = false;
+let notificationPermissionPromptDismissed = false;
 let hasInteracted = false;
 let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
 
@@ -704,7 +705,13 @@ function markUserInteraction() {
 }
 
 function requestNotificationPermission() {
-    if (notificationPermissionRequested || !('Notification' in window) || Notification.permission !== 'default') {
+    if (notificationPermissionRequested || notificationPermissionPromptDismissed || !('Notification' in window) || Notification.permission !== 'default') {
+        return;
+    }
+
+    const accepted = window.confirm('Would you like to receive push notifications for new activity in Local Chat?');
+    if (!accepted) {
+        notificationPermissionPromptDismissed = true;
         return;
     }
 
