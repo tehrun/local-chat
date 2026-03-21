@@ -196,6 +196,14 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             line-height: 1.45;
             font-size: 15px;
         }
+        .message-text.rtl {
+            direction: rtl;
+            text-align: right;
+        }
+        .message-text.ltr {
+            direction: ltr;
+            text-align: left;
+        }
         .message audio {
             width: min(240px, 100%);
             margin-top: 6px;
@@ -301,6 +309,17 @@ $otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
             color: var(--text);
             padding: 11px 4px 9px;
             outline: none;
+            direction: ltr;
+            text-align: left;
+            unicode-bidi: plaintext;
+        }
+        .composer textarea.rtl {
+            direction: rtl;
+            text-align: right;
+        }
+        .composer textarea.ltr {
+            direction: ltr;
+            text-align: left;
         }
         .action-button {
             border: none;
@@ -558,6 +577,28 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+function detectTextDirection(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return 'ltr';
+    }
+
+    const firstStrongCharacter = text.match(/[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFCA-Za-z]/);
+    if (!firstStrongCharacter) {
+        return 'ltr';
+    }
+
+    const rtlPattern = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+    return rtlPattern.test(firstStrongCharacter[0]) ? 'rtl' : 'ltr';
+}
+
+function updateComposerDirection() {
+    const direction = detectTextDirection(bodyEl.value);
+    bodyEl.dir = direction;
+    bodyEl.classList.toggle('rtl', direction === 'rtl');
+    bodyEl.classList.toggle('ltr', direction !== 'rtl');
+}
+
 function autoResizeComposer() {
     bodyEl.style.height = '44px';
     bodyEl.style.height = `${Math.max(44, Math.min(bodyEl.scrollHeight, 110))}px`;
@@ -713,8 +754,9 @@ function renderMessages(messages) {
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
+            const textDirection = detectTextDirection(message.body || '');
             const body = message.body
-                ? `<div class="message-text">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
+                ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
@@ -940,6 +982,7 @@ async function sendTextMessage() {
     upsertMessage(pendingMessage);
     bodyEl.value = '';
     autoResizeComposer();
+    updateComposerDirection();
     typingActive = false;
     clearTimeout(typingTimer);
     syncTyping(false);
@@ -968,6 +1011,7 @@ async function sendTextMessage() {
         removeMessage(pendingMessage.id);
         bodyEl.value = body;
         autoResizeComposer();
+        updateComposerDirection();
         showError('Could not send message right now. Please try again.');
     } finally {
         isSending = false;
@@ -1207,6 +1251,7 @@ voiceFileInput.addEventListener('change', async () => {
 bodyEl.addEventListener('input', () => {
     markUserInteraction();
     autoResizeComposer();
+    updateComposerDirection();
     updateActionButton();
     markTyping();
     if (statusState !== 'typing') {
@@ -1267,6 +1312,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 autoResizeComposer();
+updateComposerDirection();
 updateActionButton();
 renderMessages(initialMessages);
 updatePresence(initialPresence, initialPresenceLabel);
