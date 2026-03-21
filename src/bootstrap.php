@@ -326,7 +326,7 @@ function friendshipStatuses(int $currentUserId): array
 
         $status = (string) $request['status'];
         $statuses[$otherUserId] = [
-            'id' => (int) $request['id'],
+            'friendship_id' => (int) $request['id'],
             'sender_id' => $senderId,
             'recipient_id' => $recipientId,
             'status' => $status,
@@ -347,6 +347,7 @@ function decorateUsersWithFriendship(array $users, int $currentUserId): array
 
     return array_map(static function (array $user) use ($statuses): array {
         $friendship = $statuses[(int) $user['id']] ?? [
+            'friendship_id' => null,
             'friendship_status' => 'none',
             'can_chat' => false,
             'request_direction' => null,
