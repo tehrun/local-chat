@@ -208,9 +208,12 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             overscroll-behavior: contain;
         }
         .conversation-actions {
+            position: absolute;
+            right: 18px;
+            bottom: calc(100% + 10px);
+            z-index: 2;
             display: flex;
             justify-content: flex-end;
-            margin: 0 6px 8px;
             pointer-events: none;
         }
         .scroll-to-end-button {
@@ -381,6 +384,9 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             z-index: 4;
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             background: linear-gradient(180deg, rgba(239,234,226,0) 0%, rgba(239,234,226,0.96) 18%, rgba(239,234,226,1) 45%);
+        }
+        .composer-stack {
+            position: relative;
         }
         .composer {
             display: flex;
@@ -686,34 +692,36 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
         </div>
 
         <div class="composer-wrap">
-            <div class="conversation-actions" aria-hidden="false">
-                <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="m7 10 5 5 5-5"></path>
-                        <path d="M7 5l5 5 5-5"></path>
-                    </svg>
-                </button>
-            </div>
             <div class="status-row" id="status-row"></div>
-            <div class="composer">
-                <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
-                <input id="image-file-input" type="file" accept="image/*" style="display:none">
-                <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
-                <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
-                        <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
-                        <circle cx="9" cy="9" r="1.25"></circle>
-                    </svg>
-                </button>
-                <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"<?= $canChat ? '' : ' disabled' ?>>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
-                        <path d="M18 11.25a6 6 0 0 1-12 0"></path>
-                        <path d="M12 17.25V20"></path>
-                        <path d="M9.5 20h5"></path>
-                    </svg>
-                </button>
+            <div class="composer-stack">
+                <div class="conversation-actions" aria-hidden="false">
+                    <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m7 10 5 5 5-5"></path>
+                            <path d="M7 5l5 5 5-5"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="composer">
+                    <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
+                    <input id="image-file-input" type="file" accept="image/*" style="display:none">
+                    <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
+                    <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
+                            <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
+                            <circle cx="9" cy="9" r="1.25"></circle>
+                        </svg>
+                    </button>
+                    <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"<?= $canChat ? '' : ' disabled' ?>>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
+                            <path d="M18 11.25a6 6 0 0 1-12 0"></path>
+                            <path d="M12 17.25V20"></path>
+                            <path d="M9.5 20h5"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
