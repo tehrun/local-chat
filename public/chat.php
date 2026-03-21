@@ -18,16 +18,6 @@ $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'send_text') {
-        $error = sendTextMessage((int) $user['id'], $otherUserId, $_POST['body'] ?? '');
-        if ($error !== null) {
-            $errors[] = $error;
-        } else {
-            header('Location: /chat.php?user=' . $otherUserId);
-            exit;
-        }
-    }
-
     if ($action === 'send_voice') {
         $error = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
         if ($error !== null) {
@@ -40,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $messages = conversationMessages((int) $user['id'], $otherUserId);
+$otherUserTyping = isUserTyping((int) $user['id'], $otherUserId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -76,9 +67,10 @@ $messages = conversationMessages((int) $user['id'], $otherUserId);
             display: flex;
             flex-direction: column;
             gap: 14px;
-            margin-bottom: 24px;
+            margin-bottom: 12px;
             max-height: 460px;
             overflow-y: auto;
+            padding-right: 6px;
         }
         .message {
             max-width: 75%;
@@ -107,6 +99,10 @@ $messages = conversationMessages((int) $user['id'], $otherUserId);
             font-weight: bold;
             cursor: pointer;
         }
+        button:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
         .grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
@@ -118,6 +114,38 @@ $messages = conversationMessages((int) $user['id'], $otherUserId);
             margin-bottom: 12px;
             background: #fee2e2;
             color: #991b1b;
+        }
+        .status {
+            min-height: 24px;
+            margin-bottom: 12px;
+            color: #4b5563;
+            font-size: 14px;
+        }
+        .typing {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #eef2ff;
+            color: #3730a3;
+            border-radius: 999px;
+            padding: 8px 12px;
+        }
+        .dot-group {
+            display: inline-flex;
+            gap: 4px;
+        }
+        .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: #3730a3;
+            animation: pulse 1.2s infinite ease-in-out;
+        }
+        .dot:nth-child(2) { animation-delay: 0.15s; }
+        .dot:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes pulse {
+            0%, 80%, 100% { opacity: 0.35; transform: scale(0.85); }
+            40% { opacity: 1; transform: scale(1); }
         }
         a { color: #1d4ed8; text-decoration: none; }
         .meta {
@@ -149,35 +177,25 @@ $messages = conversationMessages((int) $user['id'], $otherUserId);
 
         <div class="grid">
             <div>
-                <div class="messages">
-                    <?php if ($messages === []): ?>
-                        <div class="message">
-                            <div class="meta">No messages yet</div>
-                            Start the conversation with a text or voice note.
-                        </div>
-                    <?php else: ?>
-                        <?php foreach ($messages as $message): ?>
-                            <div class="message <?= (int) $message['sender_id'] === (int) $user['id'] ? 'mine' : '' ?>">
-                                <div class="meta">
-                                    <?= e($message['sender_name']) ?> · <?= e(gmdate('Y-m-d H:i:s', strtotime($message['created_at']))) ?> UTC
-                                </div>
-                                <?php if (!empty($message['body'])): ?>
-                                    <div><?= nl2br(e($message['body'])) ?></div>
-                                <?php endif; ?>
-                                <?php if (!empty($message['audio_path'])): ?>
-                                    <audio controls preload="none" src="/media.php?message=<?= (int) $message['id'] ?>"></audio>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                <div class="messages" id="messages" aria-live="polite"></div>
+                <div class="status" id="typing-indicator" <?= $otherUserTyping ? '' : 'hidden' ?>>
+                    <span class="typing">
+                        <?= e($otherUser['username']) ?> is typing
+                        <span class="dot-group" aria-hidden="true">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </span>
+                    </span>
                 </div>
             </div>
             <div>
-                <form method="post">
+                <div class="alert" id="text-error" hidden></div>
+                <form method="post" id="text-form">
                     <input type="hidden" name="action" value="send_text">
                     <h3>Send text</h3>
-                    <textarea name="body" placeholder="Write a private message..." required></textarea>
-                    <button type="submit">Send message</button>
+                    <textarea name="body" id="message-body" placeholder="Write a private message..." required></textarea>
+                    <button type="submit" id="send-button">Send message</button>
                 </form>
 
                 <form method="post" enctype="multipart/form-data">
@@ -190,5 +208,190 @@ $messages = conversationMessages((int) $user['id'], $otherUserId);
         </div>
     </div>
 </div>
+<script>
+const currentUserId = <?= (int) $user['id'] ?>;
+const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
+const conversationUserId = <?= (int) $otherUserId ?>;
+const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
+const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const messagesEl = document.getElementById('messages');
+const typingEl = document.getElementById('typing-indicator');
+const form = document.getElementById('text-form');
+const bodyEl = document.getElementById('message-body');
+const sendButton = document.getElementById('send-button');
+const errorEl = document.getElementById('text-error');
+let renderedSignature = '';
+let pollTimer = null;
+let typingTimer = null;
+let typingActive = false;
+let latestFetchId = 0;
+
+function escapeHtml(value) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function renderMessages(messages) {
+    const signature = JSON.stringify(messages.map((message) => [message.id, message.created_at]));
+    if (signature === renderedSignature) {
+        return;
+    }
+
+    const shouldStickToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+    renderedSignature = signature;
+
+    if (messages.length === 0) {
+        messagesEl.innerHTML = `
+            <div class="message">
+                <div class="meta">No messages yet</div>
+                Start the conversation with a text or voice note.
+            </div>`;
+    } else {
+        messagesEl.innerHTML = messages.map((message) => {
+            const isMine = Number(message.sender_id) === currentUserId;
+            const body = message.body
+                ? `<div>${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
+                : '';
+            const audio = message.audio_path
+                ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
+                : '';
+
+            return `
+                <div class="message ${isMine ? 'mine' : ''}">
+                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}</div>
+                    ${body}
+                    ${audio}
+                </div>`;
+        }).join('');
+    }
+
+    if (shouldStickToBottom || messagesEl.scrollTop === 0) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+}
+
+function setTypingVisible(isVisible) {
+    typingEl.hidden = !isVisible;
+}
+
+function showError(message) {
+    errorEl.hidden = !message;
+    errorEl.textContent = message || '';
+}
+
+async function fetchConversation() {
+    const fetchId = ++latestFetchId;
+    try {
+        const response = await fetch(`/chat_api.php?action=messages&user=${conversationUserId}`, {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            return;
+        }
+        const payload = await response.json();
+        if (fetchId !== latestFetchId) {
+            return;
+        }
+        renderMessages(payload.messages || []);
+        setTypingVisible(Boolean(payload.typing));
+    } catch (error) {
+        // Ignore transient polling errors.
+    }
+}
+
+async function syncTyping(isTyping) {
+    try {
+        await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'typing', typing: String(isTyping) }),
+        });
+    } catch (error) {
+        // Ignore transient typing sync errors.
+    }
+}
+
+function markTyping() {
+    if (!typingActive) {
+        typingActive = true;
+        syncTyping(true);
+    }
+
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+        typingActive = false;
+        syncTyping(false);
+    }, 3000);
+}
+
+form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    showError('');
+
+    const body = bodyEl.value.trim();
+    if (!body) {
+        showError('Message cannot be empty.');
+        return;
+    }
+
+    sendButton.disabled = true;
+
+    try {
+        const response = await fetch(`/chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'send_text', body }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send message.');
+            return;
+        }
+
+        bodyEl.value = '';
+        typingActive = false;
+        clearTimeout(typingTimer);
+        syncTyping(false);
+        renderMessages(payload.messages || []);
+        setTypingVisible(Boolean(payload.typing));
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    } catch (error) {
+        showError('Could not send message right now. Please try again.');
+    } finally {
+        sendButton.disabled = false;
+        bodyEl.focus();
+    }
+});
+
+bodyEl.addEventListener('input', () => {
+    if (bodyEl.value.trim() === '') {
+        if (typingActive) {
+            typingActive = false;
+            clearTimeout(typingTimer);
+            syncTyping(false);
+        }
+        return;
+    }
+    markTyping();
+});
+
+window.addEventListener('beforeunload', () => {
+    if (typingActive && navigator.sendBeacon) {
+        const data = new URLSearchParams({ action: 'typing', typing: 'false' });
+        navigator.sendBeacon(`/chat_api.php?user=${conversationUserId}`, data);
+    }
+});
+
+renderMessages(initialMessages);
+setTypingVisible(initialTyping);
+pollTimer = setInterval(fetchConversation, 2000);
+fetchConversation();
+</script>
 </body>
 </html>

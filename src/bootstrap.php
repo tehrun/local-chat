@@ -9,6 +9,7 @@ define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
+define('TYPING_TTL_SECONDS', 8);
 
 if (!is_dir(dirname(DB_PATH))) {
     mkdir(dirname(DB_PATH), 0777, true);
@@ -58,11 +59,23 @@ function initializeDatabase(PDO $pdo): void
             FOREIGN KEY(recipient_id) REFERENCES users(id)
         )'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS typing_status (
+            user_id INTEGER NOT NULL,
+            conversation_user_id INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, conversation_user_id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(conversation_user_id) REFERENCES users(id)
+        )'
+    );
 }
 
 function purgeExpiredMessages(): void
 {
     $cutoff = gmdate('c', time() - MESSAGE_TTL_SECONDS);
+    $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
     $stmt = $pdo->prepare('SELECT audio_path FROM messages WHERE created_at < :cutoff AND audio_path IS NOT NULL');
@@ -77,6 +90,9 @@ function purgeExpiredMessages(): void
 
     $delete = $pdo->prepare('DELETE FROM messages WHERE created_at < :cutoff');
     $delete->execute(['cutoff' => $cutoff]);
+
+    $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
+    $deleteTyping->execute(['cutoff' => $typingCutoff]);
 }
 
 function currentUser(): ?array
@@ -176,7 +192,7 @@ function conversationMessages(int $userId, int $otherUserId): array
          JOIN users u ON u.id = m.sender_id
          WHERE ((sender_id = :user_id AND recipient_id = :other_id)
             OR (sender_id = :other_id AND recipient_id = :user_id))
-         ORDER BY m.created_at ASC'
+         ORDER BY m.created_at ASC, m.id ASC'
     );
 
     $stmt->execute([
@@ -184,7 +200,18 @@ function conversationMessages(int $userId, int $otherUserId): array
         'other_id' => $otherUserId,
     ]);
 
-    return $stmt->fetchAll();
+    return array_map(static function (array $message): array {
+        return [
+            'id' => (int) $message['id'],
+            'sender_id' => (int) $message['sender_id'],
+            'recipient_id' => (int) $message['recipient_id'],
+            'sender_name' => $message['sender_name'],
+            'body' => $message['body'],
+            'audio_path' => $message['audio_path'],
+            'created_at' => $message['created_at'],
+            'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
+        ];
+    }, $stmt->fetchAll());
 }
 
 function sendTextMessage(int $senderId, int $recipientId, string $body): ?string
@@ -206,6 +233,8 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): ?string
         'body' => $body,
         'created_at' => gmdate('c'),
     ]);
+
+    clearTypingStatus($senderId, $recipientId);
 
     return null;
 }
@@ -259,7 +288,68 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): ?string
         'created_at' => gmdate('c'),
     ]);
 
+    clearTypingStatus($senderId, $recipientId);
+
     return null;
+}
+
+function updateTypingStatus(int $userId, int $otherUserId): void
+{
+    purgeExpiredMessages();
+
+    $stmt = db()->prepare(
+        'INSERT INTO typing_status (user_id, conversation_user_id, updated_at)
+         VALUES (:user_id, :conversation_user_id, :updated_at)
+         ON CONFLICT(user_id, conversation_user_id)
+         DO UPDATE SET updated_at = excluded.updated_at'
+    );
+
+    $stmt->execute([
+        'user_id' => $userId,
+        'conversation_user_id' => $otherUserId,
+        'updated_at' => gmdate('c'),
+    ]);
+}
+
+function clearTypingStatus(int $userId, int $otherUserId): void
+{
+    $stmt = db()->prepare(
+        'DELETE FROM typing_status WHERE user_id = :user_id AND conversation_user_id = :conversation_user_id'
+    );
+
+    $stmt->execute([
+        'user_id' => $userId,
+        'conversation_user_id' => $otherUserId,
+    ]);
+}
+
+function isUserTyping(int $userId, int $otherUserId): bool
+{
+    purgeExpiredMessages();
+
+    $stmt = db()->prepare(
+        'SELECT 1 FROM typing_status
+         WHERE user_id = :user_id
+           AND conversation_user_id = :conversation_user_id
+           AND updated_at >= :cutoff
+         LIMIT 1'
+    );
+
+    $stmt->execute([
+        'user_id' => $otherUserId,
+        'conversation_user_id' => $userId,
+        'cutoff' => gmdate('c', time() - TYPING_TTL_SECONDS),
+    ]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+function jsonResponse(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode($payload, JSON_THROW_ON_ERROR);
+    exit;
 }
 
 function e(string $value): string
