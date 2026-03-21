@@ -10,6 +10,7 @@ define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
+define('PURGE_INTERVAL_SECONDS', 30);
 
 if (!is_dir(dirname(DB_PATH))) {
     mkdir(dirname(DB_PATH), 0777, true);
@@ -82,8 +83,14 @@ function initializeDatabase(PDO $pdo): void
     );
 }
 
-function purgeExpiredMessages(): void
+function purgeExpiredMessages(bool $force = false): void
 {
+    static $lastRunAt = null;
+
+    if (!$force && $lastRunAt !== null && (time() - $lastRunAt) < PURGE_INTERVAL_SECONDS) {
+        return;
+    }
+
     $cutoff = gmdate('c', time() - MESSAGE_TTL_SECONDS);
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
@@ -103,6 +110,8 @@ function purgeExpiredMessages(): void
 
     $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
     $deleteTyping->execute(['cutoff' => $typingCutoff]);
+
+    $lastRunAt = time();
 }
 
 function currentUser(): ?array
@@ -192,6 +201,36 @@ function loginUser(string $username, string $password): ?string
     return null;
 }
 
+function formatMessage(array $message): array
+{
+    return [
+        'id' => (int) $message['id'],
+        'sender_id' => (int) $message['sender_id'],
+        'recipient_id' => (int) $message['recipient_id'],
+        'sender_name' => $message['sender_name'],
+        'body' => $message['body'],
+        'audio_path' => $message['audio_path'],
+        'created_at' => $message['created_at'],
+        'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
+    ];
+}
+
+function findMessageById(int $messageId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT m.*, u.username AS sender_name
+         FROM messages m
+         JOIN users u ON u.id = m.sender_id
+         WHERE m.id = :id
+         LIMIT 1'
+    );
+    $stmt->execute(['id' => $messageId]);
+
+    $message = $stmt->fetch();
+
+    return $message === false ? null : formatMessage($message);
+}
+
 function conversationMessages(int $userId, int $otherUserId): array
 {
     purgeExpiredMessages();
@@ -215,21 +254,10 @@ function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): 
         'other_id' => $otherUserId,
     ]);
 
-    return array_map(static function (array $message): array {
-        return [
-            'id' => (int) $message['id'],
-            'sender_id' => (int) $message['sender_id'],
-            'recipient_id' => (int) $message['recipient_id'],
-            'sender_name' => $message['sender_name'],
-            'body' => $message['body'],
-            'audio_path' => $message['audio_path'],
-            'created_at' => $message['created_at'],
-            'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
-        ];
-    }, $stmt->fetchAll());
+    return array_map(static fn (array $message): array => formatMessage($message), $stmt->fetchAll());
 }
 
-function sendTextMessage(int $senderId, int $recipientId, string $body): ?string
+function sendTextMessage(int $senderId, int $recipientId, string $body): array|string|null
 {
     purgeExpiredMessages();
 
@@ -251,10 +279,49 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): ?string
 
     clearTypingStatus($senderId, $recipientId);
 
+    return findMessageById((int) db()->lastInsertId());
+}
+
+function detectUploadedAudioExtension(array $file, ?string $mime): ?string
+{
+    $allowedMimeTypes = [
+        'audio/mpeg' => 'mp3',
+        'audio/mp3' => 'mp3',
+        'audio/wav' => 'wav',
+        'audio/x-wav' => 'wav',
+        'audio/wave' => 'wav',
+        'audio/vnd.wave' => 'wav',
+        'audio/ogg' => 'ogg',
+        'audio/webm' => 'webm',
+        'audio/mp4' => 'm4a',
+        'audio/x-m4a' => 'm4a',
+        'video/mp4' => 'm4a',
+        'application/octet-stream' => null,
+    ];
+
+    if ($mime !== null && isset($allowedMimeTypes[$mime]) && $allowedMimeTypes[$mime] !== null) {
+        return $allowedMimeTypes[$mime];
+    }
+
+    $clientName = strtolower((string) ($file['name'] ?? ''));
+    $clientType = strtolower((string) ($file['type'] ?? ''));
+
+    foreach ([$clientType, $mime] as $type) {
+        if ($type !== null && isset($allowedMimeTypes[$type]) && $allowedMimeTypes[$type] !== null) {
+            return $allowedMimeTypes[$type];
+        }
+    }
+
+    $extension = pathinfo($clientName, PATHINFO_EXTENSION);
+    $allowedExtensions = ['mp3', 'wav', 'ogg', 'webm', 'm4a', 'mp4'];
+    if (in_array($extension, $allowedExtensions, true)) {
+        return $extension === 'mp4' ? 'm4a' : $extension;
+    }
+
     return null;
 }
 
-function sendVoiceMessage(int $senderId, int $recipientId, array $file): ?string
+function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|string|null
 {
     purgeExpiredMessages();
 
@@ -262,19 +329,11 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): ?string
         return 'Voice upload failed. Please attach an audio file.';
     }
 
-    $allowedMimeTypes = [
-        'audio/mpeg' => 'mp3',
-        'audio/wav' => 'wav',
-        'audio/x-wav' => 'wav',
-        'audio/ogg' => 'ogg',
-        'audio/webm' => 'webm',
-        'audio/mp4' => 'm4a',
-    ];
-
     $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedAudioExtension($file, $mime);
 
-    if (!isset($allowedMimeTypes[$mime])) {
+    if ($extension === null) {
         return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a.';
     }
 
@@ -282,7 +341,6 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): ?string
         return 'Voice note must be 10MB or smaller.';
     }
 
-    $extension = $allowedMimeTypes[$mime];
     $filename = sprintf('%s_%s.%s', $senderId, bin2hex(random_bytes(8)), $extension);
     $target = UPLOAD_PATH . '/' . $filename;
 
@@ -305,7 +363,7 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): ?string
 
     clearTypingStatus($senderId, $recipientId);
 
-    return null;
+    return findMessageById((int) db()->lastInsertId());
 }
 
 function updateTypingStatus(int $userId, int $otherUserId): void
@@ -318,7 +376,6 @@ function updateTypingStatus(int $userId, int $otherUserId): void
          ON CONFLICT(user_id, conversation_user_id)
          DO UPDATE SET updated_at = excluded.updated_at'
     );
-
     $stmt->execute([
         'user_id' => $userId,
         'conversation_user_id' => $otherUserId,

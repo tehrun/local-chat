@@ -31,28 +31,30 @@ if ($action === 'typing') {
 }
 
 if ($action === 'send_text') {
-    $error = sendTextMessage((int) $user['id'], $otherUserId, $_POST['body'] ?? '');
+    $message = sendTextMessage((int) $user['id'], $otherUserId, $_POST['body'] ?? '');
 
-    if ($error !== null) {
-        jsonResponse(['error' => $error], 422);
+    if (is_string($message)) {
+        jsonResponse(['error' => $message], 422);
     }
 
     jsonResponse([
         'ok' => true,
-        ...conversationPayload((int) $user['id'], $otherUserId),
+        'message' => $message,
+        'typing' => false,
     ]);
 }
 
 if ($action === 'send_voice') {
-    $error = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
+    $message = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
 
-    if ($error !== null) {
-        jsonResponse(['error' => $error], 422);
+    if (is_string($message)) {
+        jsonResponse(['error' => $message], 422);
     }
 
     jsonResponse([
         'ok' => true,
-        ...conversationPayload((int) $user['id'], $otherUserId),
+        'message' => $message,
+        'typing' => false,
     ]);
 }
 
