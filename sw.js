@@ -1,9 +1,28 @@
-const CACHE_NAME = 'local-chat-v1';
+const CACHE_NAME = 'local-chat-v2';
 const APP_SHELL = [
   './',
   'manifest.json',
   'icons/icon.svg',
 ];
+
+function shouldHandleRequest(request) {
+  if (request.method !== 'GET') {
+    return false;
+  }
+
+  const url = new URL(request.url);
+
+  if (url.origin !== self.location.origin) {
+    return false;
+  }
+
+  if (url.pathname.endsWith('.php') || url.search) {
+    return false;
+  }
+
+  return request.mode === 'navigate'
+    || ['document', 'image', 'style', 'script', 'font', 'manifest'].includes(request.destination);
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -19,25 +38,41 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') {
+  if (!shouldHandleRequest(event.request)) {
+    return;
+  }
+
+  const request = event.request;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match('./')))
+    );
+
     return;
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(request).then((cached) => {
       if (cached) {
         return cached;
       }
 
-      return fetch(event.request).then((response) => {
+      return fetch(request).then((response) => {
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
 
         const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         return response;
-      }).catch(() => caches.match('./'));
+      });
     })
   );
 });
