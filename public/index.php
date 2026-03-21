@@ -253,6 +253,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             text-decoration: none;
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
         }
+        .chat-item[role="link"] {
+            cursor: pointer;
+        }
         .avatar {
             width: 46px;
             height: 46px;
@@ -741,11 +744,12 @@ function renderDirectoryEntries(users, includeUnseenCount) {
         const countMarkup = includeUnseenCount
             ? `<span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>`
             : '';
-        const wrapperTag = chatUser.can_chat ? 'a' : 'div';
-        const hrefAttr = chatUser.can_chat ? ` href="/chat.php?user=${userId}"` : '';
+        const openChatAttrs = chatUser.can_chat
+            ? ` role="link" tabindex="0" data-open-chat-url="/chat.php?user=${userId}" aria-label="Open chat with ${username}"`
+            : '';
 
         return `
-            <${wrapperTag} class="chat-item" data-chat-user-id="${userId}"${hrefAttr}>
+            <div class="chat-item" data-chat-user-id="${userId}"${openChatAttrs}>
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
@@ -757,7 +761,7 @@ function renderDirectoryEntries(users, includeUnseenCount) {
                     </div>
                 </div>
                 <div class="user-row-actions">${friendshipActionMarkup(chatUser)}${countMarkup}</div>
-            </${wrapperTag}>`;
+            </div>`;
     }).join('');
 }
 
@@ -879,6 +883,26 @@ function setChatSwitcherOpen(isOpen) {
 
     chatSwitcherEl.hidden = !isOpen;
     document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
+
+function openChatFromRow(eventTarget) {
+    const row = eventTarget.closest('[data-open-chat-url]');
+    if (!row) {
+        return false;
+    }
+
+    if (eventTarget.closest('a, button, input, textarea, select, label')) {
+        return false;
+    }
+
+    const url = row.dataset.openChatUrl;
+    if (!url) {
+        return false;
+    }
+
+    window.location.href = url;
+    return true;
 }
 
 function escapeHtml(value) {
@@ -1030,10 +1054,19 @@ chatSwitcherEl?.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
         setChatSwitcherOpen(false);
+        return;
+    }
+
+    if ((event.key === 'Enter' || event.key === ' ') && openChatFromRow(event.target)) {
+        event.preventDefault();
     }
 });
 
 document.addEventListener('click', async (event) => {
+    if (openChatFromRow(event.target)) {
+        return;
+    }
+
     const target = event.target.closest('[data-request-action]');
     if (!target) {
         return;
