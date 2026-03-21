@@ -13,11 +13,25 @@ if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'messages';
-$canChat = canUsersChat((int) $user['id'], $otherUserId);
 
 if ($action === 'messages') {
     jsonResponse(conversationPayload((int) $user['id'], $otherUserId));
 }
+
+if ($action === 'revoke_friendship') {
+    $error = revokeFriendship((int) $user['id'], $otherUserId);
+
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'payload' => conversationPayload((int) $user['id'], $otherUserId),
+    ]);
+}
+
+$canChat = canUsersChat((int) $user['id'], $otherUserId);
 
 if (!$canChat) {
     jsonResponse(['error' => 'You can only chat after the friend request is accepted.'], 403);

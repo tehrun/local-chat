@@ -42,6 +42,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
     }
 
+    if ($action === 'revoke_friendship') {
+        $error = revokeFriendship($currentUserId, $otherUserId);
+
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+
+        jsonResponse([
+            'ok' => true,
+            'payload' => chatListPayload($currentUserId),
+        ]);
+    }
+
     jsonResponse(['error' => 'Unsupported action.'], 400);
 }
 
