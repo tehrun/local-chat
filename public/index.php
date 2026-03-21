@@ -31,14 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($error !== null) {
             $errors[] = $error;
         } else {
-            header('Location: /');
+            header('Location: index.php');
             exit;
         }
     }
 
     if ($action === 'logout') {
         session_destroy();
-        header('Location: /');
+        header('Location: index.php');
         exit;
     }
 }
@@ -58,8 +58,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Local Chat">
-    <link rel="manifest" href="/manifest.json">
-    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <title>Local Chat</title>
     <style>
         :root {
@@ -596,7 +596,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <?php else: ?>
                         <?php foreach ($chatUsers as $chatUser): ?>
                             <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
-                            <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="/chat.php?user=<?= (int) $chatUser['id'] ?>">
+                            <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="chat.php?user=<?= (int) $chatUser['id'] ?>">
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
@@ -803,7 +803,7 @@ function renderDirectoryEntries(users, includeUnseenCount) {
             ? `<span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>`
             : '';
         const openChatAttrs = chatUser.can_chat
-            ? ` role="link" tabindex="0" data-open-chat-url="/chat.php?user=${userId}" aria-label="Open chat with ${username}"`
+            ? ` role="link" tabindex="0" data-open-chat-url="chat.php?user=${userId}" aria-label="Open chat with ${username}"`
             : '';
 
         return `
@@ -839,7 +839,7 @@ function renderChatListEntries(users) {
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
 
         return `
-            <a class="chat-item" data-chat-user-id="${userId}" href="/chat.php?user=${userId}">
+            <a class="chat-item" data-chat-user-id="${userId}" href="chat.php?user=${userId}">
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
@@ -908,10 +908,10 @@ async function showFriendRequestNotification(request) {
 
     registration.showNotification('New friend request', {
         body: `${request.sender_name || 'Someone'} wants to add you as a friend.`,
-        icon: '/icons/icon.svg',
+        icon: 'icons/icon.svg',
         tag: `friend-request-${request.id || request.sender_id}`,
         renotify: true,
-        data: { url: '/' },
+        data: { url: 'index.php' },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -940,10 +940,10 @@ async function showUnreadMessageNotification(chatUser, increaseCount) {
 
     registration.showNotification('New message', {
         body,
-        icon: '/icons/icon.svg',
+        icon: 'icons/icon.svg',
         tag: `chat-message-${chatUser.id}`,
         renotify: true,
-        data: { url: `/chat.php?user=${Number(chatUser.id)}` },
+        data: { url: `chat.php?user=${Number(chatUser.id)}` },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1066,7 +1066,7 @@ function applyChatListPayload(payload) {
 }
 
 async function fetchChatList() {
-    const response = await fetch('/home_api.php', {
+    const response = await fetch('home_api.php', {
         headers: { Accept: 'application/json' },
         credentials: 'same-origin',
         cache: 'no-store',
@@ -1102,7 +1102,7 @@ function connectChatListStream() {
         chatListStream.close();
     }
 
-    chatListStream = new EventSource('/home_stream.php');
+    chatListStream = new EventSource('home_stream.php');
 
     chatListStream.addEventListener('chat-list', (event) => {
         try {
@@ -1128,7 +1128,7 @@ connectChatListStream();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {
+        navigator.serviceWorker.register('sw.js').catch(() => {
             // Ignore service worker registration errors.
         });
     });
@@ -1190,7 +1190,7 @@ document.addEventListener('click', async (event) => {
     target.disabled = true;
 
     try {
-        const response = await fetch('/home_api.php', {
+        const response = await fetch('home_api.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' },
             credentials: 'same-origin',

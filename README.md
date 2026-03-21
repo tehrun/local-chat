@@ -31,3 +31,7 @@ Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, th
 - Uploaded chat images: `storage/tmp/`
 
 Messages older than 24 hours are purged automatically whenever the app loads inbox or conversation pages, before new messages are saved, and while live polling requests keep the chat updated.
+
+## cPanel deployment
+
+To host the project from a subdirectory such as `https://towerco.land/chat`, upload the repository so the repository root is served from that `/chat` folder. The root now includes wrapper entry points (`index.php`, `chat.php`, API endpoints, `manifest.json`, `sw.js`, and `icons/`) that forward to the existing `public/` implementation while keeping URLs relative to the current directory.
