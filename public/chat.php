@@ -5,10 +5,10 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$otherUserId = (int) ($_GET['user'] ?? 0);
+$otherUserId = requirePositiveInt($_GET, 'user');
 $otherUser = findUserById($otherUserId);
 
-if ($otherUser === null || $otherUser['id'] === $user['id']) {
+if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
     header('Location: index.php');
     exit;
 }
@@ -29,6 +29,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
     <meta name="apple-mobile-web-app-title" content="Local Chat">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title>Chat with <?= e($otherUser['username']) ?></title>
     <style>
         :root {
@@ -743,15 +744,16 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
 
 const currentUserId = <?= (int) $user['id'] ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
-const otherUserName = <?= json_encode($otherUser['username'], JSON_THROW_ON_ERROR) ?>;
-const initialMessages = <?= json_encode($messages, JSON_THROW_ON_ERROR) ?>;
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const otherUserName = <?= jsonScriptValue($otherUser['username']) ?>;
+const initialMessages = <?= jsonScriptValue($messages) ?>;
 const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
-const initialFriendship = <?= json_encode($friendship, JSON_THROW_ON_ERROR) ?>;
+const initialFriendship = <?= jsonScriptValue($friendship) ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
-const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
+const initialPresenceLabel = <?= jsonScriptValue($otherUser['presence_label'] ?? 'Offline') ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
-const initialConversationSignature = <?= json_encode($initialConversationSignature, JSON_THROW_ON_ERROR) ?>;
+const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 12000;
 const messagesEl = document.getElementById('messages');
@@ -1450,8 +1452,8 @@ async function syncReadState() {
     try {
         const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-            body: new URLSearchParams({ action: 'read' }),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'read', csrf_token: csrfToken }),
         });
 
         if (!response.ok) {
@@ -1552,8 +1554,8 @@ async function syncTyping(isTyping) {
     try {
         await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-            body: new URLSearchParams({ action: 'typing', typing: String(isTyping) }),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'typing', typing: String(isTyping), csrf_token: csrfToken }),
         });
     } catch (error) {
         // Ignore transient typing sync errors.
@@ -1605,8 +1607,8 @@ async function flushPendingTextQueue() {
         try {
             const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-                body: new URLSearchParams({ action: 'send_text', body: nextMessage.body }),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: new URLSearchParams({ action: 'send_text', body: nextMessage.body, csrf_token: csrfToken }),
             });
             const payload = await response.json();
 
@@ -1719,11 +1721,12 @@ async function uploadVoiceBlob(blob, filename) {
     try {
         const formData = new FormData();
         formData.append('action', 'send_voice');
+        formData.append('csrf_token', csrfToken);
         formData.append('voice_note', blob, filename);
 
         const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
-            headers: { 'Accept': 'application/json' },
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
         });
         const payload = await response.json();
@@ -1774,11 +1777,12 @@ async function uploadImageFile(file) {
     try {
         const formData = new FormData();
         formData.append('action', 'send_image');
+        formData.append('csrf_token', csrfToken);
         formData.append('image_file', file, file.name || 'photo.jpg');
 
         const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
-            headers: { 'Accept': 'application/json' },
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
         });
         const payload = await response.json();
@@ -2053,8 +2057,8 @@ revokeFriendshipButton.addEventListener('click', async () => {
     try {
         const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-            body: new URLSearchParams({ action: 'revoke_friendship' }),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'revoke_friendship', csrf_token: csrfToken }),
         });
         const payload = await response.json();
 
@@ -2119,7 +2123,7 @@ window.addEventListener('beforeunload', () => {
     }
     stopPollingConversation();
     if (typingActive && navigator.sendBeacon) {
-        const data = new URLSearchParams({ action: 'typing', typing: 'false' });
+        const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
         navigator.sendBeacon(`chat_api.php?user=${conversationUserId}`, data);
     }
 });

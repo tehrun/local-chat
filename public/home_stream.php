@@ -30,7 +30,7 @@ while (!connection_aborted()) {
 
         echo 'id: ' . $eventId . "\n";
         echo "event: chat-list\n";
-        echo 'data: ' . json_encode($payload, JSON_THROW_ON_ERROR) . "\n\n";
+        echo 'data: ' . encodeJson($payload) . "\n\n";
 
         @ob_flush();
         flush();

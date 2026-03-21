@@ -5,7 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$messageId = (int) ($_GET['message'] ?? 0);
+$messageId = requirePositiveInt($_GET, 'message');
 
 purgeExpiredMessages();
 
@@ -28,6 +28,11 @@ if ($message === false) {
 }
 
 $relativePath = $message['image_path'] ?: $message['audio_path'];
+if (!isSafeStorageRelativePath(is_string($relativePath) ? $relativePath : null)) {
+    http_response_code(404);
+    exit('Media not found.');
+}
+
 $fullPath = BASE_PATH . '/' . $relativePath;
 if (!is_file($fullPath)) {
     http_response_code(404);
@@ -37,4 +42,5 @@ if (!is_file($fullPath)) {
 $finfo = new finfo(FILEINFO_MIME_TYPE);
 header('Content-Type: ' . ($finfo->file($fullPath) ?: 'application/octet-stream'));
 header('Content-Length: ' . (string) filesize($fullPath));
+header('Content-Disposition: inline; filename="' . basename((string) $relativePath) . '"');
 readfile($fullPath);

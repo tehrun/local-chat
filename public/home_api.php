@@ -15,6 +15,8 @@ if ($requestMethod === 'GET' && (($_GET['action'] ?? '') === 'signature')) {
 }
 
 if ($requestMethod === 'POST') {
+    requireCsrfToken();
+
     $action = $_POST['action'] ?? '';
     $otherUserId = (int) ($_POST['user'] ?? 0);
     $otherUser = $otherUserId > 0 ? findUserById($otherUserId) : null;

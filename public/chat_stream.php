@@ -5,10 +5,10 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$otherUserId = (int) ($_GET['user'] ?? 0);
+$otherUserId = requirePositiveInt($_GET, 'user');
 $otherUser = findUserById($otherUserId);
 
-if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id']) {
+if ($otherUser === null || (int) $otherUser['id'] === (int) $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
     jsonResponse(['error' => 'Conversation not found.'], 404);
 }
 
@@ -35,7 +35,7 @@ while (!connection_aborted()) {
 
         echo 'id: ' . $eventId . "\n";
         echo "event: conversation\n";
-        echo 'data: ' . json_encode($payload, JSON_THROW_ON_ERROR) . "\n\n";
+        echo 'data: ' . encodeJson($payload) . "\n\n";
 
         @ob_flush();
         flush();
