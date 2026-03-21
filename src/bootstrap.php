@@ -197,6 +197,26 @@ function isUserOnline(int $userId): bool
     return (bool) $stmt->fetchColumn();
 }
 
+function formatPresenceTimestamp(int $timestamp): string
+{
+    $timeLabel = date('H:i', $timestamp);
+    $today = date('Y-m-d');
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+    $dateLabel = date('Y-m-d', $timestamp);
+
+    if ($dateLabel === $today) {
+        return 'today at ' . $timeLabel;
+    }
+
+    if ($dateLabel === $yesterday) {
+        return 'yesterday at ' . $timeLabel;
+    }
+
+    $dateFormat = date('Y', $timestamp) === date('Y') ? 'M j' : 'M j, Y';
+
+    return date($dateFormat, $timestamp) . ' at ' . $timeLabel;
+}
+
 function presenceLabel(?string $updatedAt): string
 {
     if ($updatedAt === null) {
@@ -212,7 +232,7 @@ function presenceLabel(?string $updatedAt): string
         return 'Online';
     }
 
-    return 'Last seen ' . gmdate('Y-m-d H:i:s', $timestamp) . ' UTC';
+    return 'Last seen ' . formatPresenceTimestamp($timestamp);
 }
 
 function currentUser(): ?array
