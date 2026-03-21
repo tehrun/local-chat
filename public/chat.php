@@ -299,6 +299,7 @@ const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
 const composerHelpEl = document.getElementById('composer-help');
 let renderedSignature = '';
+let localMessageCounter = 0;
 let typingTimer = null;
 let typingActive = false;
 let isSending = false;
@@ -372,7 +373,48 @@ function setTypingVisible(isVisible) {
     renderStatus();
 }
 
+function createPendingMessage(body, type) {
+    localMessageCounter += 1;
+    const now = new Date();
+    return {
+        id: `pending-${type}-${localMessageCounter}`,
+        sender_id: currentUserId,
+        recipient_id: conversationUserId,
+        sender_name: 'You',
+        body,
+        audio_path: null,
+        created_at: now.toISOString(),
+        created_at_label: `${now.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+        pending: true,
+    };
+}
+
+function upsertMessage(message) {
+    const messages = window.__messagesState || [];
+    const nextMessages = messages.filter((item) => item.id !== message.id);
+    nextMessages.push(message);
+    nextMessages.sort((left, right) => {
+        const leftTime = Date.parse(left.created_at) || 0;
+        const rightTime = Date.parse(right.created_at) || 0;
+        if (leftTime === rightTime) {
+            return String(left.id).localeCompare(String(right.id));
+        }
+        return leftTime - rightTime;
+    });
+    renderMessages(nextMessages);
+}
+
+function replacePendingMessage(pendingId, message) {
+    const messages = (window.__messagesState || []).map((item) => item.id === pendingId ? message : item);
+    renderMessages(messages);
+}
+
+function removeMessage(messageId) {
+    renderMessages((window.__messagesState || []).filter((item) => item.id !== messageId));
+}
+
 function renderMessages(messages) {
+    window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [message.id, message.created_at]));
     if (signature === renderedSignature) {
         return;
@@ -392,12 +434,13 @@ function renderMessages(messages) {
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="/media.php?message=${Number(message.id)}"></audio>`
                 : '';
+            const pendingLabel = message.pending ? ' · Sending…' : '';
 
             return `
                 <article class="message ${isMine ? 'mine' : ''}">
                     ${body}
                     ${audio}
-                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}</div>
+                    <div class="meta">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</div>
                 </article>`;
         }).join('');
     }
@@ -422,7 +465,12 @@ function updateActionButton() {
 }
 
 function applyConversationPayload(payload) {
-    renderMessages(payload.messages || []);
+    if (Array.isArray(payload.messages)) {
+        renderMessages(payload.messages);
+    } else if (payload.message) {
+        replacePendingMessage(payload.pending_id || '', payload.message);
+        upsertMessage(payload.message);
+    }
     setTypingVisible(Boolean(payload.typing));
 }
 
@@ -524,6 +572,14 @@ async function sendTextMessage() {
         return;
     }
 
+    const pendingMessage = createPendingMessage(body, 'text');
+    upsertMessage(pendingMessage);
+    bodyEl.value = '';
+    autoResizeComposer();
+    typingActive = false;
+    clearTimeout(typingTimer);
+    syncTyping(false);
+    showHint('Sending message…');
     isSending = true;
     actionButton.disabled = true;
 
@@ -540,15 +596,13 @@ async function sendTextMessage() {
             return;
         }
 
-        bodyEl.value = '';
-        autoResizeComposer();
-        typingActive = false;
-        clearTimeout(typingTimer);
-        syncTyping(false);
-        applyConversationPayload(payload);
+        replacePendingMessage(pendingMessage.id, payload.message);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         showHint('Hold the button to record. Release to send.');
     } catch (error) {
+        removeMessage(pendingMessage.id);
+        bodyEl.value = body;
+        autoResizeComposer();
         showError('Could not send message right now. Please try again.');
     } finally {
         isSending = false;
@@ -559,7 +613,7 @@ async function sendTextMessage() {
 }
 
 function detectAudioMimeType() {
-    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/x-m4a'];
     for (const type of candidates) {
         if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
             return type;
@@ -649,7 +703,8 @@ async function stopRecordingAndSend() {
     }
 
     try {
-        const extension = blob.type.includes('ogg') ? 'ogg' : (blob.type.includes('mp4') ? 'm4a' : 'webm');
+        const mimeType = blob.type || recorder.mimeType || 'audio/webm';
+        const extension = mimeType.includes('ogg') ? 'ogg' : ((mimeType.includes('mp4') || mimeType.includes('m4a')) ? 'm4a' : 'webm');
         const formData = new FormData();
         formData.append('action', 'send_voice');
         formData.append('voice_note', blob, `voice-note.${extension}`);
