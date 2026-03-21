@@ -17,6 +17,7 @@ $canChat = canUsersChat((int) $user['id'], $otherUserId);
 $friendship = friendshipRecord((int) $user['id'], $otherUserId);
 $messages = conversationMessages((int) $user['id'], $otherUserId);
 $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
+$initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -749,8 +750,8 @@ const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= json_encode($friendship, JSON_THROW_ON_ERROR) ?>;
 const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceLabel = <?= json_encode($otherUser['presence_label'] ?? 'Offline', JSON_THROW_ON_ERROR) ?>;
-const isLoopbackHost = ['127.0.0.1', 'localhost', '::1'].includes(window.location.hostname);
-const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?> && isLoopbackHost;
+const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
+const initialConversationSignature = <?= json_encode($initialConversationSignature, JSON_THROW_ON_ERROR) ?>;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -786,6 +787,7 @@ let pollTimer = null;
 let shouldAutoScroll = true;
 let initialScrollPending = true;
 let readSyncTimer = null;
+let conversationSignature = initialConversationSignature;
 let streamState = preferPolling ? 'polling' : 'connecting';
 let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
@@ -1352,6 +1354,9 @@ function preserveComposerFocus(event) {
 }
 
 function applyConversationPayload(payload) {
+    if (typeof payload.signature === 'string' && payload.signature !== '') {
+        conversationSignature = payload.signature;
+    }
     if (Array.isArray(payload.messages)) {
         renderMessages(payload.messages);
     } else if (payload.message) {
@@ -1373,6 +1378,19 @@ function applyConversationPayload(payload) {
 
 async function refreshConversation() {
     try {
+        const signatureResponse = await fetch(`chat_api.php?action=signature&user=${conversationUserId}`, {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!signatureResponse.ok) {
+            return;
+        }
+
+        const signaturePayload = await signatureResponse.json();
+        if (typeof signaturePayload.signature !== 'string' || signaturePayload.signature === conversationSignature) {
+            return;
+        }
+
         const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
@@ -1380,6 +1398,7 @@ async function refreshConversation() {
         if (!response.ok) {
             return;
         }
+
         applyConversationPayload(await response.json());
         syncReadStateSoon();
     } catch (error) {
