@@ -537,7 +537,6 @@ let shouldAutoScroll = true;
 let readSyncTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Type a message or tap the microphone for a voice note.';
-renderChatSwitcher(initialChatUsers);
 let otherUserOnline = initialPresence;
 let hasInteracted = false;
 let notificationPermissionRequested = false;
@@ -546,6 +545,8 @@ const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
 const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
+
+renderChatSwitcher(initialChatUsers);
 
 function renderChatSwitcher(users) {
     if (!chatSwitcherListEl) {
