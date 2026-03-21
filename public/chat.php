@@ -191,6 +191,7 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.22);
         }
         .conversation {
+            position: relative;
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -205,6 +206,50 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
             gap: 10px;
             padding: 6px 4px 18px;
             overscroll-behavior: contain;
+        }
+        .conversation-actions {
+            position: absolute;
+            right: 18px;
+            bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+            display: flex;
+            justify-content: flex-end;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .scroll-to-end-button {
+            border: none;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(7, 94, 84, 0.94);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 24px rgba(17, 27, 33, 0.22);
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(10px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease, background 0.15s ease;
+        }
+        .scroll-to-end-button.visible {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        .scroll-to-end-button:hover,
+        .scroll-to-end-button:focus-visible {
+            background: rgba(18, 140, 126, 0.98);
+        }
+        .scroll-to-end-button svg {
+            width: 22px;
+            height: 22px;
+            stroke: currentColor;
+            stroke-width: 2.4;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         .empty-state,
         .message {
@@ -616,6 +661,14 @@ $otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : fa
 
         <main class="conversation">
             <div class="messages" id="messages" aria-live="polite"></div>
+            <div class="conversation-actions" aria-hidden="false">
+                <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m7 10 5 5 5-5"></path>
+                        <path d="M7 5l5 5 5-5"></path>
+                    </svg>
+                </button>
+            </div>
         </main>
 
         <div id="image-lightbox" class="lightbox" aria-hidden="true" hidden>
@@ -695,6 +748,7 @@ const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
 const lightboxClose = document.getElementById('lightbox-close');
+const scrollToEndButton = document.getElementById('scroll-to-end-button');
 let lastFocusedElement = null;
 let renderedSignature = '';
 let localMessageCounter = 0;
@@ -1002,6 +1056,22 @@ function isNearBottom() {
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
 }
 
+function scrollMessagesToEnd(behavior = 'auto') {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior });
+    shouldAutoScroll = true;
+    updateScrollToEndButton();
+}
+
+function updateScrollToEndButton() {
+    if (!scrollToEndButton) {
+        return;
+    }
+
+    const shouldShowButton = !isNearBottom();
+    scrollToEndButton.classList.toggle('visible', shouldShowButton);
+    scrollToEndButton.setAttribute('aria-hidden', shouldShowButton ? 'false' : 'true');
+}
+
 function deliveryState(message) {
     if (!message || Number(message.sender_id) !== currentUserId || message.pending) {
         return '';
@@ -1151,10 +1221,11 @@ function renderMessages(messages) {
     }
 
     if (shouldAutoScroll || wasNearBottom) {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollMessagesToEnd();
     }
 
     handleIncomingMessages(previousMessages, messages);
+    updateScrollToEndButton();
 }
 
 function updateActionButton() {
@@ -1396,8 +1467,7 @@ async function sendTextMessage() {
         }
 
         replacePendingMessage(pendingMessage.id, payload.message);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        shouldAutoScroll = true;
+        scrollMessagesToEnd();
         showHint('Message sent.');
     } catch (error) {
         removeMessage(pendingMessage.id);
@@ -1478,8 +1548,7 @@ async function uploadVoiceBlob(blob, filename) {
         }
 
         applyConversationPayload(payload);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        shouldAutoScroll = true;
+        scrollMessagesToEnd();
         showHint('Voice note sent.');
         return true;
     } catch (error) {
@@ -1534,8 +1603,7 @@ async function uploadImageFile(file) {
         }
 
         applyConversationPayload(payload);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        shouldAutoScroll = true;
+        scrollMessagesToEnd();
         showHint('Image sent.');
         return true;
     } catch (error) {
@@ -1758,9 +1826,15 @@ messagesEl.addEventListener('click', (event) => {
 
 messagesEl.addEventListener('scroll', () => {
     shouldAutoScroll = isNearBottom();
+    updateScrollToEndButton();
     if (shouldAutoScroll) {
         syncReadStateSoon();
     }
+});
+
+scrollToEndButton?.addEventListener('click', () => {
+    scrollMessagesToEnd('smooth');
+    syncReadStateSoon();
 });
 
 revokeFriendshipButton.addEventListener('click', async () => {
@@ -1853,6 +1927,7 @@ autoResizeComposer();
 updateComposerDirection();
 updateActionButton();
 renderMessages(initialMessages);
+updateScrollToEndButton();
 updatePresence(initialPresence, initialPresenceLabel);
 updateFriendshipUi();
 renderStatus();
