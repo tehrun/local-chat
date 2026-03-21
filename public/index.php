@@ -216,6 +216,19 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .mini-button.primary { background: var(--action); color: #fff; }
         .mini-button.secondary { background: #dfe5e7; color: #244047; }
         .mini-button.danger { background: #fef3f2; color: var(--danger); }
+        .mini-button.icon-button {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .mini-button.icon-button svg {
+            width: 18px;
+            height: 18px;
+        }
         .mini-button:disabled { opacity: 0.65; cursor: wait; }
         .request-card {
             display: flex;
@@ -677,6 +690,22 @@ function friendshipActionMarkup(chatUser) {
     const userId = Number(chatUser.id);
     const status = String(chatUser.friendship_status || 'none');
     const direction = chatUser.request_direction || '';
+    const personPlusIcon = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9.5" cy="7" r="4"></circle>
+            <path d="M19 8v6"></path>
+            <path d="M22 11h-6"></path>
+        </svg>`;
+    const acceptIcon = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20 6 9 17l-5-5"></path>
+        </svg>`;
+    const rejectIcon = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
+        </svg>`;
 
     if (chatUser.can_chat) {
         return `<a class="mini-button primary" href="/chat.php?user=${userId}">Open chat</a>`;
@@ -684,15 +713,15 @@ function friendshipActionMarkup(chatUser) {
 
     if (status === 'pending' && direction === 'incoming') {
         return `
-            <button class="mini-button primary" type="button" data-request-action="accept_friend_request" data-user-id="${userId}">Accept</button>
-            <button class="mini-button danger" type="button" data-request-action="reject_friend_request" data-user-id="${userId}">Reject</button>`;
+            <button class="mini-button primary icon-button" type="button" data-request-action="accept_friend_request" data-user-id="${userId}" aria-label="Accept friend request" title="Accept friend request">${acceptIcon}</button>
+            <button class="mini-button danger icon-button" type="button" data-request-action="reject_friend_request" data-user-id="${userId}" aria-label="Reject friend request" title="Reject friend request">${rejectIcon}</button>`;
     }
 
     if (status === 'pending') {
         return '<span class="mini-button secondary" aria-disabled="true">Request sent</span>';
     }
 
-    return `<button class="mini-button primary" type="button" data-request-action="send_friend_request" data-user-id="${userId}">Add as friend</button>`;
+    return `<button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>`;
 }
 
 function renderUserEntries(users, includeUnseenCount) {
