@@ -313,9 +313,6 @@ let stream = null;
 let streamReconnectTimer = null;
 let statusState = initialTyping ? 'typing' : 'hint';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : 'Hold the button to record. Release to send.';
-let latestSignature = '';
-let longPollAbortController = null;
-let longPollReconnectTimer = null;
 
 function escapeHtml(value) {
     return value
@@ -425,72 +422,22 @@ function updateActionButton() {
 }
 
 function applyConversationPayload(payload) {
-    latestSignature = typeof payload.signature === 'string' ? payload.signature : latestSignature;
     renderMessages(payload.messages || []);
     setTypingVisible(Boolean(payload.typing));
 }
 
-async function refreshConversation({ waitForChange = false } = {}) {
-    if (waitForChange && longPollAbortController) {
-        return false;
-    }
-
-    const params = new URLSearchParams({ action: 'messages', user: String(conversationUserId) });
-    if (waitForChange && latestSignature) {
-        params.set('wait', '1');
-        params.set('signature', latestSignature);
-    }
-
-    const controller = waitForChange ? new AbortController() : null;
-    if (controller) {
-        longPollAbortController = controller;
-    }
-
+async function refreshConversation() {
     try {
-        const response = await fetch(`/chat_api.php?${params.toString()}`, {
+        const response = await fetch(`/chat_api.php?action=messages&user=${conversationUserId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
-            signal: controller?.signal,
         });
         if (!response.ok) {
-            return false;
+            return;
         }
         applyConversationPayload(await response.json());
-        return true;
     } catch (error) {
-        return error.name === 'AbortError';
-    } finally {
-        if (controller && longPollAbortController === controller) {
-            longPollAbortController = null;
-        }
-    }
-}
-
-function scheduleLongPollReconnect(delay = 1500) {
-    if (longPollReconnectTimer !== null) {
-        return;
-    }
-
-    longPollReconnectTimer = window.setTimeout(() => {
-        longPollReconnectTimer = null;
-        startLongPolling();
-    }, delay);
-}
-
-async function startLongPolling() {
-    if (stream || document.visibilityState !== 'visible') {
-        return;
-    }
-
-    const ok = await refreshConversation({ waitForChange: true });
-    if (stream) {
-        return;
-    }
-
-    if (ok) {
-        startLongPolling();
-    } else {
-        scheduleLongPollReconnect();
+        // Ignore transient refresh errors.
     }
 }
 
@@ -507,7 +454,7 @@ function scheduleStreamReconnect() {
 
 function connectConversationStream() {
     if (!window.EventSource) {
-        startLongPolling();
+        refreshConversation();
         return;
     }
 
@@ -529,7 +476,6 @@ function connectConversationStream() {
             stream.close();
             stream = null;
         }
-        startLongPolling();
         scheduleStreamReconnect();
     };
 }
@@ -807,9 +753,6 @@ window.addEventListener('beforeunload', () => {
     if (stream) {
         stream.close();
     }
-    if (longPollAbortController) {
-        longPollAbortController.abort();
-    }
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false' });
         navigator.sendBeacon(`/chat_api.php?user=${conversationUserId}`, data);
@@ -818,22 +761,14 @@ window.addEventListener('beforeunload', () => {
 
 autoResizeComposer();
 updateActionButton();
-applyConversationPayload({ messages: initialMessages, typing: initialTyping, signature: '' });
+renderMessages(initialMessages);
 renderStatus();
 connectConversationStream();
 
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && !stream) {
         refreshConversation();
-        if (!stream) {
-            connectConversationStream();
-            startLongPolling();
-        }
-        return;
-    }
-
-    if (longPollAbortController) {
-        longPollAbortController.abort();
+        connectConversationStream();
     }
 });
 </script>
