@@ -1185,12 +1185,12 @@ function updateKeyboardOffset() {
 }
 
 function updateComposerClearance() {
-    const composerWrap = document.querySelector('.composer-wrap');
-    if (!(composerWrap instanceof HTMLElement)) {
+    const composerEl = document.querySelector('.composer');
+    if (!(composerEl instanceof HTMLElement)) {
         return;
     }
 
-    document.documentElement.style.setProperty('--composer-height', `${Math.max(74, composerWrap.offsetHeight)}px`);
+    document.documentElement.style.setProperty('--composer-height', `${Math.max(64, composerEl.offsetHeight)}px`);
     document.documentElement.style.setProperty('--composer-clearance', '6px');
 }
 
