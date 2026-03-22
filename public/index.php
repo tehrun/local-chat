@@ -330,9 +330,28 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             gap: 12px;
             margin-bottom: 0;
         }
+        .chat-name-row {
+            min-width: 0;
+            flex: 1;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
         .chat-name {
             min-width: 0;
             flex: 1;
+        }
+        .chat-type-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #e4e7ec;
+            color: #475467;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            flex-shrink: 0;
         }
         .chat-last-time {
             flex-shrink: 0;
@@ -681,7 +700,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <div class="avatar"><?= e(strtoupper(substr((string) ($chatUser['name'] ?? $chatUser['username']), 0, 2))) ?></div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
-                                        <strong class="chat-name"><?= e((string) ($chatUser['name'] ?? $chatUser['username'])) ?></strong>
+                                        <span class="chat-name-row">
+                                            <strong class="chat-name"><?= e((string) ($chatUser['name'] ?? $chatUser['username'])) ?></strong>
+                                            <?php if (!empty($chatUser['is_group'])): ?>
+                                                <span class="chat-type-chip">Group</span>
+                                            <?php endif; ?>
+                                        </span>
                                         <span class="chat-last-time<?= ($chatUser['chat_list_time'] ?? '') !== '' ? '' : ' is-empty' ?>" data-role="chat-time"><?= e($chatUser['chat_list_time'] ?? '') ?></span>
                                     </div>
                                     <div class="chat-preview-row">
@@ -1032,7 +1056,10 @@ function renderChatListEntries(users) {
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
-                        <strong class="chat-name">${username}</strong>
+                        <span class="chat-name-row">
+                            <strong class="chat-name">${username}</strong>
+                            ${chatUser.is_group ? '<span class="chat-type-chip">Group</span>' : ''}
+                        </span>
                         <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
                     </div>
                     <div class="chat-preview-row">

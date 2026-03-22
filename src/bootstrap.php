@@ -2824,6 +2824,39 @@ function deleteGroup(int $groupId, int $actorUserId): ?string
     return null;
 }
 
+function renameGroup(int $groupId, int $actorUserId, string $name): ?string
+{
+    $group = findGroupById($groupId);
+    if ($group === null) {
+        return 'Group not found.';
+    }
+
+    if ((int) $group['creator_user_id'] !== $actorUserId) {
+        return 'Only the group creator can rename this group.';
+    }
+
+    $trimmedName = trim($name);
+    if ($trimmedName === '') {
+        return 'Group name is required.';
+    }
+
+    if (mb_strlen($trimmedName) > 80) {
+        return 'Group name must be 80 characters or fewer.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE groups
+         SET name = :name
+         WHERE id = :group_id'
+    );
+    $stmt->execute([
+        'name' => $trimmedName,
+        'group_id' => $groupId,
+    ]);
+
+    return null;
+}
+
 function groupConversationClearedAt(int $groupId, int $userId): ?string
 {
     $stmt = db()->prepare(
@@ -3116,6 +3149,7 @@ function groupConversationPayload(int $groupId, int $userId, int $limit = 0, ?in
             'member_count' => count($members),
             'members' => $members,
             'can_delete' => (int) $group['creator_user_id'] === $userId,
+            'can_rename' => (int) $group['creator_user_id'] === $userId,
         ],
         'messages' => $messages,
         'has_more_messages' => $oldestLoadedId !== null && $oldestLoadedId > 0
@@ -3206,6 +3240,7 @@ function groupChats(int $currentUserId): array
         return [
             'id' => $groupId,
             'type' => 'group',
+            'is_group' => true,
             'group_id' => $groupId,
             'name' => (string) $group['name'],
             'creator_user_id' => (int) $group['creator_user_id'],
@@ -3228,6 +3263,7 @@ function combinedChatList(int $currentUserId): array
 {
     $directChats = array_map(static function (array $chat): array {
         $chat['type'] = 'direct';
+        $chat['is_group'] = false;
         $chat['url'] = 'chat.php?user=' . (int) $chat['id'];
         $chat['name'] = (string) $chat['username'];
 

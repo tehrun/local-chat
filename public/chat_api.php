@@ -95,6 +95,20 @@ if ($isGroupConversation) {
         jsonResponse(['ok' => true]);
     }
 
+    if ($action === 'rename_group') {
+        $error = renameGroup($groupId, (int) $user['id'], (string) ($_POST['name'] ?? ''));
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
     jsonResponse(['error' => 'Unsupported action.'], 400);
 }
 

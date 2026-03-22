@@ -860,7 +860,7 @@ if ($isGroupConversation) {
                 </svg>
             </a>
             <div class="topbar-meta">
-                <h1><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
+                <h1 id="header-title"><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
                 <div class="presence-row">
                     <span class="presence-light <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
                     <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : e($otherUser['presence_label'] ?? 'Offline') ?></span>
@@ -952,6 +952,18 @@ if ($isGroupConversation) {
                             <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
                         </svg>
                         <span>Delete group</span>
+                    </button>
+                    <button
+                        id="rename-group-button"
+                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>
+                        </svg>
+                        <span>Edit group name</span>
                     </button>
                 </div>
             </div>
@@ -1058,7 +1070,7 @@ const conversationUserId = <?= (int) $otherUserId ?>;
 const groupId = <?= (int) $groupId ?>;
 const isGroupConversation = <?= $isGroupConversation ? 'true' : 'false' ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-const otherUserName = <?= jsonScriptValue($isGroupConversation ? (string) $group['name'] : $otherUser['username']) ?>;
+let conversationDisplayName = <?= jsonScriptValue($isGroupConversation ? (string) $group['name'] : $otherUser['username']) ?>;
 const messageBatchSize = <?= (int) $messageBatchSize ?>;
 const initialMessages = <?= jsonScriptValue($messages) ?>;
 const initialHasMoreMessages = <?= $hasMoreMessages ? 'true' : 'false' ?>;
@@ -1085,6 +1097,7 @@ const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
+const headerTitle = document.getElementById('header-title');
 const headerMenuButton = document.getElementById('header-menu-button');
 const headerMenuPanel = document.getElementById('header-menu-panel');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
@@ -1092,6 +1105,7 @@ const revokeFriendshipButton = document.getElementById('revoke-friendship-button
 const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
+const renameGroupButton = document.getElementById('rename-group-button');
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
 const memberPickerListEl = document.getElementById('member-picker-list');
@@ -1481,7 +1495,7 @@ async function showMessageNotification(message) {
     const body = message.body ? message.body.slice(0, 120) : 'Sent you a voice note';
 
     if (registration) {
-        registration.showNotification(otherUserName, {
+        registration.showNotification(conversationDisplayName, {
             body,
             icon: 'icons/icon.svg',
             tag: `chat-${isGroupConversation ? groupId : conversationUserId}`,
@@ -1732,7 +1746,7 @@ function setTypingVisible(value) {
 
     const activeTypingMembers = Array.isArray(value)
         ? value
-        : (value ? [{ username: otherUserName }] : []);
+        : (value ? [{ username: conversationDisplayName }] : []);
     typingMembers = activeTypingMembers;
 
     if (typingMembers.length > 0) {
@@ -2150,8 +2164,14 @@ function applyConversationPayload(payload, options = {}) {
     }
     if (payload.group) {
         groupState = payload.group;
+        conversationDisplayName = String(groupState.name || conversationDisplayName);
+        if (headerTitle) {
+            headerTitle.textContent = conversationDisplayName;
+        }
+        document.title = conversationDisplayName;
         updatePresence(false, `${groupState.member_count || 0} members`);
         deleteGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_delete));
+        renameGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_rename));
     }
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.label);
@@ -2894,7 +2914,7 @@ deleteConversationButton?.addEventListener('click', async () => {
 
     const confirmed = window.confirm(isGroupConversation
         ? 'Delete all messages in this group for your account only?'
-        : `Delete all messages in this private chat for your account only? ${otherUserName} will still keep their copy.`);
+        : `Delete all messages in this private chat for your account only? ${conversationDisplayName} will still keep their copy.`);
     if (!confirmed) {
         return;
     }
@@ -2934,7 +2954,7 @@ revokeFriendshipButton?.addEventListener('click', async () => {
         return;
     }
 
-    const confirmed = window.confirm(`Revoke friendship with ${otherUserName}? Existing messages will stay, but both of you will not be able to send new messages.`);
+    const confirmed = window.confirm(`Revoke friendship with ${conversationDisplayName}? Existing messages will stay, but both of you will not be able to send new messages.`);
     if (!confirmed) {
         return;
     }
@@ -3038,10 +3058,39 @@ leaveGroupButton?.addEventListener('click', async () => {
     }
 });
 
+renameGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    const nextName = window.prompt('Edit group name', conversationDisplayName);
+    if (nextName === null) {
+        return;
+    }
+
+    renameGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'rename_group', name: nextName, csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not rename the group right now.');
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint('Group name updated.');
+    } catch (error) {
+        showError(error.message || 'Could not rename the group right now.');
+    } finally {
+        renameGroupButton.disabled = false;
+    }
+});
+
 deleteGroupButton?.addEventListener('click', async () => {
     markUserInteraction();
     setHeaderMenuOpen(false);
-    if (!window.confirm(`Delete the group "${otherUserName}" for everyone? This cannot be undone.`)) {
+    if (!window.confirm(`Delete the group "${conversationDisplayName}" for everyone? This cannot be undone.`)) {
         return;
     }
 
@@ -3178,7 +3227,7 @@ applyHomeNotificationPayload({
         id: isGroupConversation ? groupId : conversationUserId,
         unseen_count: lastUnseenCounts.get(String(isGroupConversation ? groupId : conversationUserId)) || 0,
         url: conversationPageUrl(),
-        name: otherUserName,
+        name: conversationDisplayName,
     }],
 });
 if (isGroupConversation) {
