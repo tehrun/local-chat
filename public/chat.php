@@ -50,7 +50,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
             --keyboard-offset: 0px;
             --composer-height: 74px;
-            --composer-clearance: 30px;
+            --composer-clearance: 6px;
         }
         * { box-sizing: border-box; }
         body {
@@ -1191,7 +1191,7 @@ function updateComposerClearance() {
     }
 
     document.documentElement.style.setProperty('--composer-height', `${Math.max(74, composerWrap.offsetHeight)}px`);
-    document.documentElement.style.setProperty('--composer-clearance', '30px');
+    document.documentElement.style.setProperty('--composer-clearance', '6px');
 }
 
 function renderStatus() {
