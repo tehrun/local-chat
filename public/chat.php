@@ -841,6 +841,7 @@ let hasInteracted = false;
 let notificationPermissionRequested = false;
 let notificationPermissionPromptDismissed = false;
 let canChat = initialCanChat;
+let suppressActionButtonClick = false;
 let friendshipState = initialFriendship;
 let hasMoreMessages = initialHasMoreMessages;
 let loadingOlderMessages = false;
@@ -1527,6 +1528,12 @@ function keepComposerFocused(force = false) {
     });
 }
 
+function scheduleComposerFocusRestore() {
+    keepComposerFocused(true);
+    window.setTimeout(() => keepComposerFocused(true), 0);
+    window.setTimeout(() => keepComposerFocused(true), 80);
+}
+
 function preserveComposerFocus(event) {
     if (!(event.target instanceof HTMLElement)) {
         return;
@@ -1537,6 +1544,27 @@ function preserveComposerFocus(event) {
     }
 
     event.preventDefault();
+}
+
+function sendTextMessageFromActionPress(event) {
+    const isPointerEvent = typeof PointerEvent !== 'undefined' && event instanceof PointerEvent;
+    const isTouchLikePointer = isPointerEvent && event.pointerType !== 'mouse';
+    const isTouchEvent = typeof TouchEvent !== 'undefined' && event instanceof TouchEvent;
+
+    if (!isTouchLikePointer && !isTouchEvent) {
+        return;
+    }
+
+    if (suppressActionButtonClick || bodyEl.disabled || document.activeElement !== bodyEl || bodyEl.value.trim() === '') {
+        return;
+    }
+
+    event.preventDefault();
+    suppressActionButtonClick = true;
+    markUserInteraction();
+    sendTextMessage();
+    actionButton.blur();
+    scheduleComposerFocusRestore();
 }
 
 function applyConversationPayload(payload, options = {}) {
@@ -1877,6 +1905,7 @@ async function flushPendingTextQueue() {
 }
 
 function sendTextMessage() {
+    const composerWasFocused = document.activeElement === bodyEl;
     const body = bodyEl.value.trim();
     if (!canChat) {
         showError('Friendship revoked. You cannot send new messages until you are friends again.');
@@ -1905,6 +1934,11 @@ function sendTextMessage() {
     syncTyping(false);
     showHint(pendingTextQueue.length > 1 ? 'Queued messages are sending…' : 'Sending message…');
     updateActionButton();
+
+    if (composerWasFocused) {
+        scheduleComposerFocusRestore();
+    }
+
     flushPendingTextQueue();
 }
 
@@ -2221,8 +2255,10 @@ voiceFileInput.addEventListener('change', async () => {
 });
 
 actionButton.addEventListener('pointerdown', preserveComposerFocus);
+actionButton.addEventListener('pointerdown', sendTextMessageFromActionPress);
 actionButton.addEventListener('mousedown', preserveComposerFocus);
 actionButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
+actionButton.addEventListener('touchstart', sendTextMessageFromActionPress, { passive: false });
 imageButton.addEventListener('pointerdown', preserveComposerFocus);
 imageButton.addEventListener('mousedown', preserveComposerFocus);
 imageButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
@@ -2356,9 +2392,19 @@ revokeFriendshipButton.addEventListener('click', async () => {
 
 actionButton.addEventListener('click', async (event) => {
     event.preventDefault();
+    if (suppressActionButtonClick) {
+        suppressActionButtonClick = false;
+        return;
+    }
+
     markUserInteraction();
+    const composerWasFocused = document.activeElement === bodyEl;
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
+        if (composerWasFocused) {
+            actionButton.blur();
+            scheduleComposerFocusRestore();
+        }
         return;
     }
 
