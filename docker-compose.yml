@@ -21,18 +21,17 @@ services:
 
   mysql:
     image: mysql:8.4
-    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_DATABASE: local_chat
       MYSQL_USER: local_chat
       MYSQL_PASSWORD: local_chat
       MYSQL_ROOT_PASSWORD: root
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 10s
+      start_period: 30s
     volumes:
       - mysql_data:/var/lib/mysql
     restart: unless-stopped
