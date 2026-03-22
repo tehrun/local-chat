@@ -10,7 +10,7 @@ $errors = [];
 $notice = null;
 $user = currentUser();
 $authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
-$registrationChallengePrompt = registrationChallengePrompt();
+$authChallengePrompt = authChallengePrompt();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     requireCsrfToken();
@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['confirm_password'] ?? '',
             $_POST['verification_answer'] ?? ''
         );
-        $registrationChallengePrompt = registrationChallengePrompt();
+        $authChallengePrompt = authChallengePrompt();
         if ($error !== null) {
             $errors[] = $error;
         } else {
@@ -36,7 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'login') {
         $authMode = 'login';
-        $error = loginUser($_POST['username'] ?? '', $_POST['password'] ?? '');
+        $error = loginUser($_POST['username'] ?? '', $_POST['password'] ?? '', $_POST['verification_answer'] ?? '');
+        $authChallengePrompt = authChallengePrompt();
         if ($error !== null) {
             $errors[] = $error;
         } else {
@@ -555,10 +556,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     <input type="password" name="confirm_password" minlength="6" required>
                                 </label>
                                 <label>
-                                    Verification: solve <?= e($registrationChallengePrompt) ?>
+                                    Verification: solve <?= e($authChallengePrompt) ?>
                                     <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
                                 </label>
-                                <p class="meta-text">This math check is generated locally on the server and does not rely on any internet service.</p>
                                 <button class="primary" type="submit">Register</button>
                             </form>
                             <p class="auth-switch">Already have an account? <a href="index.php">Sign in</a></p>
@@ -574,6 +574,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <label>
                                     Password
                                     <input type="password" name="password" required data-login-field="password">
+                                </label>
+                                <label>
+                                    Verification: solve <?= e($authChallengePrompt) ?>
+                                    <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
                                 </label>
                                 <button class="secondary" id="login-submit" type="submit">Login</button>
                             </form>

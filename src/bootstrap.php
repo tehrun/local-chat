@@ -1084,9 +1084,9 @@ function findUserById(int $id): ?array
     return $user;
 }
 
-function ensureRegistrationChallenge(): array
+function ensureAuthChallenge(): array
 {
-    $challenge = $_SESSION['registration_challenge'] ?? null;
+    $challenge = $_SESSION['auth_challenge'] ?? null;
 
     if (
         !is_array($challenge)
@@ -1097,13 +1097,13 @@ function ensureRegistrationChallenge(): array
         || !is_int($challenge['answer'])
         || !in_array($challenge['operator'], ['+', '-'], true)
     ) {
-        $challenge = refreshRegistrationChallenge();
+        $challenge = refreshAuthChallenge();
     }
 
     return $challenge;
 }
 
-function refreshRegistrationChallenge(): array
+function refreshAuthChallenge(): array
 {
     $left = random_int(2, 12);
     $right = random_int(2, 12);
@@ -1115,19 +1115,19 @@ function refreshRegistrationChallenge(): array
 
     $answer = $operator === '+' ? $left + $right : $left - $right;
 
-    $_SESSION['registration_challenge'] = [
+    $_SESSION['auth_challenge'] = [
         'left' => $left,
         'right' => $right,
         'operator' => $operator,
         'answer' => $answer,
     ];
 
-    return $_SESSION['registration_challenge'];
+    return $_SESSION['auth_challenge'];
 }
 
-function registrationChallengePrompt(): string
+function authChallengePrompt(): string
 {
-    $challenge = ensureRegistrationChallenge();
+    $challenge = ensureAuthChallenge();
 
     return sprintf('%d %s %d', $challenge['left'], $challenge['operator'], $challenge['right']);
 }
@@ -1145,16 +1145,16 @@ function registerUser(string $username, string $password, string $confirmPasswor
     }
 
     if (!hash_equals($password, $confirmPassword)) {
-        refreshRegistrationChallenge();
+        refreshAuthChallenge();
 
         return 'Passwords do not match.';
     }
 
-    $challenge = ensureRegistrationChallenge();
+    $challenge = ensureAuthChallenge();
     $normalizedAnswer = trim($challengeAnswer);
 
     if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
-        refreshRegistrationChallenge();
+        refreshAuthChallenge();
 
         return 'Incorrect verification answer. Please solve the new math question.';
     }
@@ -1170,22 +1170,34 @@ function registerUser(string $username, string $password, string $confirmPasswor
         'created_at' => gmdate('c'),
     ]);
 
-    refreshRegistrationChallenge();
+    refreshAuthChallenge();
 
     return null;
 }
 
-function loginUser(string $username, string $password): ?string
+function loginUser(string $username, string $password, string $challengeAnswer): ?string
 {
+    $challenge = ensureAuthChallenge();
+    $normalizedAnswer = trim($challengeAnswer);
+
+    if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        refreshAuthChallenge();
+
+        return 'Incorrect verification answer. Please solve the new math question.';
+    }
+
     $user = findUserByUsername($username);
 
     if ($user === null || !password_verify($password, $user['password_hash'])) {
+        refreshAuthChallenge();
+
         return 'Invalid username or password.';
     }
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = $user['id'];
     csrfToken();
+    refreshAuthChallenge();
 
     return null;
 }
