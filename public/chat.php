@@ -202,6 +202,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             flex-direction: column;
             min-height: 0;
             padding: 14px 12px 0;
+            overflow: hidden;
         }
         .messages {
             flex: 1;
@@ -209,29 +210,30 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             display: flex;
             flex-direction: column;
             gap: 10px;
-            padding: 6px 4px 18px;
+            padding: 6px 4px max(18px, env(safe-area-inset-bottom, 0px));
             overscroll-behavior: contain;
+            scroll-padding-bottom: 18px;
         }
         .conversation-actions {
             position: absolute;
             right: 18px;
-            bottom: calc(100% + 10px);
+            bottom: calc(100% + 14px);
             z-index: 2;
             display: flex;
             justify-content: flex-end;
             pointer-events: none;
         }
         .scroll-to-end-button {
-            border: none;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: rgba(152, 162, 179, 0.96);
-            color: #fff;
+            border: 1px solid rgba(7, 94, 84, 0.16);
+            width: 52px;
+            height: 52px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(232, 247, 243, 0.98));
+            color: var(--header);
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 10px 24px rgba(17, 27, 33, 0.18);
+            box-shadow: 0 14px 28px rgba(17, 27, 33, 0.16);
             cursor: pointer;
             opacity: 0;
             transform: translateY(10px);
@@ -245,13 +247,14 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
         }
         .scroll-to-end-button:hover,
         .scroll-to-end-button:focus-visible {
-            background: rgba(102, 112, 133, 0.98);
+            background: linear-gradient(180deg, rgba(244,255,251,1), rgba(214, 242, 235, 1));
+            border-color: rgba(7, 94, 84, 0.26);
         }
         .scroll-to-end-button svg {
-            width: 22px;
-            height: 22px;
+            width: 24px;
+            height: 24px;
             stroke: currentColor;
-            stroke-width: 2.4;
+            stroke-width: 2.3;
             fill: none;
             stroke-linecap: round;
             stroke-linejoin: round;
@@ -395,6 +398,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             position: sticky;
             bottom: 0;
             z-index: 4;
+            flex-shrink: 0;
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
@@ -649,6 +653,21 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 </div>
             </div>
             <button
+                id="delete-conversation-button"
+                class="header-icon-button"
+                type="button"
+                aria-label="Delete messages from your view"
+                title="Delete messages from your view"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M4 7h16"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                    <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                </svg>
+            </button>
+            <button
                 id="revoke-friendship-button"
                 class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
                 type="button"
@@ -712,8 +731,9 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 <div class="conversation-actions" aria-hidden="false">
                     <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="m7 10 5 5 5-5"></path>
-                            <path d="M7 5l5 5 5-5"></path>
+                            <path d="M12 5v11"></path>
+                            <path d="m7.5 12 4.5 4.5 4.5-4.5"></path>
+                            <path d="M6 19h12"></path>
                         </svg>
                     </button>
                 </div>
@@ -762,6 +782,8 @@ const FAST_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 12000;
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
+const AUTO_SCROLL_THRESHOLD_PX = 72;
+const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -771,6 +793,7 @@ const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
+const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
@@ -1222,16 +1245,19 @@ function createPendingMessage(body, type) {
 }
 
 function isNearBottom() {
-    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < AUTO_SCROLL_THRESHOLD_PX;
 }
 
 function scrollMessagesToEnd(behavior = 'auto') {
     const latestMessage = messagesEl.lastElementChild;
+    const composerWrap = document.querySelector('.composer-wrap');
+    const composerHeight = composerWrap instanceof HTMLElement ? composerWrap.offsetHeight : 0;
 
-    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior });
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight + composerHeight, behavior });
 
     if (latestMessage instanceof HTMLElement) {
         latestMessage.scrollIntoView({ block: 'end', inline: 'nearest', behavior });
+        messagesEl.scrollTo({ top: messagesEl.scrollHeight + composerHeight, behavior });
     }
 
     shouldAutoScroll = true;
@@ -1253,7 +1279,8 @@ function updateScrollToEndButton() {
         return;
     }
 
-    const shouldShowButton = !isNearBottom();
+    const distanceFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+    const shouldShowButton = distanceFromBottom > SCROLL_TO_END_VISIBILITY_THRESHOLD_PX;
     scrollToEndButton.classList.toggle('visible', shouldShowButton);
     scrollToEndButton.setAttribute('aria-hidden', shouldShowButton ? 'false' : 'true');
 }
@@ -2230,6 +2257,43 @@ messagesEl.addEventListener('scroll', () => {
 scrollToEndButton?.addEventListener('click', () => {
     scrollMessagesToEnd('smooth');
     syncReadStateSoon();
+});
+
+deleteConversationButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    if (isSending || activeUploadCount > 0) {
+        return;
+    }
+
+    const confirmed = window.confirm(`Delete all messages in this private chat for your account only? ${otherUserName} will still keep their copy.`);
+    if (!confirmed) {
+        return;
+    }
+
+    deleteConversationButton.disabled = true;
+
+    try {
+        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'delete_conversation', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not delete messages right now.');
+            return;
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        shouldAutoScroll = true;
+        scrollMessagesToEnd();
+        showHint('Messages deleted only for your account. New messages will still appear here.');
+    } catch (error) {
+        showError('Could not delete messages right now. Please try again.');
+    } finally {
+        deleteConversationButton.disabled = false;
+    }
 });
 
 revokeFriendshipButton.addEventListener('click', async () => {

@@ -41,6 +41,19 @@ if ($action === 'signature') {
     ]);
 }
 
+
+if ($action === 'delete_conversation') {
+    clearConversationForUser((int) $user['id'], $otherUserId);
+
+    jsonResponse([
+        'ok' => true,
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
+    ]);
+}
+
 if ($action === 'revoke_friendship') {
     $error = revokeFriendship((int) $user['id'], $otherUserId);
 
