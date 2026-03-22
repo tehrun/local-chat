@@ -1172,15 +1172,7 @@ function autoResizeComposer() {
 }
 
 function updateKeyboardOffset() {
-    const viewport = window.visualViewport;
-    if (!viewport) {
-        document.documentElement.style.setProperty('--keyboard-offset', '0px');
-        updateComposerClearance();
-        return;
-    }
-
-    const keyboardOffset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-    document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(keyboardOffset)}px`);
+    document.documentElement.style.setProperty('--keyboard-offset', '0px');
     updateComposerClearance();
 }
 
