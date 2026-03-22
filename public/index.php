@@ -104,7 +104,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             min-height: 100vh;
             max-width: 720px;
             margin: 0 auto;
-            background: linear-gradient(180deg, #0b141a 0, #0b141a 72px, var(--bg) 72px);
+            background: var(--bg);
         }
         .shell {
             min-height: 100vh;
@@ -932,7 +932,7 @@ function renderChatListEntries(users) {
 function filteredDirectoryUsers() {
     const query = String(chatSwitcherSearchInput?.value || '').trim().toLowerCase();
     if (query === '') {
-        return directoryUsersState;
+        return [];
     }
 
     return directoryUsersState.filter((chatUser) => String(chatUser.username || '').toLowerCase().includes(query));
@@ -1037,7 +1037,10 @@ function renderChatSwitcher(users) {
         return;
     }
 
-    if (!Array.isArray(users) || users.length === 0) {
+    const hasUsers = Array.isArray(users) && users.length > 0;
+    const searchQuery = String(chatSwitcherSearchInput?.value || '').trim();
+
+    if (!hasUsers) {
         chatSwitcherListEl.innerHTML = `
             <div class="card">
                 <h2 class="panel-title">No other users yet</h2>
@@ -1052,6 +1055,9 @@ function renderChatSwitcher(users) {
     const visibleUsers = filteredDirectoryUsers();
     chatSwitcherListEl.innerHTML = renderDirectoryEntries(visibleUsers, false);
     if (chatSwitcherEmptyEl) {
+        chatSwitcherEmptyEl.textContent = searchQuery === ''
+            ? 'Search by name to find and add a user.'
+            : 'No users match your search.';
         chatSwitcherEmptyEl.hidden = visibleUsers.length > 0;
     }
 }

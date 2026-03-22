@@ -73,7 +73,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             flex-direction: column;
             max-width: 720px;
             margin: 0 auto;
-            background: linear-gradient(180deg, #0b141a 0, #0b141a 72px, var(--bg) 72px);
+            background: var(--bg);
         }
         .chat-shell {
             min-height: 100vh;
