@@ -49,7 +49,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
             --keyboard-offset: 0px;
-            --composer-clearance: 136px;
+            --composer-clearance: 104px;
         }
         * { box-sizing: border-box; }
         body {
@@ -1189,7 +1189,7 @@ function updateComposerClearance() {
         return;
     }
 
-    const clearance = Math.max(136, composerWrap.offsetHeight + 22);
+    const clearance = Math.max(104, composerWrap.offsetHeight + 8);
     document.documentElement.style.setProperty('--composer-clearance', `${clearance}px`);
 }
 
