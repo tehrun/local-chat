@@ -188,6 +188,73 @@ if ($isGroupConversation) {
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+        .header-menu {
+            position: relative;
+            flex: 0 0 auto;
+        }
+        .header-menu-panel {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            min-width: 216px;
+            padding: 8px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 20px 40px rgba(17, 27, 33, 0.24);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            opacity: 0;
+            transform: translateY(-8px) scale(0.98);
+            transform-origin: top right;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        .header-menu-panel.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .header-menu-item {
+            width: 100%;
+            border: none;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--text);
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .header-menu-item:hover,
+        .header-menu-item:focus-visible {
+            background: rgba(7, 94, 84, 0.08);
+        }
+        .header-menu-item.danger {
+            color: var(--danger);
+        }
+        .header-menu-item:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+        .header-menu-item.hidden {
+            display: none;
+        }
+        .header-menu-item svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
         .topbar-meta {
             min-width: 0;
             flex: 1;
@@ -679,76 +746,95 @@ if ($isGroupConversation) {
                     <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : e($otherUser['presence_label'] ?? 'Offline') ?></span>
                 </div>
             </div>
-            <button
-                id="add-group-member-button"
-                class="header-icon-button<?= $isGroupConversation ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Add user to group"
-                title="Add user to group"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M19 8v6"></path>
-                    <path d="M22 11h-6"></path>
-                </svg>
-            </button>
-            <button
-                id="revoke-friendship-button"
-                class="header-icon-button<?= !$isGroupConversation && $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Revoke friendship"
-                title="Revoke friendship"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M17 11h4"></path>
-                </svg>
-            </button>
-            <button
-                id="delete-conversation-button"
-                class="header-icon-button<?= $isGroupConversation ? ' hidden' : '' ?>"
-                type="button"
-                aria-label="Delete messages from your view"
-                title="Delete messages from your view"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M4 7h16"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
-                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-                    <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
-                </svg>
-            </button>
-            <button
-                id="leave-group-button"
-                class="header-icon-button<?= $isGroupConversation ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Leave group"
-                title="Leave group"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <path d="m16 17 5-5-5-5"></path>
-                    <path d="M21 12H9"></path>
-                </svg>
-            </button>
-            <button
-                id="delete-group-button"
-                class="header-icon-button<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Delete group"
-                title="Delete group"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M4 7h16"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
-                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-                    <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
-                </svg>
-            </button>
+            <div class="header-menu">
+                <button
+                    id="header-menu-button"
+                    class="header-icon-button"
+                    type="button"
+                    aria-label="Conversation actions"
+                    aria-expanded="false"
+                    aria-controls="header-menu-panel"
+                    title="Conversation actions"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none"></circle>
+                        <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"></circle>
+                        <circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none"></circle>
+                    </svg>
+                </button>
+                <div id="header-menu-panel" class="header-menu-panel" role="menu" aria-label="Conversation actions" hidden>
+                    <button
+                        id="add-group-member-button"
+                        class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M19 8v6"></path>
+                            <path d="M22 11h-6"></path>
+                        </svg>
+                        <span>Add user</span>
+                    </button>
+                    <button
+                        id="revoke-friendship-button"
+                        class="header-menu-item danger<?= !$isGroupConversation && $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M17 11h4"></path>
+                        </svg>
+                        <span>Revoke friendship</span>
+                    </button>
+                    <button
+                        id="delete-conversation-button"
+                        class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7h16"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
+                            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                            <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                        </svg>
+                        <span>Delete messages</span>
+                    </button>
+                    <button
+                        id="leave-group-button"
+                        class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <path d="m16 17 5-5-5-5"></path>
+                            <path d="M21 12H9"></path>
+                        </svg>
+                        <span>Leave group</span>
+                    </button>
+                    <button
+                        id="delete-group-button"
+                        class="header-menu-item danger<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7h16"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
+                            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                            <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                        </svg>
+                        <span>Delete group</span>
+                    </button>
+                </div>
+            </div>
         </header>
 
         <?php if (!$isGroupConversation && !$canChat): ?>
@@ -865,6 +951,8 @@ const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
+const headerMenuButton = document.getElementById('header-menu-button');
+const headerMenuPanel = document.getElementById('header-menu-panel');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
 const addGroupMemberButton = document.getElementById('add-group-member-button');
@@ -905,6 +993,30 @@ let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers :
 let groupState = initialGroup;
 let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
 let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
+
+function setHeaderMenuOpen(isOpen) {
+    if (!headerMenuButton || !headerMenuPanel) {
+        return;
+    }
+
+    headerMenuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    if (isOpen) {
+        headerMenuPanel.hidden = false;
+        requestAnimationFrame(() => {
+            headerMenuPanel.classList.add('is-open');
+        });
+        return;
+    }
+
+    headerMenuPanel.classList.remove('is-open');
+    if (!isOpen) {
+        window.setTimeout(() => {
+            if (!headerMenuPanel.classList.contains('is-open')) {
+                headerMenuPanel.hidden = true;
+            }
+        }, 180);
+    }
+}
 
 function conversationApiUrl(action = '') {
     const params = new URLSearchParams();
@@ -2526,8 +2638,15 @@ scrollToEndButton?.addEventListener('click', () => {
     syncReadStateSoon();
 });
 
+headerMenuButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const isOpen = headerMenuButton.getAttribute('aria-expanded') === 'true';
+    setHeaderMenuOpen(!isOpen);
+});
+
 deleteConversationButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (isSending || activeUploadCount > 0) {
         return;
     }
@@ -2569,6 +2688,7 @@ deleteConversationButton?.addEventListener('click', async () => {
 
 revokeFriendshipButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (!friendshipState || friendshipState.status !== 'accepted' || isSending) {
         return;
     }
@@ -2604,6 +2724,7 @@ revokeFriendshipButton?.addEventListener('click', async () => {
 
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     const username = window.prompt('Invite which user? Enter their username exactly.');
     if (username === null) {
         return;
@@ -2638,6 +2759,7 @@ addGroupMemberButton?.addEventListener('click', async () => {
 
 leaveGroupButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (!window.confirm('Leave this group?')) {
         return;
     }
@@ -2664,6 +2786,7 @@ leaveGroupButton?.addEventListener('click', async () => {
 
 deleteGroupButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (!window.confirm(`Delete the group "${otherUserName}" for everyone? This cannot be undone.`)) {
         return;
     }
@@ -2725,10 +2848,26 @@ imageLightbox?.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     markUserInteraction();
+    if (event.key === 'Escape' && headerMenuButton?.getAttribute('aria-expanded') === 'true') {
+        setHeaderMenuOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
     }
 }, { passive: true });
+document.addEventListener('click', (event) => {
+    if (!headerMenuPanel || !headerMenuButton) {
+        return;
+    }
+
+    const target = event.target;
+    if (target instanceof Node && (headerMenuPanel.contains(target) || headerMenuButton.contains(target))) {
+        return;
+    }
+
+    setHeaderMenuOpen(false);
+});
 document.addEventListener('click', markUserInteraction, { passive: true });
 
 if ('serviceWorker' in navigator) {
