@@ -49,7 +49,8 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
             --keyboard-offset: 0px;
-            --composer-clearance: 104px;
+            --composer-height: 74px;
+            --composer-clearance: 30px;
         }
         * { box-sizing: border-box; }
         body {
@@ -211,9 +212,9 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             display: flex;
             flex-direction: column;
             gap: 10px;
-            padding: 6px 4px calc(var(--composer-clearance) + env(safe-area-inset-bottom, 0px));
+            padding: 6px 4px calc(var(--composer-height) + var(--composer-clearance) + env(safe-area-inset-bottom, 0px));
             overscroll-behavior: contain;
-            scroll-padding-bottom: calc(var(--composer-clearance) - 18px);
+            scroll-padding-bottom: calc(var(--composer-height) + var(--composer-clearance) - 18px);
         }
         .conversation-actions {
             position: absolute;
@@ -1189,8 +1190,8 @@ function updateComposerClearance() {
         return;
     }
 
-    const clearance = Math.max(104, composerWrap.offsetHeight + 8);
-    document.documentElement.style.setProperty('--composer-clearance', `${clearance}px`);
+    document.documentElement.style.setProperty('--composer-height', `${Math.max(74, composerWrap.offsetHeight)}px`);
+    document.documentElement.style.setProperty('--composer-clearance', '30px');
 }
 
 function renderStatus() {
