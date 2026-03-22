@@ -14,10 +14,47 @@ if ($requestMethod === 'GET' && (($_GET['action'] ?? '') === 'signature')) {
     ]);
 }
 
+if ($requestMethod === 'GET' && (($_GET['action'] ?? '') === 'push_notifications')) {
+    jsonResponse([
+        'ok' => true,
+        'payload' => pushNotificationPayload($currentUserId),
+    ]);
+}
+
 if ($requestMethod === 'POST') {
     requireCsrfToken();
 
     $action = $_POST['action'] ?? '';
+
+    if ($action === 'save_push_subscription') {
+        if (!webPushEnabled()) {
+            jsonResponse(['error' => 'Web Push is not available on this server.'], 503);
+        }
+
+        $rawSubscription = $_POST['subscription'] ?? null;
+        if (!is_string($rawSubscription) || $rawSubscription === '') {
+            jsonResponse(['error' => 'Push subscription is required.'], 422);
+        }
+
+        try {
+            $subscription = json_decode($rawSubscription, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            jsonResponse(['error' => 'Push subscription is invalid.'], 422);
+        }
+
+        if (!is_array($subscription) || !savePushSubscription($currentUserId, $subscription)) {
+            jsonResponse(['error' => 'Could not save push subscription.'], 422);
+        }
+
+        jsonResponse(['ok' => true]);
+    }
+
+    if ($action === 'delete_push_subscription') {
+        $endpoint = is_string($_POST['endpoint'] ?? null) ? $_POST['endpoint'] : '';
+        deletePushSubscription($currentUserId, $endpoint);
+        jsonResponse(['ok' => true]);
+    }
+
     $otherUserId = (int) ($_POST['user'] ?? 0);
     $otherUser = $otherUserId > 0 ? findUserById($otherUserId) : null;
 

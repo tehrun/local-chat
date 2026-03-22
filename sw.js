@@ -77,6 +77,72 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+async function fetchPushNotificationPayload() {
+  const response = await fetch('./home_api.php?action=push_notifications', {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error('Could not load push notification payload.');
+  }
+
+  const data = await response.json();
+  return data?.payload || { chat_users: [] };
+}
+
+async function showBackgroundMessageNotifications() {
+  const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+  if (clientList.length > 0) {
+    return;
+  }
+
+  try {
+    const payload = await fetchPushNotificationPayload();
+    const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
+
+    if (chatUsers.length === 0) {
+      await self.registration.showNotification('New message', {
+        body: 'You have a new message in Local Chat.',
+        icon: 'icons/icon.svg',
+        tag: 'chat-message-generic',
+        renotify: true,
+        data: { url: './' },
+      });
+      return;
+    }
+
+    await Promise.all(chatUsers.map((chatUser) => {
+      const userId = Number(chatUser?.id || 0);
+      const username = String(chatUser?.username || 'Someone');
+      const unseenCount = Number(chatUser?.unseen_count || 0);
+      const body = unseenCount === 1
+        ? `${username} sent you a new message.`
+        : `${username} sent you ${unseenCount} new messages.`;
+
+      return self.registration.showNotification('New message', {
+        body,
+        icon: 'icons/icon.svg',
+        tag: userId > 0 ? `chat-message-${userId}` : 'chat-message-generic',
+        renotify: true,
+        data: { url: userId > 0 ? `chat.php?user=${userId}` : './' },
+      });
+    }));
+  } catch (error) {
+    await self.registration.showNotification('New message', {
+      body: 'Open Local Chat to view your latest messages.',
+      icon: 'icons/icon.svg',
+      tag: 'chat-message-generic',
+      renotify: true,
+      data: { url: './' },
+    });
+  }
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(showBackgroundMessageNotifications());
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || './';

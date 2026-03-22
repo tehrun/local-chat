@@ -15,6 +15,8 @@ define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
 define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
+define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
+define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 
 configureSession();
 session_start();
@@ -149,6 +151,10 @@ if (!is_dir(UPLOAD_PATH)) {
 
 if (!is_dir(TMP_UPLOAD_PATH)) {
     mkdir(TMP_UPLOAD_PATH, 0777, true);
+}
+
+if (!is_dir(WEB_PUSH_KEY_PATH)) {
+    mkdir(WEB_PUSH_KEY_PATH, 0777, true);
 }
 
 function db(): PDO
@@ -342,6 +348,25 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_status
          ON friend_requests (sender_id, status, created_at)'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            content_encoding TEXT NOT NULL DEFAULT \'aes128gcm\',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user
+         ON push_subscriptions (user_id, updated_at)'
+    );
 }
 
 function initializeMysqlDatabase(PDO $pdo): void
@@ -409,6 +434,393 @@ function initializeMysqlDatabase(PDO $pdo): void
             CONSTRAINT fk_friend_requests_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            endpoint VARCHAR(1024) NOT NULL,
+            p256dh VARCHAR(255) NOT NULL,
+            auth VARCHAR(255) NOT NULL,
+            content_encoding VARCHAR(32) NOT NULL DEFAULT \'aes128gcm\',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            UNIQUE KEY uniq_push_subscriptions_endpoint (endpoint(255)),
+            INDEX idx_push_subscriptions_user (user_id, updated_at),
+            CONSTRAINT fk_push_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function base64UrlEncode(string $value): string
+{
+    return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+}
+
+function base64UrlDecode(string $value): string|false
+{
+    $padding = strlen($value) % 4;
+    if ($padding > 0) {
+        $value .= str_repeat('=', 4 - $padding);
+    }
+
+    return base64_decode(strtr($value, '-_', '+/'), true);
+}
+
+function webPushPrivateKeyPath(): string
+{
+    return WEB_PUSH_KEY_PATH . '/vapid_private.pem';
+}
+
+function ensureWebPushKeyPair(): ?array
+{
+    static $cached = false;
+
+    if (is_array($cached)) {
+        return $cached;
+    }
+
+    $privatePem = trim((string) envValue('CHAT_WEB_PUSH_VAPID_PRIVATE_KEY_PEM', ''));
+    if ($privatePem !== '') {
+        $privateKey = openssl_pkey_get_private($privatePem);
+        if ($privateKey === false) {
+            return null;
+        }
+    } else {
+        $path = webPushPrivateKeyPath();
+        if (!is_file($path)) {
+            $generated = openssl_pkey_new([
+                'private_key_type' => OPENSSL_KEYTYPE_EC,
+                'curve_name' => 'prime256v1',
+            ]);
+
+            if ($generated === false) {
+                return null;
+            }
+
+            $exported = openssl_pkey_export($generated, $privatePemOut);
+            if (!$exported || $privatePemOut === '') {
+                return null;
+            }
+
+            file_put_contents($path, $privatePemOut, LOCK_EX);
+            @chmod($path, 0600);
+        }
+
+        $privateKey = openssl_pkey_get_private(file_get_contents($path) ?: '');
+        if ($privateKey === false) {
+            return null;
+        }
+    }
+
+    $details = openssl_pkey_get_details($privateKey);
+    if (!is_array($details) || !isset($details['ec']['x'], $details['ec']['y'])) {
+        return null;
+    }
+
+    $rawPublicKey = "\x04" . $details['ec']['x'] . $details['ec']['y'];
+    $cached = [
+        'private_key' => $privateKey,
+        'public_key' => base64UrlEncode($rawPublicKey),
+    ];
+
+    return $cached;
+}
+
+function webPushPublicKey(): ?string
+{
+    $pair = ensureWebPushKeyPair();
+
+    return is_array($pair) ? $pair['public_key'] : null;
+}
+
+function webPushEnabled(): bool
+{
+    return extension_loaded('openssl') && webPushPublicKey() !== null && function_exists('curl_init');
+}
+
+function normalizePushSubscription(array $subscription): ?array
+{
+    $endpoint = trim((string) ($subscription['endpoint'] ?? ''));
+    $keys = is_array($subscription['keys'] ?? null) ? $subscription['keys'] : [];
+    $p256dh = trim((string) ($keys['p256dh'] ?? ''));
+    $auth = trim((string) ($keys['auth'] ?? ''));
+    $contentEncoding = trim((string) ($subscription['contentEncoding'] ?? 'aes128gcm'));
+
+    if ($endpoint === '' || $p256dh === '' || $auth === '') {
+        return null;
+    }
+
+    if (!filter_var($endpoint, FILTER_VALIDATE_URL)) {
+        return null;
+    }
+
+    return [
+        'endpoint' => $endpoint,
+        'p256dh' => $p256dh,
+        'auth' => $auth,
+        'content_encoding' => $contentEncoding !== '' ? $contentEncoding : 'aes128gcm',
+    ];
+}
+
+function savePushSubscription(int $userId, array $subscription): bool
+{
+    $normalized = normalizePushSubscription($subscription);
+    if ($normalized === null) {
+        return false;
+    }
+
+    $params = [
+        'user_id' => $userId,
+        'endpoint' => $normalized['endpoint'],
+        'p256dh' => $normalized['p256dh'],
+        'auth' => $normalized['auth'],
+        'content_encoding' => $normalized['content_encoding'],
+        'created_at' => gmdate('c'),
+        'updated_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, content_encoding, created_at, updated_at)
+             VALUES (:user_id, :endpoint, :p256dh, :auth, :content_encoding, :created_at, :updated_at)
+             ON DUPLICATE KEY UPDATE
+                user_id = VALUES(user_id),
+                p256dh = VALUES(p256dh),
+                auth = VALUES(auth),
+                content_encoding = VALUES(content_encoding),
+                updated_at = VALUES(updated_at)'
+        );
+
+        return $stmt->execute($params);
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, content_encoding, created_at, updated_at)
+         VALUES (:user_id, :endpoint, :p256dh, :auth, :content_encoding, :created_at, :updated_at)
+         ON CONFLICT(endpoint)
+         DO UPDATE SET
+            user_id = excluded.user_id,
+            p256dh = excluded.p256dh,
+            auth = excluded.auth,
+            content_encoding = excluded.content_encoding,
+            updated_at = excluded.updated_at'
+    );
+
+    return $stmt->execute($params);
+}
+
+function deletePushSubscription(int $userId, string $endpoint): void
+{
+    $endpoint = trim($endpoint);
+    if ($endpoint === '') {
+        return;
+    }
+
+    $stmt = db()->prepare('DELETE FROM push_subscriptions WHERE user_id = :user_id AND endpoint = :endpoint');
+    $stmt->execute([
+        'user_id' => $userId,
+        'endpoint' => $endpoint,
+    ]);
+}
+
+function deletePushSubscriptionByEndpoint(string $endpoint): void
+{
+    $endpoint = trim($endpoint);
+    if ($endpoint === '') {
+        return;
+    }
+
+    $stmt = db()->prepare('DELETE FROM push_subscriptions WHERE endpoint = :endpoint');
+    $stmt->execute(['endpoint' => $endpoint]);
+}
+
+function pushSubscriptionsForUser(int $userId): array
+{
+    $stmt = db()->prepare(
+        'SELECT endpoint, p256dh, auth, content_encoding
+         FROM push_subscriptions
+         WHERE user_id = :user_id
+         ORDER BY updated_at DESC, id DESC'
+    );
+    $stmt->execute(['user_id' => $userId]);
+
+    return $stmt->fetchAll();
+}
+
+function createWebPushAuthorizationHeader(string $audience, int $expiresAt): ?string
+{
+    $pair = ensureWebPushKeyPair();
+    if ($pair === null) {
+        return null;
+    }
+
+    $header = base64UrlEncode(encodeJson([
+        'typ' => 'JWT',
+        'alg' => 'ES256',
+    ]));
+    $claims = base64UrlEncode(encodeJson([
+        'aud' => $audience,
+        'exp' => $expiresAt,
+        'sub' => trim((string) envValue('CHAT_WEB_PUSH_SUBJECT', 'mailto:admin@localhost')),
+    ]));
+    $signingInput = $header . '.' . $claims;
+
+    $signature = '';
+    if (!openssl_sign($signingInput, $signature, $pair['private_key'], OPENSSL_ALGO_SHA256)) {
+        return null;
+    }
+
+    $joseSignature = ecdsaDerSignatureToJose($signature, 64);
+    if ($joseSignature === null) {
+        return null;
+    }
+
+    return 'vapid t=' . $signingInput . '.' . base64UrlEncode($joseSignature) . ', k=' . $pair['public_key'];
+}
+
+function ecdsaDerSignatureToJose(string $der, int $partLength): ?string
+{
+    $offset = 0;
+
+    $readLength = static function (string $input, int &$cursor): ?int {
+        if (!isset($input[$cursor])) {
+            return null;
+        }
+
+        $length = ord($input[$cursor]);
+        $cursor++;
+
+        if (($length & 0x80) === 0) {
+            return $length;
+        }
+
+        $byteCount = $length & 0x7f;
+        if ($byteCount < 1 || $byteCount > 2 || strlen($input) < ($cursor + $byteCount)) {
+            return null;
+        }
+
+        $length = 0;
+        for ($index = 0; $index < $byteCount; $index++) {
+            $length = ($length << 8) | ord($input[$cursor + $index]);
+        }
+        $cursor += $byteCount;
+
+        return $length;
+    };
+
+    if (!isset($der[$offset]) || ord($der[$offset]) !== 0x30) {
+        return null;
+    }
+    $offset++;
+    $sequenceLength = $readLength($der, $offset);
+    if ($sequenceLength === null || strlen($der) < ($offset + $sequenceLength)) {
+        return null;
+    }
+
+    $readInteger = static function (string $input, int &$cursor) use ($readLength, $partLength): ?string {
+        if (!isset($input[$cursor]) || ord($input[$cursor]) !== 0x02) {
+            return null;
+        }
+
+        $cursor++;
+        $length = $readLength($input, $cursor);
+        if ($length === null || strlen($input) < ($cursor + $length)) {
+            return null;
+        }
+
+        $value = substr($input, $cursor, $length);
+        $cursor += $length;
+        $value = ltrim($value, "\x00");
+        $value = str_pad($value, $partLength / 2, "\x00", STR_PAD_LEFT);
+
+        return strlen($value) === ($partLength / 2) ? $value : null;
+    };
+
+    $r = $readInteger($der, $offset);
+    $s = $readInteger($der, $offset);
+
+    return ($r !== null && $s !== null) ? ($r . $s) : null;
+}
+
+function sendWebPushRequest(string $endpoint): int|false
+{
+    $parts = parse_url($endpoint);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+        return false;
+    }
+
+    $audience = strtolower((string) $parts['scheme']) . '://' . (string) $parts['host'];
+    if (isset($parts['port'])) {
+        $audience .= ':' . (int) $parts['port'];
+    }
+
+    $authorization = createWebPushAuthorizationHeader($audience, time() + WEB_PUSH_AUDIENCE_TTL_SECONDS);
+    if ($authorization === null) {
+        return false;
+    }
+
+    $ch = curl_init($endpoint);
+    if ($ch === false) {
+        return false;
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER => false,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTPHEADER => [
+            'TTL: 60',
+            'Urgency: high',
+            'Authorization: ' . $authorization,
+        ],
+    ]);
+
+    curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_errno($ch);
+    curl_close($ch);
+
+    return $error === 0 ? $status : false;
+}
+
+function triggerPushNotificationsForUser(int $userId): void
+{
+    if (!webPushEnabled()) {
+        return;
+    }
+
+    foreach (pushSubscriptionsForUser($userId) as $subscription) {
+        $endpoint = (string) ($subscription['endpoint'] ?? '');
+        if ($endpoint === '') {
+            continue;
+        }
+
+        $status = sendWebPushRequest($endpoint);
+        if ($status === 404 || $status === 410) {
+            deletePushSubscriptionByEndpoint($endpoint);
+        }
+    }
+}
+
+function triggerPushNotificationsForMessage(int $recipientId): void
+{
+    triggerPushNotificationsForUser($recipientId);
+}
+
+function pushNotificationPayload(int $currentUserId): array
+{
+    $chatUsers = array_values(array_filter(
+        chattedUsers($currentUserId),
+        static fn (array $chatUser): bool => (int) ($chatUser['unseen_count'] ?? 0) > 0
+    ));
+
+    return [
+        'chat_users' => $chatUsers,
+        'generated_at' => gmdate('c'),
+    ];
 }
 
 function purgeExpiredMessages(bool $force = false): void
@@ -1264,6 +1676,7 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): array|s
     ]);
 
     clearTypingStatus($senderId, $recipientId);
+    triggerPushNotificationsForMessage($recipientId);
 
     return findMessageById((int) db()->lastInsertId());
 }
@@ -1390,6 +1803,7 @@ function sendImageMessage(int $senderId, int $recipientId, array $file): array|s
     ]);
 
     clearTypingStatus($senderId, $recipientId);
+    triggerPushNotificationsForMessage($recipientId);
 
     return findMessageById((int) db()->lastInsertId());
 }
@@ -1439,6 +1853,7 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
     ]);
 
     clearTypingStatus($senderId, $recipientId);
+    triggerPushNotificationsForMessage($recipientId);
 
     return findMessageById((int) db()->lastInsertId());
 }

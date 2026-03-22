@@ -656,6 +656,7 @@ const initialChatUsers = <?= jsonScriptValue($chatUsers) ?>;
 const initialDirectoryUsers = <?= jsonScriptValue($users) ?>;
 const initialIncomingRequests = <?= jsonScriptValue($incomingRequests) ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const webPushPublicKey = <?= jsonScriptValue($user !== null ? webPushPublicKey() : null) ?>;
 const initialHomeSignature = <?= jsonScriptValue($user !== null ? chatListStateSignature((int) $user['id']) : '') ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
@@ -687,6 +688,7 @@ let notificationPermissionRequested = false;
 let notificationPermissionPromptDismissed = false;
 let hasInteracted = false;
 let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
+let pushSubscriptionSyncPromise = null;
 
 const personPlusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -732,9 +734,72 @@ function requestNotificationPermission() {
     }
 
     notificationPermissionRequested = true;
-    Notification.requestPermission().catch(() => {
-        // Ignore notification permission errors.
+    Notification.requestPermission()
+        .then((permission) => {
+            if (permission === 'granted') {
+                ensurePushSubscription();
+            }
+        })
+        .catch(() => {
+            // Ignore notification permission errors.
+        });
+}
+
+function base64UrlToUint8Array(value) {
+    if (!value) {
+        return new Uint8Array();
+    }
+
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const raw = window.atob(padded);
+
+    return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+
+async function syncPushSubscriptionWithServer(subscription) {
+    const params = new URLSearchParams({
+        action: 'save_push_subscription',
+        csrf_token: csrfToken,
+        subscription: JSON.stringify(subscription),
     });
+
+    await fetch('home_api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: params.toString(),
+        credentials: 'same-origin',
+    });
+}
+
+async function ensurePushSubscription() {
+    if (!currentUserId || !webPushPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') {
+        return null;
+    }
+
+    if (pushSubscriptionSyncPromise) {
+        return pushSubscriptionSyncPromise;
+    }
+
+    pushSubscriptionSyncPromise = (async () => {
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+
+        if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: base64UrlToUint8Array(webPushPublicKey),
+            });
+        }
+
+        await syncPushSubscriptionWithServer(subscription.toJSON());
+
+        return subscription;
+    })().catch(() => null).finally(() => {
+        pushSubscriptionSyncPromise = null;
+    });
+
+    return pushSubscriptionSyncPromise;
 }
 
 async function playNotificationSound() {
@@ -1186,9 +1251,15 @@ connectChatListStream();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {
-            // Ignore service worker registration errors.
-        });
+        navigator.serviceWorker.register('sw.js')
+            .then(() => {
+                if (Notification.permission === 'granted') {
+                    ensurePushSubscription();
+                }
+            })
+            .catch(() => {
+                // Ignore service worker registration errors.
+            });
     });
 }
 
