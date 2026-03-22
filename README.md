@@ -25,6 +25,43 @@ php -S 127.0.0.1:8000 -t public
 
 Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, the chat UI falls back to short polling instead of Server-Sent Events so message sends do not get blocked by the single-worker server. Both the conversation page and the home/chat-list page now check lightweight signatures first, only fetch their full payloads when something actually changed, and back off toward slower polling while the UI is idle. On multi-worker hosting, the conversation and home pages keep SSE connections open and also use lightweight signatures to avoid unnecessary full payload reloads. On phones, install the app behind HTTPS or use a secure local tunnel so the browser can grant microphone access for hold-to-record voice notes.
 
+## Run with Docker
+
+```bash
+docker compose up --build
+```
+
+The app will be available on <http://0.0.0.0:8080> (or `http://localhost:8080` from the same machine). The Compose stack starts two containers:
+
+- `app`: Apache + PHP 8.3 serving the `public/` directory on port `8080`
+- `mysql`: MySQL 8.4 with a persistent named volume
+
+The app container is preconfigured to use MySQL through these environment variables in `docker-compose.yml`:
+
+- `CHAT_DB_DRIVER=mysql`
+- `CHAT_DB_HOST=mysql`
+- `CHAT_DB_PORT=3306`
+- `CHAT_DB_NAME=local_chat`
+- `CHAT_DB_USER=local_chat`
+- `CHAT_DB_PASS=local_chat`
+
+Persistent data is stored in Docker named volumes:
+
+- `mysql_data`: MySQL database files
+- `app_storage`: uploaded files and runtime storage under `storage/`
+
+To stop the stack:
+
+```bash
+docker compose down
+```
+
+To remove containers and volumes completely:
+
+```bash
+docker compose down -v
+```
+
 ## Storage
 
 - SQLite database: `storage/db/chat.sqlite`
