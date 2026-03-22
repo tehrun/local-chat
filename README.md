@@ -27,7 +27,7 @@ php -S 127.0.0.1:8000 -t public
 
 Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, the chat UI falls back to short polling instead of Server-Sent Events so message sends do not get blocked by the single-worker server. Both the conversation page and the home/chat-list page now check lightweight signatures first, only fetch their full payloads when something actually changed, and back off toward slower polling while the UI is idle. On multi-worker hosting, the conversation and home pages keep SSE connections open and also use lightweight signatures to avoid unnecessary full payload reloads. On phones, install the app behind HTTPS or use a secure local tunnel so the browser can grant microphone access for hold-to-record voice notes.
 
-For background Web Push notifications, serve the app over HTTPS (or a secure local tunnel), allow notifications in the browser, and keep the browser's push support enabled. The app automatically creates and stores a local VAPID key pair under `storage/webpush/` when OpenSSL is available. You can override that with:
+For background Web Push notifications, serve the app over HTTPS (or a secure local tunnel), allow notifications in the browser, and keep the browser's push support enabled. A public `http://IP:port` URL is not a reliable Web Push or PWA-install target. The app automatically creates and stores a local VAPID key pair under `storage/webpush/` when OpenSSL is available. You can override that with:
 
 - `CHAT_WEB_PUSH_VAPID_PRIVATE_KEY_PEM` — PEM-encoded EC private key on the `prime256v1` curve
 - `CHAT_WEB_PUSH_SUBJECT` — contact value for VAPID claims, such as `mailto:admin@example.com`

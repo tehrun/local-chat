@@ -546,12 +546,10 @@ function defaultWebPushSubject(): string
         return $configured;
     }
 
-    $forwardedProto = trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $forwardedProto === 'https';
-    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    $host = trim((string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? ''));
 
     if ($host !== '') {
-        return ($isHttps ? 'https' : 'http') . '://' . $host;
+        return 'https://' . $host;
     }
 
     return 'https://example.com';
