@@ -1172,7 +1172,15 @@ function autoResizeComposer() {
 }
 
 function updateKeyboardOffset() {
-    document.documentElement.style.setProperty('--keyboard-offset', '0px');
+    const viewport = window.visualViewport;
+    if (!viewport) {
+        document.documentElement.style.setProperty('--keyboard-offset', '0px');
+        updateComposerClearance();
+        return;
+    }
+
+    const keyboardOffset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+    document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(keyboardOffset)}px`);
     updateComposerClearance();
 }
 
@@ -1533,6 +1541,7 @@ function preserveComposerFocus(event) {
 
 function applyConversationPayload(payload, options = {}) {
     const { appendHistory = false } = options;
+    const composerWasFocused = document.activeElement === bodyEl;
 
     if (typeof payload.signature === 'string' && payload.signature !== '') {
         conversationSignature = payload.signature;
@@ -1566,6 +1575,10 @@ function applyConversationPayload(payload, options = {}) {
         updateFriendshipUi();
     }
     setTypingVisible(Boolean(payload.typing) && canChat);
+
+    if (composerWasFocused) {
+        keepComposerFocused(true);
+    }
 }
 
 async function refreshConversation() {
