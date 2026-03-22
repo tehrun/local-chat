@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $user = currentUser();
 $users = $user ? allOtherUsers((int) $user['id']) : [];
-$chatUsers = $user ? chattedUsers((int) $user['id']) : [];
+$chatUsers = $user ? combinedChatList((int) $user['id']) : [];
 $incomingRequests = $user ? incomingFriendRequests((int) $user['id']) : [];
 $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 ?>
@@ -509,6 +509,11 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .chat-switcher-search input {
             margin-top: 0;
         }
+        .chat-switcher-actions {
+            padding: 0 18px 14px;
+            display: flex;
+            justify-content: flex-end;
+        }
         .chat-switcher-close {
             border: none;
             background: #dfe5e7;
@@ -672,11 +677,11 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <?php else: ?>
                         <?php foreach ($chatUsers as $chatUser): ?>
                             <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
-                            <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="chat.php?user=<?= (int) $chatUser['id'] ?>">
-                                <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
+                            <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="<?= e((string) ($chatUser['url'] ?? ('chat.php?user=' . (int) $chatUser['id']))) ?>">
+                                <div class="avatar"><?= e(strtoupper(substr((string) ($chatUser['name'] ?? $chatUser['username']), 0, 2))) ?></div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
-                                        <strong class="chat-name"><?= e($chatUser['username']) ?></strong>
+                                        <strong class="chat-name"><?= e((string) ($chatUser['name'] ?? $chatUser['username'])) ?></strong>
                                         <span class="chat-last-time<?= ($chatUser['chat_list_time'] ?? '') !== '' ? '' : ' is-empty' ?>" data-role="chat-time"><?= e($chatUser['chat_list_time'] ?? '') ?></span>
                                     </div>
                                     <div class="chat-preview-row">
@@ -711,6 +716,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             <div class="chat-switcher-header">
                 <h2 id="chat-switcher-title">Search users</h2>
                 <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close user list">×</button>
+            </div>
+            <div class="chat-switcher-actions">
+                <button class="mini-button secondary" id="create-group-button" type="button">Create group</button>
             </div>
             <div class="chat-switcher-search">
                 <input id="chat-switcher-search-input" type="search" placeholder="Search users by name" autocomplete="off" aria-label="Search users by name">
@@ -752,6 +760,7 @@ const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
 const chatSwitcherSearchInput = document.getElementById('chat-switcher-search-input');
 const chatSwitcherEmptyEl = document.getElementById('chat-switcher-empty');
+const createGroupButton = document.getElementById('create-group-button');
 const loginForm = document.getElementById('login-form');
 const loginSubmitButton = document.getElementById('login-submit');
 const loginUsernameInput = loginForm?.querySelector('[data-login-field="username"]') || null;
@@ -1009,15 +1018,17 @@ function renderChatListEntries(users) {
     return users.map((chatUser) => {
         const userId = Number(chatUser.id);
         const unseenCount = Number(chatUser.unseen_count || 0);
-        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
-        const username = escapeHtml(chatUser.username || '');
+        const displayName = String(chatUser.name || chatUser.username || '');
+        const avatar = escapeHtml(displayName.slice(0, 2).toUpperCase());
+        const username = escapeHtml(displayName);
         const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
         const chatTime = escapeHtml(chatUser.chat_list_time || '');
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
+        const href = escapeHtml(chatUser.url || `chat.php?user=${userId}`);
 
         return `
-            <a class="chat-item" data-chat-user-id="${userId}" href="chat.php?user=${userId}">
+            <a class="chat-item" data-chat-user-id="${userId}" href="${href}">
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
@@ -1124,17 +1135,18 @@ async function showUnreadMessageNotification(chatUser, increaseCount) {
         return;
     }
 
-    const username = chatUser.username || 'Someone';
+    const username = chatUser.name || chatUser.username || 'Someone';
     const body = increaseCount === 1
         ? `${username} sent you a new message.`
         : `${username} sent you ${increaseCount} new messages.`;
+    const destinationUrl = chatUser.url || `chat.php?user=${Number(chatUser.id)}`;
 
     registration.showNotification('New message', {
         body,
         icon: 'icons/icon.svg',
         tag: `chat-message-${chatUser.id}`,
         renotify: true,
-        data: { url: `chat.php?user=${Number(chatUser.id)}` },
+        data: { url: destinationUrl },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1429,6 +1441,32 @@ chatSwitcherEl?.addEventListener('click', (event) => {
 });
 chatSwitcherSearchInput?.addEventListener('input', () => {
     renderChatSwitcher(directoryUsersState);
+});
+createGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    const name = window.prompt('Name your new group');
+    if (name === null) {
+        return;
+    }
+
+    try {
+        const response = await fetch('home_api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: new URLSearchParams({ action: 'create_group', name, csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || `Request failed with ${response.status}`);
+        }
+
+        applyChatListPayload(payload.payload || payload);
+        setChatSwitcherOpen(false);
+    } catch (error) {
+        window.alert(error.message || 'Could not create the group.');
+    }
 });
 document.addEventListener('keydown', (event) => {
     markUserInteraction();

@@ -5,21 +5,46 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$otherUserId = requirePositiveInt($_GET, 'user');
-$otherUser = findUserById($otherUserId);
-
-if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
-    header('Location: index.php');
-    exit;
-}
-
-$canChat = canUsersChat((int) $user['id'], $otherUserId);
-$friendship = friendshipRecord((int) $user['id'], $otherUserId);
+$groupId = requirePositiveInt($_GET, 'group');
+$isGroupConversation = $groupId > 0;
+$otherUserId = $isGroupConversation ? 0 : requirePositiveInt($_GET, 'user');
+$otherUser = null;
+$group = null;
+$friendship = null;
 $messageBatchSize = 15;
-$messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
-$hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
-$otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
-$initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
+$typingMembers = [];
+$availableInviteUsers = allOtherUsers((int) $user['id']);
+
+if ($isGroupConversation) {
+    $group = findGroupById($groupId);
+
+    if ($group === null || !canAccessGroupConversation($groupId, (int) $user['id'])) {
+        header('Location: index.php');
+        exit;
+    }
+
+    $canChat = true;
+    $messages = groupMessagesPageWithoutMaintenance($groupId, (int) $user['id'], $messageBatchSize);
+    $hasMoreMessages = $messages !== [] && groupConversationHasOlderMessagesWithoutMaintenance($groupId, (int) $user['id'], (int) $messages[0]['id']);
+    $typingMembers = groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']);
+    $initialConversationSignature = groupConversationStateSignature($groupId, (int) $user['id']);
+} else {
+    $otherUser = findUserById($otherUserId);
+
+    if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
+        header('Location: index.php');
+        exit;
+    }
+
+    $canChat = canUsersChat((int) $user['id'], $otherUserId);
+    $friendship = friendshipRecord((int) $user['id'], $otherUserId);
+    $messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
+    $hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
+    $typingMembers = $canChat && isUserTyping((int) $user['id'], $otherUserId)
+        ? [['user_id' => (int) $otherUser['id'], 'username' => (string) $otherUser['username']]]
+        : [];
+    $initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -32,7 +57,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
-    <title>Chat with <?= e($otherUser['username']) ?></title>
+    <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
     <style>
         :root {
             color-scheme: light;
@@ -648,15 +673,29 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 </svg>
             </a>
             <div class="topbar-meta">
-                <h1><?= e($otherUser['username']) ?></h1>
+                <h1><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
                 <div class="presence-row">
-                    <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                    <span id="header-presence-label"><?= e($otherUser['presence_label'] ?? 'Offline') ?></span>
+                    <span class="presence-light <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                    <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : e($otherUser['presence_label'] ?? 'Offline') ?></span>
                 </div>
             </div>
             <button
+                id="add-group-member-button"
+                class="header-icon-button<?= $isGroupConversation ? '' : ' hidden' ?>"
+                type="button"
+                aria-label="Add user to group"
+                title="Add user to group"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M19 8v6"></path>
+                    <path d="M22 11h-6"></path>
+                </svg>
+            </button>
+            <button
                 id="revoke-friendship-button"
-                class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
+                class="header-icon-button<?= !$isGroupConversation && $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
                 type="button"
                 aria-label="Revoke friendship"
                 title="Revoke friendship"
@@ -669,7 +708,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             </button>
             <button
                 id="delete-conversation-button"
-                class="header-icon-button"
+                class="header-icon-button<?= $isGroupConversation ? ' hidden' : '' ?>"
                 type="button"
                 aria-label="Delete messages from your view"
                 title="Delete messages from your view"
@@ -682,9 +721,37 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                     <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
                 </svg>
             </button>
+            <button
+                id="leave-group-button"
+                class="header-icon-button<?= $isGroupConversation ? '' : ' hidden' ?>"
+                type="button"
+                aria-label="Leave group"
+                title="Leave group"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <path d="m16 17 5-5-5-5"></path>
+                    <path d="M21 12H9"></path>
+                </svg>
+            </button>
+            <button
+                id="delete-group-button"
+                class="header-icon-button<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                type="button"
+                aria-label="Delete group"
+                title="Delete group"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M4 7h16"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                    <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                </svg>
+            </button>
         </header>
 
-        <?php if (!$canChat): ?>
+        <?php if (!$isGroupConversation && !$canChat): ?>
             <div class="friendship-card">
                 <p>
                     <?php if ($friendship !== null && $friendship['status'] === 'pending' && $friendship['request_direction'] === 'outgoing'): ?>
@@ -768,16 +835,19 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
 
 const currentUserId = <?= (int) $user['id'] ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
+const groupId = <?= (int) $groupId ?>;
+const isGroupConversation = <?= $isGroupConversation ? 'true' : 'false' ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-const otherUserName = <?= jsonScriptValue($otherUser['username']) ?>;
+const otherUserName = <?= jsonScriptValue($isGroupConversation ? (string) $group['name'] : $otherUser['username']) ?>;
 const messageBatchSize = <?= (int) $messageBatchSize ?>;
 const initialMessages = <?= jsonScriptValue($messages) ?>;
 const initialHasMoreMessages = <?= $hasMoreMessages ? 'true' : 'false' ?>;
-const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const initialTypingMembers = <?= jsonScriptValue($typingMembers) ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
-const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
-const initialPresenceLabel = <?= jsonScriptValue($otherUser['presence_label'] ?? 'Offline') ?>;
+const initialGroup = <?= jsonScriptValue($group) ?>;
+const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
+const initialPresenceLabel = <?= jsonScriptValue($isGroupConversation ? count(groupMembers((int) $group['id'])) . ' members' : ($otherUser['presence_label'] ?? 'Offline')) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
@@ -797,6 +867,9 @@ const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
+const addGroupMemberButton = document.getElementById('add-group-member-button');
+const leaveGroupButton = document.getElementById('leave-group-button');
+const deleteGroupButton = document.getElementById('delete-group-button');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -828,8 +901,32 @@ let homePayloadSignature = '';
 let homePollTimer = null;
 let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
-let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
-let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
+let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers : [];
+let groupState = initialGroup;
+let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
+let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
+
+function conversationApiUrl(action = '') {
+    const params = new URLSearchParams();
+    if (action) {
+        params.set('action', action);
+    }
+    if (isGroupConversation) {
+        params.set('group', String(groupId));
+    } else {
+        params.set('user', String(conversationUserId));
+    }
+
+    return `chat_api.php?${params.toString()}`;
+}
+
+function conversationPageUrl() {
+    return isGroupConversation ? `chat.php?group=${groupId}` : `chat.php?user=${conversationUserId}`;
+}
+
+function conversationStreamUrl() {
+    return isGroupConversation ? `chat_stream.php?group=${groupId}` : `chat_stream.php?user=${conversationUserId}`;
+}
 
 function clearStatus() {
     statusState = 'idle';
@@ -845,10 +942,11 @@ let suppressActionButtonClick = false;
 let friendshipState = initialFriendship;
 let hasMoreMessages = initialHasMoreMessages;
 let loadingOlderMessages = false;
-let lastUnseenCounts = new Map([[String(conversationUserId), initialMessages.filter((message) =>
-    Number(message.sender_id) === conversationUserId && !message.read_at
+let lastUnseenCounts = new Map([[String(isGroupConversation ? groupId : conversationUserId), initialMessages.filter((message) =>
+    Number(message.sender_id) !== currentUserId && !message.read_at
 ).length]]);
 const webPushPublicKey = <?= jsonScriptValue(webPushPublicKey()) ?>;
+const directoryUsersState = <?= jsonScriptValue($availableInviteUsers) ?>;
 let pushSubscriptionSyncPromise = null;
 
 function supportsInlineVoiceRecording() {
@@ -864,6 +962,12 @@ function supportsImageUpload() {
 }
 
 function updatePresence(isOnline, label) {
+    if (isGroupConversation) {
+        headerPresenceLight.classList.remove('online');
+        headerPresenceLabel.textContent = label || `${groupState?.member_count || 0} members`;
+        return;
+    }
+
     if (!canChat) {
         actionButton.disabled = true;
     }
@@ -874,6 +978,14 @@ function updatePresence(isOnline, label) {
 }
 
 function updateFriendshipUi() {
+    if (isGroupConversation) {
+        canChat = true;
+        actionButton.disabled = activeUploadCount > 0;
+        imageButton.disabled = activeUploadCount > 0;
+        bodyEl.disabled = false;
+        return;
+    }
+
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || activeUploadCount > 0;
@@ -1064,9 +1176,9 @@ async function showMessageNotification(message) {
         registration.showNotification(otherUserName, {
             body,
             icon: 'icons/icon.svg',
-            tag: `chat-${conversationUserId}`,
+            tag: `chat-${isGroupConversation ? groupId : conversationUserId}`,
             renotify: true,
-            data: { url: `chat.php?user=${conversationUserId}` },
+            data: { url: conversationPageUrl() },
         }).catch(() => {
             // Ignore notification display errors.
         });
@@ -1099,7 +1211,7 @@ async function showUnreadConversationNotification(chatUser, increaseCount) {
         icon: 'icons/icon.svg',
         tag: `chat-message-${chatUser.id}`,
         renotify: true,
-        data: { url: `chat.php?user=${Number(chatUser.id)}` },
+        data: { url: chatUser.url || `chat.php?user=${Number(chatUser.id)}` },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1118,7 +1230,7 @@ function applyHomeNotificationPayload(payload) {
         const nextUnseenCount = Number(chatUser.unseen_count || 0);
         const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
 
-        if (userId !== String(conversationUserId) && nextUnseenCount > previousUnseenCount) {
+        if (userId !== String(isGroupConversation ? groupId : conversationUserId) && nextUnseenCount > previousUnseenCount) {
             showUnreadConversationNotification(chatUser, nextUnseenCount - previousUnseenCount);
         }
 
@@ -1186,7 +1298,7 @@ function scheduleHomePolling(delay = homePollDelay) {
 function handleIncomingMessages(previousMessages, nextMessages) {
     const previousIds = new Set(previousMessages.map((message) => String(message.id)));
     const newInboundMessages = nextMessages.filter((message) =>
-        !previousIds.has(String(message.id)) && Number(message.sender_id) === conversationUserId
+        !previousIds.has(String(message.id)) && Number(message.sender_id) !== currentUserId
     );
 
     if (newInboundMessages.length === 0) {
@@ -1305,14 +1417,23 @@ function showError(message) {
     renderStatus();
 }
 
-function setTypingVisible(isVisible) {
+function setTypingVisible(value) {
     if (recordingMode) {
         return;
     }
 
-    if (isVisible) {
+    const activeTypingMembers = Array.isArray(value)
+        ? value
+        : (value ? [{ username: otherUserName }] : []);
+    typingMembers = activeTypingMembers;
+
+    if (typingMembers.length > 0) {
         statusState = 'typing';
-        statusMessage = `${otherUserName} is typing…`;
+        if (typingMembers.length === 1) {
+            statusMessage = `${typingMembers[0].username} is typing…`;
+        } else {
+            statusMessage = `${typingMembers.map((member) => member.username).join(', ')} are typing…`;
+        }
     } else if (statusState === 'typing') {
         clearStatus();
         return;
@@ -1328,6 +1449,7 @@ function createPendingMessage(body, type) {
         id: `pending-${type}-${localMessageCounter}`,
         sender_id: currentUserId,
         recipient_id: conversationUserId,
+        group_id: isGroupConversation ? groupId : null,
         sender_name: 'You',
         body,
         audio_path: null,
@@ -1665,12 +1787,18 @@ function applyConversationPayload(payload, options = {}) {
             ? mergeMessages(payload.messages, window.__messagesState || [])
             : (payload.messages.length === 0 ? [] : mergeMessages(window.__messagesState || [], payload.messages));
         renderMessages(nextMessages);
-        lastUnseenCounts.set(String(conversationUserId), nextMessages.filter((message) =>
-            Number(message.sender_id) === conversationUserId && !message.read_at
-        ).length);
+        const unreadCount = nextMessages.filter((message) =>
+            Number(message.sender_id) !== currentUserId && !message.read_at
+        ).length;
+        lastUnseenCounts.set(String(isGroupConversation ? groupId : conversationUserId), unreadCount);
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
+    }
+    if (payload.group) {
+        groupState = payload.group;
+        updatePresence(false, `${groupState.member_count || 0} members`);
+        deleteGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_delete));
     }
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.label);
@@ -1682,7 +1810,7 @@ function applyConversationPayload(payload, options = {}) {
         friendshipState = payload.friendship;
         updateFriendshipUi();
     }
-    setTypingVisible(Boolean(payload.typing) && canChat);
+    setTypingVisible(isGroupConversation ? (payload.typing_members || []) : (Boolean(payload.typing) && canChat));
 
     if (composerWasFocused) {
         keepComposerFocused(true);
@@ -1691,7 +1819,7 @@ function applyConversationPayload(payload, options = {}) {
 
 async function refreshConversation() {
     try {
-        const signatureResponse = await fetch(`chat_api.php?action=signature&user=${conversationUserId}`, {
+        const signatureResponse = await fetch(conversationApiUrl('signature'), {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1704,7 +1832,7 @@ async function refreshConversation() {
             return false;
         }
 
-        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}`, {
+        const response = await fetch(`${conversationApiUrl('messages')}&limit=${messageBatchSize}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1739,7 +1867,7 @@ async function loadOlderMessages() {
     const previousScrollHeight = messagesEl.scrollHeight;
 
     try {
-        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}&before=${oldestId}`, {
+        const response = await fetch(`${conversationApiUrl('messages')}&limit=${messageBatchSize}&before=${oldestId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1785,7 +1913,7 @@ async function syncReadState() {
     }
 
     const hasUnreadInbound = (window.__messagesState || []).some((message) =>
-        Number(message.sender_id) === conversationUserId && !message.read_at
+        Number(message.sender_id) !== currentUserId && !message.read_at
     );
 
     if (!hasUnreadInbound) {
@@ -1793,7 +1921,7 @@ async function syncReadState() {
     }
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'read', csrf_token: csrfToken }),
@@ -1867,7 +1995,7 @@ function connectConversationStream() {
         stream.close();
     }
 
-    stream = new EventSource(`chat_stream.php?user=${conversationUserId}`);
+    stream = new EventSource(conversationStreamUrl());
     stream.addEventListener('open', () => {
         streamState = 'connected';
         renderStatus();
@@ -1895,7 +2023,7 @@ function connectConversationStream() {
 
 async function syncTyping(isTyping) {
     try {
-        await fetch(`chat_api.php?user=${conversationUserId}`, {
+        await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'typing', typing: String(isTyping), csrf_token: csrfToken }),
@@ -1948,7 +2076,7 @@ async function flushPendingTextQueue() {
         const nextMessage = pendingTextQueue[0];
 
         try {
-            const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+            const response = await fetch(conversationApiUrl(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
                 body: new URLSearchParams({ action: 'send_text', body: nextMessage.body, csrf_token: csrfToken }),
@@ -2074,7 +2202,7 @@ async function uploadVoiceBlob(blob, filename) {
         formData.append('csrf_token', csrfToken);
         formData.append('voice_note', blob, filename);
 
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
@@ -2130,7 +2258,7 @@ async function uploadImageFile(file) {
         formData.append('csrf_token', csrfToken);
         formData.append('image_file', file, file.name || 'photo.jpg');
 
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
@@ -2404,7 +2532,9 @@ deleteConversationButton?.addEventListener('click', async () => {
         return;
     }
 
-    const confirmed = window.confirm(`Delete all messages in this private chat for your account only? ${otherUserName} will still keep their copy.`);
+    const confirmed = window.confirm(isGroupConversation
+        ? 'Delete all messages in this group for your account only?'
+        : `Delete all messages in this private chat for your account only? ${otherUserName} will still keep their copy.`);
     if (!confirmed) {
         return;
     }
@@ -2412,7 +2542,7 @@ deleteConversationButton?.addEventListener('click', async () => {
     deleteConversationButton.disabled = true;
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'delete_conversation', csrf_token: csrfToken }),
@@ -2427,7 +2557,9 @@ deleteConversationButton?.addEventListener('click', async () => {
         applyConversationPayload(payload.payload || payload);
         shouldAutoScroll = true;
         scrollMessagesToEnd();
-        showHint('Messages deleted only for your account. New messages will still appear here.');
+        showHint(isGroupConversation
+            ? 'Messages deleted only for your account. New group messages will still appear here.'
+            : 'Messages deleted only for your account. New messages will still appear here.');
     } catch (error) {
         showError('Could not delete messages right now. Please try again.');
     } finally {
@@ -2435,7 +2567,7 @@ deleteConversationButton?.addEventListener('click', async () => {
     }
 });
 
-revokeFriendshipButton.addEventListener('click', async () => {
+revokeFriendshipButton?.addEventListener('click', async () => {
     markUserInteraction();
     if (!friendshipState || friendshipState.status !== 'accepted' || isSending) {
         return;
@@ -2449,7 +2581,7 @@ revokeFriendshipButton.addEventListener('click', async () => {
     revokeFriendshipButton.disabled = true;
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'revoke_friendship', csrf_token: csrfToken }),
@@ -2467,6 +2599,92 @@ revokeFriendshipButton.addEventListener('click', async () => {
         showError('Could not revoke friendship right now. Please try again.');
     } finally {
         revokeFriendshipButton.disabled = false;
+    }
+});
+
+addGroupMemberButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    const username = window.prompt('Invite which user? Enter their username exactly.');
+    if (username === null) {
+        return;
+    }
+
+    const candidate = directoryUsersState.find((entry) => String(entry.username || '').toLowerCase() === username.trim().toLowerCase());
+    if (!candidate) {
+        window.alert('User not found.');
+        return;
+    }
+
+    addGroupMemberButton.disabled = true;
+    try {
+        const response = await fetch('home_api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'invite_group_member', group: String(groupId), user: String(candidate.id), csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not add that user right now.');
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint(`${candidate.username} was added to the group.`);
+    } catch (error) {
+        showError(error.message || 'Could not add that user right now.');
+    } finally {
+        addGroupMemberButton.disabled = false;
+    }
+});
+
+leaveGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    if (!window.confirm('Leave this group?')) {
+        return;
+    }
+
+    leaveGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'leave_group', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not leave the group right now.');
+        }
+
+        window.location.href = 'index.php';
+    } catch (error) {
+        showError(error.message || 'Could not leave the group right now.');
+    } finally {
+        leaveGroupButton.disabled = false;
+    }
+});
+
+deleteGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    if (!window.confirm(`Delete the group "${otherUserName}" for everyone? This cannot be undone.`)) {
+        return;
+    }
+
+    deleteGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'delete_group', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not delete the group right now.');
+        }
+
+        window.location.href = 'index.php';
+    } catch (error) {
+        showError(error.message || 'Could not delete the group right now.');
+    } finally {
+        deleteGroupButton.disabled = false;
     }
 });
 
@@ -2538,7 +2756,7 @@ window.addEventListener('beforeunload', () => {
     stopHomePolling();
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
-        navigator.sendBeacon(`chat_api.php?user=${conversationUserId}`, data);
+        navigator.sendBeacon(conversationApiUrl(), data);
     }
 });
 
@@ -2558,7 +2776,17 @@ updateFriendshipUi();
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
-applyHomeNotificationPayload({ chat_users: [{ id: conversationUserId, unseen_count: lastUnseenCounts.get(String(conversationUserId)) || 0 }] });
+applyHomeNotificationPayload({
+    chat_users: [{
+        id: isGroupConversation ? groupId : conversationUserId,
+        unseen_count: lastUnseenCounts.get(String(isGroupConversation ? groupId : conversationUserId)) || 0,
+        url: conversationPageUrl(),
+        name: otherUserName,
+    }],
+});
+if (isGroupConversation) {
+    applyConversationPayload({ group: initialGroup, typing_members: initialTypingMembers });
+}
 scheduleHomePolling();
 
 
