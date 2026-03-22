@@ -1539,7 +1539,7 @@ function applyConversationPayload(payload, options = {}) {
     if (Array.isArray(payload.messages)) {
         const nextMessages = appendHistory
             ? mergeMessages(payload.messages, window.__messagesState || [])
-            : mergeMessages(window.__messagesState || [], payload.messages);
+            : (payload.messages.length === 0 ? [] : mergeMessages(window.__messagesState || [], payload.messages));
         renderMessages(nextMessages);
         lastUnseenCounts.set(String(conversationUserId), nextMessages.filter((message) =>
             Number(message.sender_id) === conversationUserId && !message.read_at
