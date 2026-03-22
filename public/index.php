@@ -534,6 +534,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             <h2 class="panel-title">Create account</h2>
                             <form method="post">
                                 <input type="hidden" name="action" value="register">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
                                 <label>
                                     Username
                                     <input type="text" name="username" minlength="3" required>
@@ -549,6 +550,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             <h2 class="panel-title">Sign in</h2>
                             <form method="post" id="login-form">
                                 <input type="hidden" name="action" value="login">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
                                 <label>
                                     Username
                                     <input type="text" name="username" required data-login-field="username">
