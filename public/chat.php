@@ -760,6 +760,8 @@ const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 12000;
+const FAST_HOME_POLL_INTERVAL_MS = 4000;
+const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -797,6 +799,9 @@ let initialScrollPending = true;
 let readSyncTimer = null;
 let conversationSignature = initialConversationSignature;
 let conversationPollDelay = FAST_POLL_INTERVAL_MS;
+let homePayloadSignature = '';
+let homePollTimer = null;
+let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
 let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
 let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
@@ -814,6 +819,9 @@ let canChat = initialCanChat;
 let friendshipState = initialFriendship;
 let hasMoreMessages = initialHasMoreMessages;
 let loadingOlderMessages = false;
+let lastUnseenCounts = new Map([[String(conversationUserId), initialMessages.filter((message) =>
+    Number(message.sender_id) === conversationUserId && !message.read_at
+).length]]);
 
 function supportsInlineVoiceRecording() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -834,7 +842,7 @@ function updatePresence(isOnline, label) {
 
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
-    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Connecting...');
+    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
 }
 
 function updateFriendshipUi() {
@@ -959,6 +967,116 @@ async function showMessageNotification(message) {
     }
 }
 
+async function showUnreadConversationNotification(chatUser, increaseCount) {
+    if (!chatUser || increaseCount <= 0) {
+        return;
+    }
+
+    await playNotificationSound();
+
+    if (document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+    if (!registration) {
+        return;
+    }
+
+    const username = chatUser.username || 'Someone';
+    const body = increaseCount === 1
+        ? `${username} sent you a new message.`
+        : `${username} sent you ${increaseCount} new messages.`;
+
+    registration.showNotification('New message', {
+        body,
+        icon: 'icons/icon.svg',
+        tag: `chat-message-${chatUser.id}`,
+        renotify: true,
+        data: { url: `chat.php?user=${Number(chatUser.id)}` },
+    }).catch(() => {
+        // Ignore notification errors.
+    });
+}
+
+function applyHomeNotificationPayload(payload) {
+    if (typeof payload?.signature === 'string' && payload.signature !== '') {
+        homePayloadSignature = payload.signature;
+        homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
+    }
+
+    const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
+
+    chatUsers.forEach((chatUser) => {
+        const userId = String(chatUser.id);
+        const nextUnseenCount = Number(chatUser.unseen_count || 0);
+        const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
+
+        if (userId !== String(conversationUserId) && nextUnseenCount > previousUnseenCount) {
+            showUnreadConversationNotification(chatUser, nextUnseenCount - previousUnseenCount);
+        }
+
+        lastUnseenCounts.set(userId, nextUnseenCount);
+    });
+}
+
+async function fetchHomeNotificationPayload() {
+    const signatureResponse = await fetch('home_api.php?action=signature', {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+
+    if (!signatureResponse.ok) {
+        throw new Error(`Home signature request failed with ${signatureResponse.status}`);
+    }
+
+    const signaturePayload = await signatureResponse.json();
+    if (typeof signaturePayload.signature !== 'string' || signaturePayload.signature === homePayloadSignature) {
+        return null;
+    }
+
+    const response = await fetch('home_api.php', {
+        headers: { Accept: 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Home request failed with ${response.status}`);
+    }
+
+    return response.json();
+}
+
+function stopHomePolling() {
+    if (homePollTimer !== null) {
+        window.clearTimeout(homePollTimer);
+        homePollTimer = null;
+    }
+}
+
+function scheduleHomePolling(delay = homePollDelay) {
+    stopHomePolling();
+    homePollTimer = window.setTimeout(async () => {
+        homePollTimer = null;
+
+        try {
+            const payload = await fetchHomeNotificationPayload();
+            if (payload) {
+                applyHomeNotificationPayload(payload);
+                homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
+            } else {
+                homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 2000);
+            }
+        } catch (error) {
+            homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 3000);
+        }
+
+        scheduleHomePolling(homePollDelay);
+    }, delay);
+}
+
 function handleIncomingMessages(previousMessages, nextMessages) {
     const previousIds = new Set(previousMessages.map((message) => String(message.id)));
     const newInboundMessages = nextMessages.filter((message) =>
@@ -1051,8 +1169,6 @@ function renderStatus() {
         html = `<span class="error-pill">${escapeHtml(statusMessage)}</span>`;
     } else if (statusState === 'hint' && statusMessage !== '') {
         html = `<span class="hint-pill">${escapeHtml(statusMessage)}</span>`;
-    } else if (statusState === 'idle' && canChat && streamState === 'connecting') {
-        html = '<span class="connecting-pill">Connecting...</span>';
     }
 
     statusRowEl.innerHTML = html;
@@ -1398,6 +1514,9 @@ function applyConversationPayload(payload, options = {}) {
             ? mergeMessages(payload.messages, window.__messagesState || [])
             : mergeMessages(window.__messagesState || [], payload.messages);
         renderMessages(nextMessages);
+        lastUnseenCounts.set(String(conversationUserId), nextMessages.filter((message) =>
+            Number(message.sender_id) === conversationUserId && !message.read_at
+        ).length);
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
@@ -2194,6 +2313,7 @@ window.addEventListener('beforeunload', () => {
         stream.close();
     }
     stopPollingConversation();
+    stopHomePolling();
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
         navigator.sendBeacon(`chat_api.php?user=${conversationUserId}`, data);
@@ -2215,6 +2335,8 @@ updateFriendshipUi();
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
+applyHomeNotificationPayload({ chat_users: [{ id: conversationUserId, unseen_count: lastUnseenCounts.get(String(conversationUserId)) || 0 }] });
+scheduleHomePolling();
 
 
 document.addEventListener('visibilitychange', () => {

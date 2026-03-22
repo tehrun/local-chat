@@ -2,11 +2,6 @@
 
 declare(strict_types=1);
 
-configureSession();
-session_start();
-
-applySecurityHeaders();
-
 define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
@@ -19,6 +14,12 @@ define('TYPING_TTL_SECONDS', 8);
 define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
+define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
+
+configureSession();
+session_start();
+
+applySecurityHeaders();
 
 function configureSession(): void
 {
@@ -30,6 +31,7 @@ function configureSession(): void
         || ((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
 
     session_set_cookie_params([
+        'lifetime' => SESSION_TTL_SECONDS,
         'httponly' => true,
         'samesite' => 'Lax',
         'secure' => $isHttps,
@@ -38,6 +40,8 @@ function configureSession(): void
 
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
+    ini_set('session.gc_maxlifetime', (string) SESSION_TTL_SECONDS);
+    ini_set('session.cookie_lifetime', (string) SESSION_TTL_SECONDS);
     ini_set('session.cookie_httponly', '1');
     ini_set('session.cookie_samesite', 'Lax');
 
