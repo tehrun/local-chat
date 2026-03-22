@@ -334,11 +334,32 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             min-width: 0;
             flex: 1;
         }
+        .chat-last-time {
+            flex-shrink: 0;
+            font-size: 12px;
+            line-height: 1;
+            font-weight: 600;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        .chat-last-time.is-empty {
+            visibility: hidden;
+        }
         .chat-preview-row {
             display: flex;
             align-items: center;
             gap: 10px;
             min-width: 0;
+        }
+        .chat-preview {
+            min-width: 0;
+            flex: 1;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .chat-time {
             display: inline-flex;
@@ -653,15 +674,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
                             <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="chat.php?user=<?= (int) $chatUser['id'] ?>">
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
-                                    <div class="chat-copy">
-                                        <div class="chat-copy-head">
-                                            <strong class="chat-name"><?= e($chatUser['username']) ?></strong>
-                                        </div>
-                                        <div class="chat-preview-row">
-                                            <span class="presence-badge">
-                                                <span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" data-role="presence-dot" aria-hidden="true"></span>
-                                                <span data-role="presence-label"><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
-                                            </span>
+                                <div class="chat-copy">
+                                    <div class="chat-copy-head">
+                                        <strong class="chat-name"><?= e($chatUser['username']) ?></strong>
+                                        <span class="chat-last-time<?= ($chatUser['chat_list_time'] ?? '') !== '' ? '' : ' is-empty' ?>" data-role="chat-time"><?= e($chatUser['chat_list_time'] ?? '') ?></span>
+                                    </div>
+                                    <div class="chat-preview-row">
+                                        <span class="chat-preview" data-role="chat-preview"><?= e($chatUser['chat_list_preview'] ?? 'Start chatting') ?></span>
                                         <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>" data-role="unseen-count"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
                                     </div>
                                 </div>
@@ -905,10 +924,10 @@ function renderChatListEntries(users) {
         const unseenCount = Number(chatUser.unseen_count || 0);
         const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
         const username = escapeHtml(chatUser.username || '');
+        const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
+        const chatTime = escapeHtml(chatUser.chat_list_time || '');
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
-        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
-        const presenceClass = chatUser.is_online ? ' online' : '';
 
         return `
             <a class="chat-item" data-chat-user-id="${userId}" href="chat.php?user=${userId}">
@@ -916,12 +935,10 @@ function renderChatListEntries(users) {
                 <div class="chat-copy">
                     <div class="chat-copy-head">
                         <strong class="chat-name">${username}</strong>
+                        <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
                     </div>
                     <div class="chat-preview-row">
-                        <span class="presence-badge">
-                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
-                            <span data-role="presence-label">${presenceLabel}</span>
-                        </span>
+                        <span class="chat-preview" data-role="chat-preview">${preview}</span>
                         <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>
                     </div>
                 </div>
