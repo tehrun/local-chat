@@ -648,7 +648,7 @@ function pushSubscriptionsForUser(int $userId): array
     return $stmt->fetchAll();
 }
 
-function createWebPushAuthorizationHeader(string $audience, int $expiresAt): ?string
+function createWebPushJwt(string $audience, int $expiresAt): ?array
 {
     $pair = ensureWebPushKeyPair();
     if ($pair === null) {
@@ -676,7 +676,10 @@ function createWebPushAuthorizationHeader(string $audience, int $expiresAt): ?st
         return null;
     }
 
-    return 'vapid t=' . $signingInput . '.' . base64UrlEncode($joseSignature) . ', k=' . $pair['public_key'];
+    return [
+        'jwt' => $signingInput . '.' . base64UrlEncode($joseSignature),
+        'public_key' => $pair['public_key'],
+    ];
 }
 
 function ecdsaDerSignatureToJose(string $der, int $partLength): ?string
@@ -743,6 +746,34 @@ function ecdsaDerSignatureToJose(string $der, int $partLength): ?string
     return ($r !== null && $s !== null) ? ($r . $s) : null;
 }
 
+function sendWebPushHttpRequest(string $endpoint, array $headers): array
+{
+    $ch = curl_init($endpoint);
+    if ($ch === false) {
+        return ['status' => false, 'body' => null];
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER => false,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+
+    $responseBody = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_errno($ch);
+    curl_close($ch);
+
+    return [
+        'status' => $error === 0 ? $status : false,
+        'body' => is_string($responseBody) ? $responseBody : null,
+    ];
+}
+
 function sendWebPushRequest(string $endpoint): int|false
 {
     $parts = parse_url($endpoint);
@@ -755,35 +786,47 @@ function sendWebPushRequest(string $endpoint): int|false
         $audience .= ':' . (int) $parts['port'];
     }
 
-    $authorization = createWebPushAuthorizationHeader($audience, time() + WEB_PUSH_AUDIENCE_TTL_SECONDS);
-    if ($authorization === null) {
+    $jwtPayload = createWebPushJwt($audience, time() + WEB_PUSH_AUDIENCE_TTL_SECONDS);
+    if ($jwtPayload === null) {
         return false;
     }
 
-    $ch = curl_init($endpoint);
-    if ($ch === false) {
-        return false;
+    $commonHeaders = [
+        'TTL: 60',
+        'Urgency: high',
+        'Content-Length: 0',
+    ];
+
+    $attempts = [
+        array_merge($commonHeaders, [
+            'Authorization: vapid t=' . $jwtPayload['jwt'] . ', k=' . $jwtPayload['public_key'],
+        ]),
+        array_merge($commonHeaders, [
+            'Authorization: WebPush ' . $jwtPayload['jwt'],
+            'Crypto-Key: p256ecdsa=' . $jwtPayload['public_key'],
+        ]),
+    ];
+
+    $lastResult = ['status' => false, 'body' => null];
+
+    foreach ($attempts as $headers) {
+        $lastResult = sendWebPushHttpRequest($endpoint, $headers);
+        $status = $lastResult['status'];
+
+        if (is_int($status) && $status >= 200 && $status < 300) {
+            return $status;
+        }
+
+        if ($status === 404 || $status === 410) {
+            return $status;
+        }
     }
 
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => '',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HEADER => false,
-        CURLOPT_TIMEOUT => 10,
-        CURLOPT_HTTPHEADER => [
-            'TTL: 60',
-            'Urgency: high',
-            'Authorization: ' . $authorization,
-        ],
-    ]);
+    if (is_int($lastResult['status']) && $lastResult['status'] >= 400) {
+        error_log(sprintf('Web Push delivery failed for %s with status %d%s', $endpoint, $lastResult['status'], $lastResult['body'] ? ': ' . trim($lastResult['body']) : ''));
+    }
 
-    curl_exec($ch);
-    $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    $error = curl_errno($ch);
-    curl_close($ch);
-
-    return $error === 0 ? $status : false;
+    return $lastResult['status'];
 }
 
 function triggerPushNotificationsForUser(int $userId): void

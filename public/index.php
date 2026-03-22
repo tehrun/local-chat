@@ -673,6 +673,7 @@ let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
+const STREAM_FALLBACK_POLL_INTERVAL_MS = 12000;
 let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 
 const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
@@ -802,7 +803,7 @@ async function ensurePushSubscription() {
     return pushSubscriptionSyncPromise;
 }
 
-async function playNotificationSound() {
+async function playNotificationSound(repetitions = 1) {
     if (!hasInteracted) {
         return;
     }
@@ -818,27 +819,33 @@ async function playNotificationSound() {
             await audioContext.resume();
         }
 
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        const startAt = audioContext.currentTime + 0.01;
-        const endAt = startAt + 0.18;
+        const beepCount = Math.max(1, Number.isFinite(repetitions) ? Math.floor(repetitions) : 1);
+        const firstStartAt = audioContext.currentTime + 0.01;
+        const gapSeconds = 0.28;
 
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(932.33, startAt);
-        gainNode.gain.setValueAtTime(0.0001, startAt);
-        gainNode.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+        for (let index = 0; index < beepCount; index += 1) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            const startAt = firstStartAt + (index * gapSeconds);
+            const endAt = startAt + 0.18;
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        oscillator.start(startAt);
-        oscillator.stop(endAt);
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(932.33, startAt);
+            gainNode.gain.setValueAtTime(0.0001, startAt);
+            gainNode.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.start(startAt);
+            oscillator.stop(endAt);
+        }
 
         window.setTimeout(() => {
             audioContext.close().catch(() => {
                 // Ignore audio context close errors.
             });
-        }, 400);
+        }, Math.max(400, Math.ceil((beepCount * gapSeconds * 1000) + 250)));
     } catch (error) {
         // Ignore audio playback errors.
     }
@@ -1003,9 +1010,13 @@ async function showUnreadMessageNotification(chatUser, increaseCount) {
         return;
     }
 
-    await playNotificationSound();
+    if (document.visibilityState === 'visible') {
+        return;
+    }
 
-    if (document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') {
+    await playNotificationSound(increaseCount);
+
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
         return;
     }
 
@@ -1116,6 +1127,7 @@ function applyChatListPayload(payload) {
     const nextChatSignature = JSON.stringify(chatUsers);
     const nextDirectorySignature = JSON.stringify(directoryUsers);
     const nextRequestSignature = JSON.stringify(incomingRequests);
+    let totalNewMessages = 0;
 
     chatUsers.forEach((chatUser) => {
         const userId = String(chatUser.id);
@@ -1123,11 +1135,17 @@ function applyChatListPayload(payload) {
         const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
 
         if (nextUnseenCount > previousUnseenCount) {
-            showUnreadMessageNotification(chatUser, nextUnseenCount - previousUnseenCount);
+            const increaseCount = nextUnseenCount - previousUnseenCount;
+            totalNewMessages += increaseCount;
+            showUnreadMessageNotification(chatUser, increaseCount);
         }
 
         lastUnseenCounts.set(userId, nextUnseenCount);
     });
+
+    if (document.visibilityState === 'visible' && totalNewMessages > 0) {
+        playNotificationSound(totalNewMessages);
+    }
 
     if (nextChatSignature !== chatListSignature) {
         chatListSignature = nextChatSignature;
@@ -1204,8 +1222,8 @@ function scheduleChatListPoll(delay = homePollDelay) {
             homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 3000);
         }
 
-        if (preferPolling && currentUserId) {
-            scheduleChatListPoll(homePollDelay);
+        if (currentUserId) {
+            scheduleChatListPoll(preferPolling ? homePollDelay : STREAM_FALLBACK_POLL_INTERVAL_MS);
         }
     }, delay);
 }
@@ -1236,6 +1254,8 @@ function connectChatListStream() {
         window.clearTimeout(chatListReconnectTimer);
         chatListReconnectTimer = window.setTimeout(connectChatListStream, 1500);
     };
+
+    scheduleChatListPoll(STREAM_FALLBACK_POLL_INTERVAL_MS);
 }
 
 applyChatListPayload({
