@@ -739,6 +739,108 @@ if ($isGroupConversation) {
             color: var(--muted);
             text-align: center;
         }
+        .member-picker[hidden] {
+            display: none;
+        }
+        .member-picker {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            background: rgba(11, 20, 26, 0.42);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 16px;
+        }
+        .member-picker-panel {
+            width: min(100%, 420px);
+            max-height: min(72vh, 560px);
+            background: rgba(247, 245, 241, 0.98);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .member-picker-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 18px 12px;
+        }
+        .member-picker-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .member-picker-close {
+            border: none;
+            background: #dfe5e7;
+            color: #244047;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .member-picker-search {
+            padding: 0 18px 14px;
+        }
+        .member-picker-search input {
+            width: 100%;
+            border: 1px solid #cdd5d9;
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 14px;
+            background: #fff;
+            color: var(--text);
+        }
+        .member-picker-list {
+            overflow-y: auto;
+            padding: 0 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .member-picker-empty {
+            margin: 0 18px 18px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #fff;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
+        }
+        .member-picker-item {
+            width: 100%;
+            border: none;
+            border-radius: 18px;
+            background: #fff;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            text-align: left;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        }
+        .member-picker-item:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+        .member-picker-copy {
+            min-width: 0;
+        }
+        .member-picker-copy strong {
+            display: block;
+            font-size: 15px;
+        }
+        .member-picker-copy span {
+            display: block;
+            margin-top: 4px;
+            font-size: 13px;
+            color: var(--muted);
+        }
 
         @media (min-width: 721px) {
             .app {
@@ -898,6 +1000,20 @@ if ($isGroupConversation) {
             </div>
         </div>
 
+        <div id="member-picker" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="member-picker-title">
+                <div class="member-picker-header">
+                    <h2 id="member-picker-title">Add friends</h2>
+                    <button class="member-picker-close" id="member-picker-close" type="button" aria-label="Close member picker">×</button>
+                </div>
+                <div class="member-picker-search">
+                    <input id="member-picker-search-input" type="search" placeholder="Search friends by name" autocomplete="off" aria-label="Search friends by name">
+                </div>
+                <div class="member-picker-list" id="member-picker-list"></div>
+                <p class="member-picker-empty" id="member-picker-empty" hidden>No friends are available to add right now.</p>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
@@ -976,6 +1092,11 @@ const revokeFriendshipButton = document.getElementById('revoke-friendship-button
 const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
+const memberPickerEl = document.getElementById('member-picker');
+const memberPickerClose = document.getElementById('member-picker-close');
+const memberPickerListEl = document.getElementById('member-picker-list');
+const memberPickerSearchInput = document.getElementById('member-picker-search-input');
+const memberPickerEmptyEl = document.getElementById('member-picker-empty');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1056,6 +1177,63 @@ function conversationPageUrl() {
 
 function conversationStreamUrl() {
     return isGroupConversation ? `chat_stream.php?group=${groupId}` : `chat_stream.php?user=${conversationUserId}`;
+}
+
+function availableGroupInviteCandidates() {
+    const memberIds = new Set(Array.isArray(groupState?.members) ? groupState.members.map((member) => String(member.user_id)) : []);
+    const query = String(memberPickerSearchInput?.value || '').trim().toLowerCase();
+
+    return directoryUsersState.filter((user) => {
+        if (!user || !user.can_chat || memberIds.has(String(user.id))) {
+            return false;
+        }
+
+        if (query === '') {
+            return true;
+        }
+
+        return String(user.username || '').toLowerCase().includes(query);
+    });
+}
+
+function renderMemberPicker() {
+    if (!memberPickerListEl || !memberPickerEmptyEl) {
+        return;
+    }
+
+    const candidates = availableGroupInviteCandidates();
+    memberPickerListEl.innerHTML = candidates.map((user) => `
+        <button class="member-picker-item" type="button" data-group-invite-user-id="${Number(user.id)}">
+            <div class="member-picker-copy">
+                <strong>${escapeHtml(user.username || '')}</strong>
+                <span>${escapeHtml(user.presence_label || 'Friend')}</span>
+            </div>
+            <span class="mini-button primary">Add</span>
+        </button>
+    `).join('');
+
+    const query = String(memberPickerSearchInput?.value || '').trim();
+    memberPickerEmptyEl.textContent = query === ''
+        ? 'Only your friends who are not already in this group appear here.'
+        : 'No friends match your search.';
+    memberPickerEmptyEl.hidden = candidates.length > 0;
+}
+
+function setMemberPickerOpen(isOpen) {
+    if (!memberPickerEl) {
+        return;
+    }
+
+    memberPickerEl.hidden = !isOpen;
+    memberPickerEl.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+
+    if (isOpen) {
+        renderMemberPicker();
+        memberPickerSearchInput?.focus();
+    } else if (memberPickerSearchInput) {
+        memberPickerSearchInput.value = '';
+    }
 }
 
 function clearStatus() {
@@ -2788,18 +2966,31 @@ revokeFriendshipButton?.addEventListener('click', async () => {
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
     setHeaderMenuOpen(false);
-    const username = window.prompt('Invite which user? Enter their username exactly.');
-    if (username === null) {
+    setMemberPickerOpen(true);
+});
+
+memberPickerClose?.addEventListener('click', () => setMemberPickerOpen(false));
+memberPickerEl?.addEventListener('click', (event) => {
+    if (event.target === memberPickerEl) {
+        setMemberPickerOpen(false);
+    }
+});
+memberPickerSearchInput?.addEventListener('input', () => {
+    renderMemberPicker();
+});
+memberPickerListEl?.addEventListener('click', async (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-group-invite-user-id]') : null;
+    if (!target) {
         return;
     }
 
-    const candidate = directoryUsersState.find((entry) => String(entry.username || '').toLowerCase() === username.trim().toLowerCase());
-    if (!candidate) {
-        window.alert('User not found.');
+    const userId = Number(target.getAttribute('data-group-invite-user-id') || 0);
+    const candidate = directoryUsersState.find((entry) => Number(entry.id) === userId);
+    if (!candidate || !userId) {
         return;
     }
 
-    addGroupMemberButton.disabled = true;
+    target.setAttribute('disabled', 'disabled');
     try {
         const response = await fetch('home_api.php', {
             method: 'POST',
@@ -2812,11 +3003,11 @@ addGroupMemberButton?.addEventListener('click', async () => {
         }
 
         applyConversationPayload(payload.payload || payload);
+        setMemberPickerOpen(false);
         showHint(`${candidate.username} was added to the group.`);
     } catch (error) {
+        target.removeAttribute('disabled');
         showError(error.message || 'Could not add that user right now.');
-    } finally {
-        addGroupMemberButton.disabled = false;
     }
 });
 
@@ -2911,6 +3102,10 @@ imageLightbox?.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     markUserInteraction();
+    if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
+        setMemberPickerOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && headerMenuButton?.getAttribute('aria-expanded') === 'true') {
         setHeaderMenuOpen(false);
         return;
