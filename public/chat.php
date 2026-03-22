@@ -5,21 +5,46 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
-$otherUserId = requirePositiveInt($_GET, 'user');
-$otherUser = findUserById($otherUserId);
-
-if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
-    header('Location: index.php');
-    exit;
-}
-
-$canChat = canUsersChat((int) $user['id'], $otherUserId);
-$friendship = friendshipRecord((int) $user['id'], $otherUserId);
+$groupId = requirePositiveInt($_GET, 'group');
+$isGroupConversation = $groupId > 0;
+$otherUserId = $isGroupConversation ? 0 : requirePositiveInt($_GET, 'user');
+$otherUser = null;
+$group = null;
+$friendship = null;
 $messageBatchSize = 15;
-$messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
-$hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
-$otherUserTyping = $canChat ? isUserTyping((int) $user['id'], $otherUserId) : false;
-$initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
+$typingMembers = [];
+$availableInviteUsers = allOtherUsers((int) $user['id']);
+
+if ($isGroupConversation) {
+    $group = findGroupById($groupId);
+
+    if ($group === null || !canAccessGroupConversation($groupId, (int) $user['id'])) {
+        header('Location: index.php');
+        exit;
+    }
+
+    $canChat = true;
+    $messages = groupMessagesPageWithoutMaintenance($groupId, (int) $user['id'], $messageBatchSize);
+    $hasMoreMessages = $messages !== [] && groupConversationHasOlderMessagesWithoutMaintenance($groupId, (int) $user['id'], (int) $messages[0]['id']);
+    $typingMembers = groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']);
+    $initialConversationSignature = groupConversationStateSignature($groupId, (int) $user['id']);
+} else {
+    $otherUser = findUserById($otherUserId);
+
+    if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
+        header('Location: index.php');
+        exit;
+    }
+
+    $canChat = canUsersChat((int) $user['id'], $otherUserId);
+    $friendship = friendshipRecord((int) $user['id'], $otherUserId);
+    $messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
+    $hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
+    $typingMembers = $canChat && isUserTyping((int) $user['id'], $otherUserId)
+        ? [['user_id' => (int) $otherUser['id'], 'username' => (string) $otherUser['username']]]
+        : [];
+    $initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -32,7 +57,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
-    <title>Chat with <?= e($otherUser['username']) ?></title>
+    <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
     <style>
         :root {
             color-scheme: light;
@@ -163,6 +188,73 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+        .header-menu {
+            position: relative;
+            flex: 0 0 auto;
+        }
+        .header-menu-panel {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            min-width: 216px;
+            padding: 8px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 20px 40px rgba(17, 27, 33, 0.24);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            opacity: 0;
+            transform: translateY(-8px) scale(0.98);
+            transform-origin: top right;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        .header-menu-panel.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .header-menu-item {
+            width: 100%;
+            border: none;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--text);
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .header-menu-item:hover,
+        .header-menu-item:focus-visible {
+            background: rgba(7, 94, 84, 0.08);
+        }
+        .header-menu-item.danger {
+            color: var(--danger);
+        }
+        .header-menu-item:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+        .header-menu-item.hidden {
+            display: none;
+        }
+        .header-menu-item svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
         .topbar-meta {
             min-width: 0;
             flex: 1;
@@ -262,11 +354,8 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             stroke-linejoin: round;
         }
         .empty-state,
-        .message {
-            max-width: min(82%, 420px);
-            border-radius: 18px;
-            padding: 10px 12px;
-            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        .message-row {
+            max-width: min(88%, 460px);
             word-break: break-word;
         }
         .empty-state {
@@ -276,14 +365,35 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             color: var(--muted);
             text-align: center;
             margin-top: 16px;
+            border-radius: 18px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        }
+        .message-row {
+            display: flex;
+            align-self: flex-start;
+        }
+        .message-row.mine {
+            align-self: flex-end;
         }
         .message {
             background: var(--theirs);
-            align-self: flex-start;
+            border-radius: 18px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+            min-width: 0;
         }
-        .message.mine {
+        .message-row.mine .message {
             background: var(--mine);
-            align-self: flex-end;
+        }
+        .message-sender {
+            margin: 0 0 4px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f766e;
+        }
+        .message-row.mine .message-sender {
+            color: #0b5d54;
         }
         .message-text {
             white-space: pre-wrap;
@@ -308,9 +418,9 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             color: var(--muted);
             display: flex;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: space-between;
             gap: 4px;
-            text-align: right;
+            text-align: left;
         }
         .meta-label {
             min-width: 0;
@@ -629,6 +739,108 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             color: var(--muted);
             text-align: center;
         }
+        .member-picker[hidden] {
+            display: none;
+        }
+        .member-picker {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            background: rgba(11, 20, 26, 0.42);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 16px;
+        }
+        .member-picker-panel {
+            width: min(100%, 420px);
+            max-height: min(72vh, 560px);
+            background: rgba(247, 245, 241, 0.98);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .member-picker-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 18px 12px;
+        }
+        .member-picker-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .member-picker-close {
+            border: none;
+            background: #dfe5e7;
+            color: #244047;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .member-picker-search {
+            padding: 0 18px 14px;
+        }
+        .member-picker-search input {
+            width: 100%;
+            border: 1px solid #cdd5d9;
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 14px;
+            background: #fff;
+            color: var(--text);
+        }
+        .member-picker-list {
+            overflow-y: auto;
+            padding: 0 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .member-picker-empty {
+            margin: 0 18px 18px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #fff;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
+        }
+        .member-picker-item {
+            width: 100%;
+            border: none;
+            border-radius: 18px;
+            background: #fff;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            text-align: left;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        }
+        .member-picker-item:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+        .member-picker-copy {
+            min-width: 0;
+        }
+        .member-picker-copy strong {
+            display: block;
+            font-size: 15px;
+        }
+        .member-picker-copy span {
+            display: block;
+            margin-top: 4px;
+            font-size: 13px;
+            color: var(--muted);
+        }
 
         @media (min-width: 721px) {
             .app {
@@ -648,43 +860,116 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 </svg>
             </a>
             <div class="topbar-meta">
-                <h1><?= e($otherUser['username']) ?></h1>
+                <h1 id="header-title"><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
                 <div class="presence-row">
-                    <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                    <span id="header-presence-label"><?= e($otherUser['presence_label'] ?? 'Offline') ?></span>
+                    <span class="presence-light <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                    <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : e($otherUser['presence_label'] ?? 'Offline') ?></span>
                 </div>
             </div>
-            <button
-                id="revoke-friendship-button"
-                class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Revoke friendship"
-                title="Revoke friendship"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M17 11h4"></path>
-                </svg>
-            </button>
-            <button
-                id="delete-conversation-button"
-                class="header-icon-button"
-                type="button"
-                aria-label="Delete messages from your view"
-                title="Delete messages from your view"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M4 7h16"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
-                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-                    <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
-                </svg>
-            </button>
+            <div class="header-menu">
+                <button
+                    id="header-menu-button"
+                    class="header-icon-button"
+                    type="button"
+                    aria-label="Conversation actions"
+                    aria-expanded="false"
+                    aria-controls="header-menu-panel"
+                    title="Conversation actions"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none"></circle>
+                        <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"></circle>
+                        <circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none"></circle>
+                    </svg>
+                </button>
+                <div id="header-menu-panel" class="header-menu-panel" role="menu" aria-label="Conversation actions" hidden>
+                    <button
+                        id="rename-group-button"
+                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>
+                        </svg>
+                        <span>Edit group name</span>
+                    </button>
+                    <button
+                        id="add-group-member-button"
+                        class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M19 8v6"></path>
+                            <path d="M22 11h-6"></path>
+                        </svg>
+                        <span>Add user</span>
+                    </button>
+                    <button
+                        id="revoke-friendship-button"
+                        class="header-menu-item danger<?= !$isGroupConversation && $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M17 11h4"></path>
+                        </svg>
+                        <span>Revoke friendship</span>
+                    </button>
+                    <button
+                        id="delete-conversation-button"
+                        class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7h16"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
+                            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                            <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                        </svg>
+                        <span>Delete messages</span>
+                    </button>
+                    <button
+                        id="leave-group-button"
+                        class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <path d="m16 17 5-5-5-5"></path>
+                            <path d="M21 12H9"></path>
+                        </svg>
+                        <span>Leave group</span>
+                    </button>
+                    <button
+                        id="delete-group-button"
+                        class="header-menu-item danger<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7h16"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
+                            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                            <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
+                        </svg>
+                        <span>Delete group</span>
+                    </button>
+                </div>
+            </div>
         </header>
 
-        <?php if (!$canChat): ?>
+        <?php if (!$isGroupConversation && !$canChat): ?>
             <div class="friendship-card">
                 <p>
                     <?php if ($friendship !== null && $friendship['status'] === 'pending' && $friendship['request_direction'] === 'outgoing'): ?>
@@ -724,6 +1009,20 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 <figure class="lightbox-figure">
                     <img id="lightbox-image" class="lightbox-image" src="" alt="Full screen shared image">
                 </figure>
+            </div>
+        </div>
+
+        <div id="member-picker" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="member-picker-title">
+                <div class="member-picker-header">
+                    <h2 id="member-picker-title">Add friends</h2>
+                    <button class="member-picker-close" id="member-picker-close" type="button" aria-label="Close member picker">×</button>
+                </div>
+                <div class="member-picker-search">
+                    <input id="member-picker-search-input" type="search" placeholder="Search friends by name" autocomplete="off" aria-label="Search friends by name">
+                </div>
+                <div class="member-picker-list" id="member-picker-list"></div>
+                <p class="member-picker-empty" id="member-picker-empty" hidden>No friends are available to add right now.</p>
             </div>
         </div>
 
@@ -768,16 +1067,19 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
 
 const currentUserId = <?= (int) $user['id'] ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
+const groupId = <?= (int) $groupId ?>;
+const isGroupConversation = <?= $isGroupConversation ? 'true' : 'false' ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-const otherUserName = <?= jsonScriptValue($otherUser['username']) ?>;
+let conversationDisplayName = <?= jsonScriptValue($isGroupConversation ? (string) $group['name'] : $otherUser['username']) ?>;
 const messageBatchSize = <?= (int) $messageBatchSize ?>;
 const initialMessages = <?= jsonScriptValue($messages) ?>;
 const initialHasMoreMessages = <?= $hasMoreMessages ? 'true' : 'false' ?>;
-const initialTyping = <?= $otherUserTyping ? 'true' : 'false' ?>;
+const initialTypingMembers = <?= jsonScriptValue($typingMembers) ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
-const initialPresence = <?= !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
-const initialPresenceLabel = <?= jsonScriptValue($otherUser['presence_label'] ?? 'Offline') ?>;
+const initialGroup = <?= jsonScriptValue($group) ?>;
+const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
+const initialPresenceLabel = <?= jsonScriptValue($isGroupConversation ? count(groupMembers((int) $group['id'])) . ' members' : ($otherUser['presence_label'] ?? 'Offline')) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
@@ -795,8 +1097,20 @@ const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
 const headerPresenceLabel = document.getElementById('header-presence-label');
+const headerTitle = document.getElementById('header-title');
+const headerMenuButton = document.getElementById('header-menu-button');
+const headerMenuPanel = document.getElementById('header-menu-panel');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
+const addGroupMemberButton = document.getElementById('add-group-member-button');
+const leaveGroupButton = document.getElementById('leave-group-button');
+const deleteGroupButton = document.getElementById('delete-group-button');
+const renameGroupButton = document.getElementById('rename-group-button');
+const memberPickerEl = document.getElementById('member-picker');
+const memberPickerClose = document.getElementById('member-picker-close');
+const memberPickerListEl = document.getElementById('member-picker-list');
+const memberPickerSearchInput = document.getElementById('member-picker-search-input');
+const memberPickerEmptyEl = document.getElementById('member-picker-empty');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -828,8 +1142,113 @@ let homePayloadSignature = '';
 let homePollTimer = null;
 let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
-let statusState = initialCanChat && initialTyping ? 'typing' : 'idle';
-let statusMessage = initialTyping ? `${otherUserName} is typing…` : '';
+let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers : [];
+let groupState = initialGroup;
+let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
+let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
+
+function setHeaderMenuOpen(isOpen) {
+    if (!headerMenuButton || !headerMenuPanel) {
+        return;
+    }
+
+    headerMenuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    if (isOpen) {
+        headerMenuPanel.hidden = false;
+        requestAnimationFrame(() => {
+            headerMenuPanel.classList.add('is-open');
+        });
+        return;
+    }
+
+    headerMenuPanel.classList.remove('is-open');
+    if (!isOpen) {
+        window.setTimeout(() => {
+            if (!headerMenuPanel.classList.contains('is-open')) {
+                headerMenuPanel.hidden = true;
+            }
+        }, 180);
+    }
+}
+
+function conversationApiUrl(action = '') {
+    const params = new URLSearchParams();
+    if (action) {
+        params.set('action', action);
+    }
+    if (isGroupConversation) {
+        params.set('group', String(groupId));
+    } else {
+        params.set('user', String(conversationUserId));
+    }
+
+    return `chat_api.php?${params.toString()}`;
+}
+
+function conversationPageUrl() {
+    return isGroupConversation ? `chat.php?group=${groupId}` : `chat.php?user=${conversationUserId}`;
+}
+
+function conversationStreamUrl() {
+    return isGroupConversation ? `chat_stream.php?group=${groupId}` : `chat_stream.php?user=${conversationUserId}`;
+}
+
+function availableGroupInviteCandidates() {
+    const memberIds = new Set(Array.isArray(groupState?.members) ? groupState.members.map((member) => String(member.user_id)) : []);
+    const query = String(memberPickerSearchInput?.value || '').trim().toLowerCase();
+
+    return directoryUsersState.filter((user) => {
+        if (!user || !user.can_chat || memberIds.has(String(user.id))) {
+            return false;
+        }
+
+        if (query === '') {
+            return true;
+        }
+
+        return String(user.username || '').toLowerCase().includes(query);
+    });
+}
+
+function renderMemberPicker() {
+    if (!memberPickerListEl || !memberPickerEmptyEl) {
+        return;
+    }
+
+    const candidates = availableGroupInviteCandidates();
+    memberPickerListEl.innerHTML = candidates.map((user) => `
+        <button class="member-picker-item" type="button" data-group-invite-user-id="${Number(user.id)}">
+            <div class="member-picker-copy">
+                <strong>${escapeHtml(user.username || '')}</strong>
+                <span>${escapeHtml(user.presence_label || 'Friend')}</span>
+            </div>
+            <span class="mini-button primary">Add</span>
+        </button>
+    `).join('');
+
+    const query = String(memberPickerSearchInput?.value || '').trim();
+    memberPickerEmptyEl.textContent = query === ''
+        ? 'Only your friends who are not already in this group appear here.'
+        : 'No friends match your search.';
+    memberPickerEmptyEl.hidden = candidates.length > 0;
+}
+
+function setMemberPickerOpen(isOpen) {
+    if (!memberPickerEl) {
+        return;
+    }
+
+    memberPickerEl.hidden = !isOpen;
+    memberPickerEl.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+
+    if (isOpen) {
+        renderMemberPicker();
+        memberPickerSearchInput?.focus();
+    } else if (memberPickerSearchInput) {
+        memberPickerSearchInput.value = '';
+    }
+}
 
 function clearStatus() {
     statusState = 'idle';
@@ -845,10 +1264,11 @@ let suppressActionButtonClick = false;
 let friendshipState = initialFriendship;
 let hasMoreMessages = initialHasMoreMessages;
 let loadingOlderMessages = false;
-let lastUnseenCounts = new Map([[String(conversationUserId), initialMessages.filter((message) =>
-    Number(message.sender_id) === conversationUserId && !message.read_at
+let lastUnseenCounts = new Map([[String(isGroupConversation ? groupId : conversationUserId), initialMessages.filter((message) =>
+    Number(message.sender_id) !== currentUserId && !message.read_at
 ).length]]);
 const webPushPublicKey = <?= jsonScriptValue(webPushPublicKey()) ?>;
+const directoryUsersState = <?= jsonScriptValue($availableInviteUsers) ?>;
 let pushSubscriptionSyncPromise = null;
 
 function supportsInlineVoiceRecording() {
@@ -864,6 +1284,12 @@ function supportsImageUpload() {
 }
 
 function updatePresence(isOnline, label) {
+    if (isGroupConversation) {
+        headerPresenceLight.classList.remove('online');
+        headerPresenceLabel.textContent = label || `${groupState?.member_count || 0} members`;
+        return;
+    }
+
     if (!canChat) {
         actionButton.disabled = true;
     }
@@ -874,6 +1300,14 @@ function updatePresence(isOnline, label) {
 }
 
 function updateFriendshipUi() {
+    if (isGroupConversation) {
+        canChat = true;
+        actionButton.disabled = activeUploadCount > 0;
+        imageButton.disabled = activeUploadCount > 0;
+        bodyEl.disabled = false;
+        return;
+    }
+
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || activeUploadCount > 0;
@@ -1061,12 +1495,12 @@ async function showMessageNotification(message) {
     const body = message.body ? message.body.slice(0, 120) : 'Sent you a voice note';
 
     if (registration) {
-        registration.showNotification(otherUserName, {
+        registration.showNotification(conversationDisplayName, {
             body,
             icon: 'icons/icon.svg',
-            tag: `chat-${conversationUserId}`,
+            tag: `chat-${isGroupConversation ? groupId : conversationUserId}`,
             renotify: true,
-            data: { url: `chat.php?user=${conversationUserId}` },
+            data: { url: conversationPageUrl() },
         }).catch(() => {
             // Ignore notification display errors.
         });
@@ -1099,7 +1533,7 @@ async function showUnreadConversationNotification(chatUser, increaseCount) {
         icon: 'icons/icon.svg',
         tag: `chat-message-${chatUser.id}`,
         renotify: true,
-        data: { url: `chat.php?user=${Number(chatUser.id)}` },
+        data: { url: chatUser.url || `chat.php?user=${Number(chatUser.id)}` },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1118,7 +1552,7 @@ function applyHomeNotificationPayload(payload) {
         const nextUnseenCount = Number(chatUser.unseen_count || 0);
         const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
 
-        if (userId !== String(conversationUserId) && nextUnseenCount > previousUnseenCount) {
+        if (userId !== String(isGroupConversation ? groupId : conversationUserId) && nextUnseenCount > previousUnseenCount) {
             showUnreadConversationNotification(chatUser, nextUnseenCount - previousUnseenCount);
         }
 
@@ -1186,7 +1620,7 @@ function scheduleHomePolling(delay = homePollDelay) {
 function handleIncomingMessages(previousMessages, nextMessages) {
     const previousIds = new Set(previousMessages.map((message) => String(message.id)));
     const newInboundMessages = nextMessages.filter((message) =>
-        !previousIds.has(String(message.id)) && Number(message.sender_id) === conversationUserId
+        !previousIds.has(String(message.id)) && Number(message.sender_id) !== currentUserId
     );
 
     if (newInboundMessages.length === 0) {
@@ -1305,14 +1739,23 @@ function showError(message) {
     renderStatus();
 }
 
-function setTypingVisible(isVisible) {
+function setTypingVisible(value) {
     if (recordingMode) {
         return;
     }
 
-    if (isVisible) {
+    const activeTypingMembers = Array.isArray(value)
+        ? value
+        : (value ? [{ username: conversationDisplayName }] : []);
+    typingMembers = activeTypingMembers;
+
+    if (typingMembers.length > 0) {
         statusState = 'typing';
-        statusMessage = `${otherUserName} is typing…`;
+        if (typingMembers.length === 1) {
+            statusMessage = `${typingMembers[0].username} is typing…`;
+        } else {
+            statusMessage = `${typingMembers.map((member) => member.username).join(', ')} are typing…`;
+        }
     } else if (statusState === 'typing') {
         clearStatus();
         return;
@@ -1328,6 +1771,7 @@ function createPendingMessage(body, type) {
         id: `pending-${type}-${localMessageCounter}`,
         sender_id: currentUserId,
         recipient_id: conversationUserId,
+        group_id: isGroupConversation ? groupId : null,
         sender_name: 'You',
         body,
         audio_path: null,
@@ -1415,6 +1859,43 @@ function renderDeliveryTicks(message) {
     const icon = state === 'sent' ? singleTick : doubleTick;
 
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
+}
+
+function formatHumanTimestamp(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return escapeHtml(String(value || ''));
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+    const timeLabel = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date);
+
+    if (diffDays === 0) {
+        return `Today ${timeLabel}`;
+    }
+
+    if (diffDays === -1) {
+        return `Yesterday ${timeLabel}`;
+    }
+
+    if (diffDays === 1) {
+        return `Tomorrow ${timeLabel}`;
+    }
+
+    const dateLabel = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    }).format(date);
+
+    return `${dateLabel} ${timeLabel}`;
 }
 
 function upsertMessage(message) {
@@ -1523,6 +2004,7 @@ function renderMessages(messages) {
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
+            const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
             const body = message.body
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
@@ -1535,13 +2017,20 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
+            const senderLabel = shouldShowSender
+                ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
+                : '';
+            const timeLabel = formatHumanTimestamp(message.created_at);
 
             return `
-                <article class="message ${isMine ? 'mine' : ''}">
-                    ${body}
-                    ${image}
-                    ${audio}
-                    <div class="meta"><span class="meta-label">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</span>${ticks}</div>
+                <article class="message-row ${isMine ? 'mine' : ''}">
+                    <div class="message">
+                        ${senderLabel}
+                        ${body}
+                        ${image}
+                        ${audio}
+                        <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
+                    </div>
                 </article>`;
         }).join('');
 
@@ -1665,12 +2154,24 @@ function applyConversationPayload(payload, options = {}) {
             ? mergeMessages(payload.messages, window.__messagesState || [])
             : (payload.messages.length === 0 ? [] : mergeMessages(window.__messagesState || [], payload.messages));
         renderMessages(nextMessages);
-        lastUnseenCounts.set(String(conversationUserId), nextMessages.filter((message) =>
-            Number(message.sender_id) === conversationUserId && !message.read_at
-        ).length);
+        const unreadCount = nextMessages.filter((message) =>
+            Number(message.sender_id) !== currentUserId && !message.read_at
+        ).length;
+        lastUnseenCounts.set(String(isGroupConversation ? groupId : conversationUserId), unreadCount);
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
+    }
+    if (payload.group) {
+        groupState = payload.group;
+        conversationDisplayName = String(groupState.name || conversationDisplayName);
+        if (headerTitle) {
+            headerTitle.textContent = conversationDisplayName;
+        }
+        document.title = conversationDisplayName;
+        updatePresence(false, `${groupState.member_count || 0} members`);
+        deleteGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_delete));
+        renameGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_rename));
     }
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.label);
@@ -1682,7 +2183,7 @@ function applyConversationPayload(payload, options = {}) {
         friendshipState = payload.friendship;
         updateFriendshipUi();
     }
-    setTypingVisible(Boolean(payload.typing) && canChat);
+    setTypingVisible(isGroupConversation ? (payload.typing_members || []) : (Boolean(payload.typing) && canChat));
 
     if (composerWasFocused) {
         keepComposerFocused(true);
@@ -1691,7 +2192,7 @@ function applyConversationPayload(payload, options = {}) {
 
 async function refreshConversation() {
     try {
-        const signatureResponse = await fetch(`chat_api.php?action=signature&user=${conversationUserId}`, {
+        const signatureResponse = await fetch(conversationApiUrl('signature'), {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1704,7 +2205,7 @@ async function refreshConversation() {
             return false;
         }
 
-        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}`, {
+        const response = await fetch(`${conversationApiUrl('messages')}&limit=${messageBatchSize}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1739,7 +2240,7 @@ async function loadOlderMessages() {
     const previousScrollHeight = messagesEl.scrollHeight;
 
     try {
-        const response = await fetch(`chat_api.php?action=messages&user=${conversationUserId}&limit=${messageBatchSize}&before=${oldestId}`, {
+        const response = await fetch(`${conversationApiUrl('messages')}&limit=${messageBatchSize}&before=${oldestId}`, {
             headers: { 'Accept': 'application/json' },
             cache: 'no-store',
         });
@@ -1785,7 +2286,7 @@ async function syncReadState() {
     }
 
     const hasUnreadInbound = (window.__messagesState || []).some((message) =>
-        Number(message.sender_id) === conversationUserId && !message.read_at
+        Number(message.sender_id) !== currentUserId && !message.read_at
     );
 
     if (!hasUnreadInbound) {
@@ -1793,7 +2294,7 @@ async function syncReadState() {
     }
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'read', csrf_token: csrfToken }),
@@ -1867,7 +2368,7 @@ function connectConversationStream() {
         stream.close();
     }
 
-    stream = new EventSource(`chat_stream.php?user=${conversationUserId}`);
+    stream = new EventSource(conversationStreamUrl());
     stream.addEventListener('open', () => {
         streamState = 'connected';
         renderStatus();
@@ -1895,7 +2396,7 @@ function connectConversationStream() {
 
 async function syncTyping(isTyping) {
     try {
-        await fetch(`chat_api.php?user=${conversationUserId}`, {
+        await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'typing', typing: String(isTyping), csrf_token: csrfToken }),
@@ -1948,7 +2449,7 @@ async function flushPendingTextQueue() {
         const nextMessage = pendingTextQueue[0];
 
         try {
-            const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+            const response = await fetch(conversationApiUrl(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
                 body: new URLSearchParams({ action: 'send_text', body: nextMessage.body, csrf_token: csrfToken }),
@@ -2074,7 +2575,7 @@ async function uploadVoiceBlob(blob, filename) {
         formData.append('csrf_token', csrfToken);
         formData.append('voice_note', blob, filename);
 
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
@@ -2130,7 +2631,7 @@ async function uploadImageFile(file) {
         formData.append('csrf_token', csrfToken);
         formData.append('image_file', file, file.name || 'photo.jpg');
 
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: formData,
@@ -2398,13 +2899,22 @@ scrollToEndButton?.addEventListener('click', () => {
     syncReadStateSoon();
 });
 
+headerMenuButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const isOpen = headerMenuButton.getAttribute('aria-expanded') === 'true';
+    setHeaderMenuOpen(!isOpen);
+});
+
 deleteConversationButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (isSending || activeUploadCount > 0) {
         return;
     }
 
-    const confirmed = window.confirm(`Delete all messages in this private chat for your account only? ${otherUserName} will still keep their copy.`);
+    const confirmed = window.confirm(isGroupConversation
+        ? 'Delete all messages in this group for your account only?'
+        : `Delete all messages in this private chat for your account only? ${conversationDisplayName} will still keep their copy.`);
     if (!confirmed) {
         return;
     }
@@ -2412,7 +2922,7 @@ deleteConversationButton?.addEventListener('click', async () => {
     deleteConversationButton.disabled = true;
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'delete_conversation', csrf_token: csrfToken }),
@@ -2427,7 +2937,9 @@ deleteConversationButton?.addEventListener('click', async () => {
         applyConversationPayload(payload.payload || payload);
         shouldAutoScroll = true;
         scrollMessagesToEnd();
-        showHint('Messages deleted only for your account. New messages will still appear here.');
+        showHint(isGroupConversation
+            ? 'Messages deleted only for your account. New group messages will still appear here.'
+            : 'Messages deleted only for your account. New messages will still appear here.');
     } catch (error) {
         showError('Could not delete messages right now. Please try again.');
     } finally {
@@ -2435,13 +2947,14 @@ deleteConversationButton?.addEventListener('click', async () => {
     }
 });
 
-revokeFriendshipButton.addEventListener('click', async () => {
+revokeFriendshipButton?.addEventListener('click', async () => {
     markUserInteraction();
+    setHeaderMenuOpen(false);
     if (!friendshipState || friendshipState.status !== 'accepted' || isSending) {
         return;
     }
 
-    const confirmed = window.confirm(`Revoke friendship with ${otherUserName}? Existing messages will stay, but both of you will not be able to send new messages.`);
+    const confirmed = window.confirm(`Revoke friendship with ${conversationDisplayName}? Existing messages will stay, but both of you will not be able to send new messages.`);
     if (!confirmed) {
         return;
     }
@@ -2449,7 +2962,7 @@ revokeFriendshipButton.addEventListener('click', async () => {
     revokeFriendshipButton.disabled = true;
 
     try {
-        const response = await fetch(`chat_api.php?user=${conversationUserId}`, {
+        const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({ action: 'revoke_friendship', csrf_token: csrfToken }),
@@ -2467,6 +2980,137 @@ revokeFriendshipButton.addEventListener('click', async () => {
         showError('Could not revoke friendship right now. Please try again.');
     } finally {
         revokeFriendshipButton.disabled = false;
+    }
+});
+
+addGroupMemberButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    setMemberPickerOpen(true);
+});
+
+memberPickerClose?.addEventListener('click', () => setMemberPickerOpen(false));
+memberPickerEl?.addEventListener('click', (event) => {
+    if (event.target === memberPickerEl) {
+        setMemberPickerOpen(false);
+    }
+});
+memberPickerSearchInput?.addEventListener('input', () => {
+    renderMemberPicker();
+});
+memberPickerListEl?.addEventListener('click', async (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-group-invite-user-id]') : null;
+    if (!target) {
+        return;
+    }
+
+    const userId = Number(target.getAttribute('data-group-invite-user-id') || 0);
+    const candidate = directoryUsersState.find((entry) => Number(entry.id) === userId);
+    if (!candidate || !userId) {
+        return;
+    }
+
+    target.setAttribute('disabled', 'disabled');
+    try {
+        const response = await fetch('home_api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'invite_group_member', group: String(groupId), user: String(candidate.id), csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not add that user right now.');
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        setMemberPickerOpen(false);
+        showHint(`${candidate.username} was added to the group.`);
+    } catch (error) {
+        target.removeAttribute('disabled');
+        showError(error.message || 'Could not add that user right now.');
+    }
+});
+
+leaveGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    if (!window.confirm('Leave this group?')) {
+        return;
+    }
+
+    leaveGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'leave_group', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not leave the group right now.');
+        }
+
+        window.location.href = 'index.php';
+    } catch (error) {
+        showError(error.message || 'Could not leave the group right now.');
+    } finally {
+        leaveGroupButton.disabled = false;
+    }
+});
+
+renameGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    const nextName = window.prompt('Edit group name', conversationDisplayName);
+    if (nextName === null) {
+        return;
+    }
+
+    renameGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'rename_group', name: nextName, csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not rename the group right now.');
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint('Group name updated.');
+    } catch (error) {
+        showError(error.message || 'Could not rename the group right now.');
+    } finally {
+        renameGroupButton.disabled = false;
+    }
+});
+
+deleteGroupButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    if (!window.confirm(`Delete the group "${conversationDisplayName}" for everyone? This cannot be undone.`)) {
+        return;
+    }
+
+    deleteGroupButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'delete_group', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not delete the group right now.');
+        }
+
+        window.location.href = 'index.php';
+    } catch (error) {
+        showError(error.message || 'Could not delete the group right now.');
+    } finally {
+        deleteGroupButton.disabled = false;
     }
 });
 
@@ -2507,10 +3151,30 @@ imageLightbox?.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     markUserInteraction();
+    if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
+        setMemberPickerOpen(false);
+        return;
+    }
+    if (event.key === 'Escape' && headerMenuButton?.getAttribute('aria-expanded') === 'true') {
+        setHeaderMenuOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
     }
 }, { passive: true });
+document.addEventListener('click', (event) => {
+    if (!headerMenuPanel || !headerMenuButton) {
+        return;
+    }
+
+    const target = event.target;
+    if (target instanceof Node && (headerMenuPanel.contains(target) || headerMenuButton.contains(target))) {
+        return;
+    }
+
+    setHeaderMenuOpen(false);
+});
 document.addEventListener('click', markUserInteraction, { passive: true });
 
 if ('serviceWorker' in navigator) {
@@ -2538,7 +3202,7 @@ window.addEventListener('beforeunload', () => {
     stopHomePolling();
     if (typingActive && navigator.sendBeacon) {
         const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
-        navigator.sendBeacon(`chat_api.php?user=${conversationUserId}`, data);
+        navigator.sendBeacon(conversationApiUrl(), data);
     }
 });
 
@@ -2558,7 +3222,17 @@ updateFriendshipUi();
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
-applyHomeNotificationPayload({ chat_users: [{ id: conversationUserId, unseen_count: lastUnseenCounts.get(String(conversationUserId)) || 0 }] });
+applyHomeNotificationPayload({
+    chat_users: [{
+        id: isGroupConversation ? groupId : conversationUserId,
+        unseen_count: lastUnseenCounts.get(String(isGroupConversation ? groupId : conversationUserId)) || 0,
+        url: conversationPageUrl(),
+        name: conversationDisplayName,
+    }],
+});
+if (isGroupConversation) {
+    applyConversationPayload({ group: initialGroup, typing_members: initialTypingMembers });
+}
 scheduleHomePolling();
 
 

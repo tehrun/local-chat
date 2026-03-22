@@ -55,6 +55,39 @@ if ($requestMethod === 'POST') {
         jsonResponse(['ok' => true]);
     }
 
+    if ($action === 'create_group') {
+        $error = createGroup($currentUserId, (string) ($_POST['name'] ?? ''));
+
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
+        ]);
+    }
+
+    if ($action === 'invite_group_member') {
+        $groupId = (int) ($_POST['group'] ?? 0);
+        $invitedUserId = (int) ($_POST['user'] ?? 0);
+        $error = inviteUserToGroup($groupId, $currentUserId, $invitedUserId);
+
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+
+        jsonResponse([
+            'ok' => true,
+            'payload' => groupConversationPayload($groupId, $currentUserId) + [
+                'signature' => groupConversationStateSignature($groupId, $currentUserId),
+            ],
+        ]);
+    }
+
     $otherUserId = (int) ($_POST['user'] ?? 0);
     $otherUser = $otherUserId > 0 ? findUserById($otherUserId) : null;
 

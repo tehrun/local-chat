@@ -379,6 +379,102 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user
          ON push_subscriptions (user_id, updated_at)'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            creator_user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            deleted_at TEXT,
+            FOREIGN KEY(creator_user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_groups_creator_created
+         ON groups (creator_user_id, created_at)'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            invited_by_user_id INTEGER,
+            role TEXT NOT NULL DEFAULT \'member\',
+            status TEXT NOT NULL DEFAULT \'active\',
+            created_at TEXT NOT NULL,
+            joined_at TEXT,
+            left_at TEXT,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(invited_by_user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_members_user_status
+         ON group_members (user_id, status, group_id)'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            sender_id INTEGER NOT NULL,
+            body TEXT,
+            audio_path TEXT,
+            image_path TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(sender_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_messages_timeline
+         ON group_messages (group_id, created_at, id)'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_reads (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            last_read_message_id INTEGER,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_typing_status (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_typing_status_lookup
+         ON group_typing_status (group_id, updated_at)'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_conversation_clears (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            cleared_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )'
+    );
 }
 
 function initializeMysqlDatabase(PDO $pdo): void
@@ -472,6 +568,86 @@ function initializeMysqlDatabase(PDO $pdo): void
             UNIQUE KEY uniq_push_subscriptions_endpoint (endpoint(255)),
             INDEX idx_push_subscriptions_user (user_id, updated_at),
             CONSTRAINT fk_push_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS groups (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            creator_user_id INT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            INDEX idx_groups_creator_created (creator_user_id, created_at),
+            CONSTRAINT fk_groups_creator FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_members (
+            group_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            invited_by_user_id INT UNSIGNED NULL,
+            role VARCHAR(32) NOT NULL DEFAULT \'member\',
+            status VARCHAR(32) NOT NULL DEFAULT \'active\',
+            created_at DATETIME NOT NULL,
+            joined_at DATETIME NULL,
+            left_at DATETIME NULL,
+            PRIMARY KEY (group_id, user_id),
+            INDEX idx_group_members_user_status (user_id, status, group_id),
+            CONSTRAINT fk_group_members_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_members_inviter FOREIGN KEY (invited_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            group_id BIGINT UNSIGNED NOT NULL,
+            sender_id INT UNSIGNED NOT NULL,
+            body LONGTEXT NULL,
+            audio_path VARCHAR(255) NULL,
+            image_path VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_group_messages_timeline (group_id, created_at, id),
+            CONSTRAINT fk_group_messages_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_reads (
+            group_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            last_read_message_id BIGINT UNSIGNED NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            CONSTRAINT fk_group_reads_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_reads_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_typing_status (
+            group_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            INDEX idx_group_typing_status_lookup (group_id, updated_at),
+            CONSTRAINT fk_group_typing_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_typing_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_conversation_clears (
+            group_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            cleared_at DATETIME NOT NULL,
+            PRIMARY KEY (group_id, user_id),
+            CONSTRAINT fk_group_clears_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_clears_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 }
@@ -1514,7 +1690,7 @@ function chatListPayload(int $currentUserId): array
     touchUserPresence($currentUserId);
 
     return [
-        'chat_users' => chattedUsers($currentUserId),
+        'chat_users' => combinedChatList($currentUserId),
         'directory_users' => allOtherUsers($currentUserId),
         'incoming_requests' => incomingFriendRequests($currentUserId),
     ];
@@ -1574,6 +1750,34 @@ function chatListStateSignature(int $currentUserId): string
     $friendshipsStmt->execute(['id' => $currentUserId]);
     $friendshipsState = $friendshipsStmt->fetch() ?: [];
 
+    $groupMembershipStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_group_memberships,
+                MAX(group_id) AS latest_group_id,
+                MAX(created_at) AS latest_group_membership_created_at,
+                MAX(joined_at) AS latest_group_membership_joined_at,
+                SUM(CASE WHEN status = \'active\' THEN 1 ELSE 0 END) AS active_group_memberships
+         FROM group_members
+         WHERE user_id = :id'
+    );
+    $groupMembershipStmt->execute(['id' => $currentUserId]);
+    $groupMembershipState = $groupMembershipStmt->fetch() ?: [];
+
+    $groupMessagesStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_group_messages,
+                MAX(gm.id) AS latest_group_message_id,
+                MAX(gm.created_at) AS latest_group_message_created_at
+         FROM group_messages gm
+         JOIN group_members membership
+           ON membership.group_id = gm.group_id
+          AND membership.user_id = :id
+          AND membership.status = :status'
+    );
+    $groupMessagesStmt->execute([
+        'id' => $currentUserId,
+        'status' => 'active',
+    ]);
+    $groupMessagesState = $groupMessagesStmt->fetch() ?: [];
+
     return md5(encodeJson([
         'users' => [
             'total' => (int) ($usersState['total_users'] ?? 0),
@@ -1601,6 +1805,16 @@ function chatListStateSignature(int $currentUserId): string
             'pending_count' => (int) ($friendshipsState['pending_count'] ?? 0),
             'rejected_count' => (int) ($friendshipsState['rejected_count'] ?? 0),
             'revoked_count' => (int) ($friendshipsState['revoked_count'] ?? 0),
+        ],
+        'groups' => [
+            'membership_total' => (int) ($groupMembershipState['total_group_memberships'] ?? 0),
+            'latest_group_id' => (int) ($groupMembershipState['latest_group_id'] ?? 0),
+            'latest_membership_created_at' => $groupMembershipState['latest_group_membership_created_at'] ?? null,
+            'latest_membership_joined_at' => $groupMembershipState['latest_group_membership_joined_at'] ?? null,
+            'active_memberships' => (int) ($groupMembershipState['active_group_memberships'] ?? 0),
+            'message_total' => (int) ($groupMessagesState['total_group_messages'] ?? 0),
+            'latest_message_id' => (int) ($groupMessagesState['latest_group_message_id'] ?? 0),
+            'latest_message_created_at' => $groupMessagesState['latest_group_message_created_at'] ?? null,
         ],
     ]));
 }
@@ -2346,6 +2560,737 @@ function markMessagesRead(int $userId, int $otherUserId): void
         'other_user_id' => $otherUserId,
         'user_id' => $userId,
     ]);
+}
+
+function activeGroupMembership(int $groupId, int $userId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT gm.*, g.name, g.creator_user_id, g.deleted_at
+         FROM group_members gm
+         JOIN groups g ON g.id = gm.group_id
+         WHERE gm.group_id = :group_id
+           AND gm.user_id = :user_id
+           AND gm.status = :status
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'user_id' => $userId,
+        'status' => 'active',
+    ]);
+
+    $row = $stmt->fetch();
+
+    if ($row === false || $row['deleted_at'] !== null) {
+        return null;
+    }
+
+    return $row;
+}
+
+function findGroupById(int $groupId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT g.*,
+                creator.username AS creator_name
+         FROM groups g
+         JOIN users creator ON creator.id = g.creator_user_id
+         WHERE g.id = :group_id
+           AND g.deleted_at IS NULL
+         LIMIT 1'
+    );
+    $stmt->execute(['group_id' => $groupId]);
+    $group = $stmt->fetch();
+
+    if ($group === false) {
+        return null;
+    }
+
+    $group['id'] = (int) $group['id'];
+    $group['creator_user_id'] = (int) $group['creator_user_id'];
+
+    return $group;
+}
+
+function canAccessGroupConversation(int $groupId, int $userId): bool
+{
+    return activeGroupMembership($groupId, $userId) !== null;
+}
+
+function groupMembers(int $groupId): array
+{
+    $stmt = db()->prepare(
+        'SELECT gm.group_id,
+                gm.user_id,
+                gm.invited_by_user_id,
+                gm.role,
+                gm.status,
+                gm.created_at,
+                gm.joined_at,
+                gm.left_at,
+                u.username,
+                up.updated_at AS presence_updated_at
+         FROM group_members gm
+         JOIN users u ON u.id = gm.user_id
+         LEFT JOIN user_presence up ON up.user_id = gm.user_id
+         WHERE gm.group_id = :group_id
+           AND gm.status = :status
+         ORDER BY CASE WHEN gm.role = \'creator\' THEN 0 ELSE 1 END ASC,
+                  u.username ASC'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'status' => 'active',
+    ]);
+
+    return array_map(static function (array $member): array {
+        $member['group_id'] = (int) $member['group_id'];
+        $member['user_id'] = (int) $member['user_id'];
+        $member['invited_by_user_id'] = $member['invited_by_user_id'] !== null ? (int) $member['invited_by_user_id'] : null;
+        $member['is_online'] = isset($member['presence_updated_at'])
+            && strtotime((string) $member['presence_updated_at']) !== false
+            && strtotime((string) $member['presence_updated_at']) >= (time() - PRESENCE_TTL_SECONDS);
+        $member['presence_label'] = presenceLabel($member['presence_updated_at'] ?? null);
+
+        return $member;
+    }, $stmt->fetchAll());
+}
+
+function createGroup(int $creatorUserId, string $name): ?string
+{
+    $trimmedName = trim($name);
+
+    if ($trimmedName === '') {
+        return 'Group name is required.';
+    }
+
+    if (mb_strlen($trimmedName) > 80) {
+        return 'Group name must be 80 characters or fewer.';
+    }
+
+    $createdAt = gmdate('c');
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO groups (name, creator_user_id, created_at, deleted_at)
+             VALUES (:name, :creator_user_id, :created_at, NULL)'
+        );
+        $stmt->execute([
+            'name' => $trimmedName,
+            'creator_user_id' => $creatorUserId,
+            'created_at' => $createdAt,
+        ]);
+
+        $groupId = (int) $pdo->lastInsertId();
+        $memberStmt = $pdo->prepare(
+            'INSERT INTO group_members (group_id, user_id, invited_by_user_id, role, status, created_at, joined_at, left_at)
+             VALUES (:group_id, :user_id, :invited_by_user_id, :role, :status, :created_at, :joined_at, NULL)'
+        );
+        $memberStmt->execute([
+            'group_id' => $groupId,
+            'user_id' => $creatorUserId,
+            'invited_by_user_id' => $creatorUserId,
+            'role' => 'creator',
+            'status' => 'active',
+            'created_at' => $createdAt,
+            'joined_at' => $createdAt,
+        ]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return 'Could not create the group right now.';
+    }
+
+    return null;
+}
+
+function inviteUserToGroup(int $groupId, int $actorUserId, int $invitedUserId): ?string
+{
+    if ($actorUserId === $invitedUserId) {
+        return 'You are already in the group.';
+    }
+
+    $group = findGroupById($groupId);
+    if ($group === null || !canAccessGroupConversation($groupId, $actorUserId)) {
+        return 'Group not found.';
+    }
+
+    $user = findUserById($invitedUserId);
+    if ($user === null) {
+        return 'User not found.';
+    }
+
+    $existing = activeGroupMembership($groupId, $invitedUserId);
+    if ($existing !== null) {
+        return 'That user is already in the group.';
+    }
+
+    $params = [
+        'group_id' => $groupId,
+        'user_id' => $invitedUserId,
+        'invited_by_user_id' => $actorUserId,
+        'role' => 'member',
+        'status' => 'active',
+        'created_at' => gmdate('c'),
+        'joined_at' => gmdate('c'),
+        'left_at' => null,
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO group_members (group_id, user_id, invited_by_user_id, role, status, created_at, joined_at, left_at)
+             VALUES (:group_id, :user_id, :invited_by_user_id, :role, :status, :created_at, :joined_at, :left_at)
+             ON DUPLICATE KEY UPDATE invited_by_user_id = VALUES(invited_by_user_id),
+                                     role = VALUES(role),
+                                     status = VALUES(status),
+                                     created_at = VALUES(created_at),
+                                     joined_at = VALUES(joined_at),
+                                     left_at = VALUES(left_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO group_members (group_id, user_id, invited_by_user_id, role, status, created_at, joined_at, left_at)
+             VALUES (:group_id, :user_id, :invited_by_user_id, :role, :status, :created_at, :joined_at, :left_at)
+             ON CONFLICT(group_id, user_id)
+             DO UPDATE SET invited_by_user_id = excluded.invited_by_user_id,
+                           role = excluded.role,
+                           status = excluded.status,
+                           created_at = excluded.created_at,
+                           joined_at = excluded.joined_at,
+                           left_at = excluded.left_at'
+        );
+    }
+
+    $stmt->execute($params);
+
+    return null;
+}
+
+function leaveGroup(int $groupId, int $userId): ?string
+{
+    $membership = activeGroupMembership($groupId, $userId);
+    if ($membership === null) {
+        return 'Group not found.';
+    }
+
+    if ((string) $membership['role'] === 'creator') {
+        return 'The group creator cannot leave without deleting the group.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE group_members
+         SET status = :status,
+             left_at = :left_at
+         WHERE group_id = :group_id
+           AND user_id = :user_id'
+    );
+    $stmt->execute([
+        'status' => 'left',
+        'left_at' => gmdate('c'),
+        'group_id' => $groupId,
+        'user_id' => $userId,
+    ]);
+
+    return null;
+}
+
+function deleteGroup(int $groupId, int $actorUserId): ?string
+{
+    $group = findGroupById($groupId);
+    if ($group === null) {
+        return 'Group not found.';
+    }
+
+    if ((int) $group['creator_user_id'] !== $actorUserId) {
+        return 'Only the group creator can delete this group.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE groups
+         SET deleted_at = :deleted_at
+         WHERE id = :group_id'
+    );
+    $stmt->execute([
+        'deleted_at' => gmdate('c'),
+        'group_id' => $groupId,
+    ]);
+
+    return null;
+}
+
+function renameGroup(int $groupId, int $actorUserId, string $name): ?string
+{
+    $group = findGroupById($groupId);
+    if ($group === null) {
+        return 'Group not found.';
+    }
+
+    if ((int) $group['creator_user_id'] !== $actorUserId) {
+        return 'Only the group creator can rename this group.';
+    }
+
+    $trimmedName = trim($name);
+    if ($trimmedName === '') {
+        return 'Group name is required.';
+    }
+
+    if (mb_strlen($trimmedName) > 80) {
+        return 'Group name must be 80 characters or fewer.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE groups
+         SET name = :name
+         WHERE id = :group_id'
+    );
+    $stmt->execute([
+        'name' => $trimmedName,
+        'group_id' => $groupId,
+    ]);
+
+    return null;
+}
+
+function groupConversationClearedAt(int $groupId, int $userId): ?string
+{
+    $stmt = db()->prepare(
+        'SELECT cleared_at
+         FROM group_conversation_clears
+         WHERE group_id = :group_id
+           AND user_id = :user_id'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'user_id' => $userId,
+    ]);
+
+    $clearedAt = $stmt->fetchColumn();
+
+    return is_string($clearedAt) && $clearedAt !== '' ? $clearedAt : null;
+}
+
+function clearGroupConversationForUser(int $groupId, int $userId): void
+{
+    $params = [
+        'group_id' => $groupId,
+        'user_id' => $userId,
+        'cleared_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO group_conversation_clears (group_id, user_id, cleared_at)
+             VALUES (:group_id, :user_id, :cleared_at)
+             ON DUPLICATE KEY UPDATE cleared_at = VALUES(cleared_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO group_conversation_clears (group_id, user_id, cleared_at)
+             VALUES (:group_id, :user_id, :cleared_at)
+             ON CONFLICT(group_id, user_id)
+             DO UPDATE SET cleared_at = excluded.cleared_at'
+        );
+    }
+
+    $stmt->execute($params);
+}
+
+function formatGroupMessage(array $message): array
+{
+    return [
+        'id' => (int) $message['id'],
+        'group_id' => (int) $message['group_id'],
+        'sender_id' => (int) $message['sender_id'],
+        'sender_name' => (string) $message['sender_name'],
+        'body' => $message['body'],
+        'audio_path' => $message['audio_path'],
+        'image_path' => $message['image_path'],
+        'created_at' => $message['created_at'],
+        'created_at_label' => gmdate('Y-m-d H:i:s', strtotime((string) $message['created_at'])) . ' UTC',
+    ];
+}
+
+function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $limit = 0, ?int $beforeMessageId = null): array
+{
+    $clearedAt = groupConversationClearedAt($groupId, $userId);
+    $params = [
+        'group_id' => $groupId,
+    ];
+    $sql = 'SELECT gm.*, u.username AS sender_name
+            FROM group_messages gm
+            JOIN users u ON u.id = gm.sender_id
+            WHERE gm.group_id = :group_id';
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND gm.created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+
+    if ($beforeMessageId !== null && $beforeMessageId > 0) {
+        $sql .= ' AND gm.id < :before_message_id';
+        $params['before_message_id'] = $beforeMessageId;
+    }
+
+    if ($limit > 0) {
+        $sql .= ' ORDER BY gm.created_at DESC, gm.id DESC LIMIT :limit';
+    } else {
+        $sql .= ' ORDER BY gm.created_at ASC, gm.id ASC';
+    }
+
+    $stmt = db()->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue(':' . $key, $value);
+    }
+    if ($limit > 0) {
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    $messages = $stmt->fetchAll();
+
+    if ($limit > 0) {
+        $messages = array_reverse($messages);
+    }
+
+    return array_map('formatGroupMessage', $messages);
+}
+
+function groupConversationHasOlderMessagesWithoutMaintenance(int $groupId, int $userId, int $beforeMessageId): bool
+{
+    $clearedAt = groupConversationClearedAt($groupId, $userId);
+    $sql = 'SELECT 1
+            FROM group_messages
+            WHERE group_id = :group_id
+              AND id < :before_message_id';
+    $params = [
+        'group_id' => $groupId,
+        'before_message_id' => $beforeMessageId,
+    ];
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+
+    $sql .= ' LIMIT 1';
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+function groupTypingMembersWithoutMaintenance(int $groupId, int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT gts.user_id, u.username
+         FROM group_typing_status gts
+         JOIN users u ON u.id = gts.user_id
+         WHERE gts.group_id = :group_id
+           AND gts.user_id != :user_id
+           AND gts.updated_at >= :cutoff
+         ORDER BY u.username ASC'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'user_id' => $currentUserId,
+        'cutoff' => gmdate('c', time() - TYPING_TTL_SECONDS),
+    ]);
+
+    return array_map(static function (array $row): array {
+        return [
+            'user_id' => (int) $row['user_id'],
+            'username' => (string) $row['username'],
+        ];
+    }, $stmt->fetchAll());
+}
+
+function updateGroupTypingStatus(int $groupId, int $userId): void
+{
+    $params = [
+        'group_id' => $groupId,
+        'user_id' => $userId,
+        'updated_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO group_typing_status (group_id, user_id, updated_at)
+             VALUES (:group_id, :user_id, :updated_at)
+             ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO group_typing_status (group_id, user_id, updated_at)
+             VALUES (:group_id, :user_id, :updated_at)
+             ON CONFLICT(group_id, user_id)
+             DO UPDATE SET updated_at = excluded.updated_at'
+        );
+    }
+
+    $stmt->execute($params);
+}
+
+function clearGroupTypingStatus(int $groupId, int $userId): void
+{
+    $stmt = db()->prepare(
+        'DELETE FROM group_typing_status
+         WHERE group_id = :group_id
+           AND user_id = :user_id'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'user_id' => $userId,
+    ]);
+}
+
+function sendGroupTextMessage(int $groupId, int $userId, string $body): array|string
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+
+    $trimmedBody = trim($body);
+    if ($trimmedBody === '') {
+        return 'Message cannot be empty.';
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, created_at)
+         VALUES (:group_id, :sender_id, :body, NULL, NULL, :created_at)'
+    );
+    $createdAt = gmdate('c');
+    $stmt->execute([
+        'group_id' => $groupId,
+        'sender_id' => $userId,
+        'body' => $trimmedBody,
+        'created_at' => $createdAt,
+    ]);
+
+    clearGroupTypingStatus($groupId, $userId);
+
+    $messageId = (int) db()->lastInsertId();
+    $message = db()->prepare(
+        'SELECT gm.*, u.username AS sender_name
+         FROM group_messages gm
+         JOIN users u ON u.id = gm.sender_id
+         WHERE gm.id = :id'
+    );
+    $message->execute(['id' => $messageId]);
+    $row = $message->fetch();
+
+    if (!is_array($row)) {
+        return 'Could not send message right now.';
+    }
+
+    return formatGroupMessage($row);
+}
+
+function markGroupMessagesRead(int $groupId, int $userId): void
+{
+    $stmt = db()->prepare(
+        'SELECT MAX(id)
+         FROM group_messages
+         WHERE group_id = :group_id'
+    );
+    $stmt->execute(['group_id' => $groupId]);
+    $lastMessageId = (int) $stmt->fetchColumn();
+
+    $params = [
+        'group_id' => $groupId,
+        'user_id' => $userId,
+        'last_read_message_id' => $lastMessageId > 0 ? $lastMessageId : null,
+        'updated_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO group_message_reads (group_id, user_id, last_read_message_id, updated_at)
+             VALUES (:group_id, :user_id, :last_read_message_id, :updated_at)
+             ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id),
+                                     updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO group_message_reads (group_id, user_id, last_read_message_id, updated_at)
+             VALUES (:group_id, :user_id, :last_read_message_id, :updated_at)
+             ON CONFLICT(group_id, user_id)
+             DO UPDATE SET last_read_message_id = excluded.last_read_message_id,
+                           updated_at = excluded.updated_at'
+        );
+    }
+
+    $stmt->execute($params);
+}
+
+function groupConversationPayload(int $groupId, int $userId, int $limit = 0, ?int $beforeMessageId = null): array
+{
+    $group = findGroupById($groupId);
+    if ($group === null || !canAccessGroupConversation($groupId, $userId)) {
+        return ['error' => 'Group not found.'];
+    }
+
+    touchUserPresence($userId);
+
+    $messages = groupMessagesPageWithoutMaintenance($groupId, $userId, $limit, $beforeMessageId);
+    $oldestLoadedId = $messages === [] ? null : (int) ($messages[0]['id'] ?? 0);
+    $members = groupMembers($groupId);
+
+    return [
+        'group' => [
+            'id' => (int) $group['id'],
+            'name' => (string) $group['name'],
+            'creator_user_id' => (int) $group['creator_user_id'],
+            'creator_name' => (string) $group['creator_name'],
+            'member_count' => count($members),
+            'members' => $members,
+            'can_delete' => (int) $group['creator_user_id'] === $userId,
+            'can_rename' => (int) $group['creator_user_id'] === $userId,
+        ],
+        'messages' => $messages,
+        'has_more_messages' => $oldestLoadedId !== null && $oldestLoadedId > 0
+            ? groupConversationHasOlderMessagesWithoutMaintenance($groupId, $userId, $oldestLoadedId)
+            : false,
+        'typing_members' => groupTypingMembersWithoutMaintenance($groupId, $userId),
+    ];
+}
+
+function groupConversationStateSignature(int $groupId, int $userId): string
+{
+    $stmt = db()->prepare(
+        'SELECT COUNT(*) AS total_messages,
+                MAX(id) AS latest_message_id,
+                MAX(created_at) AS latest_message_created_at
+         FROM group_messages
+         WHERE group_id = :group_id'
+    );
+    $stmt->execute(['group_id' => $groupId]);
+    $messageState = $stmt->fetch() ?: [];
+
+    $group = findGroupById($groupId);
+
+    return md5(encodeJson([
+        'messages' => [
+            'total' => (int) ($messageState['total_messages'] ?? 0),
+            'latest_id' => (int) ($messageState['latest_message_id'] ?? 0),
+            'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
+        ],
+        'group' => $group === null ? null : [
+            'id' => (int) $group['id'],
+            'name' => (string) $group['name'],
+            'creator_user_id' => (int) $group['creator_user_id'],
+        ],
+        'members' => array_map(static fn (array $member): array => [
+            'user_id' => (int) $member['user_id'],
+            'role' => (string) $member['role'],
+        ], groupMembers($groupId)),
+        'typing_members' => groupTypingMembersWithoutMaintenance($groupId, $userId),
+    ]));
+}
+
+function groupChats(int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT g.id,
+                g.name,
+                g.creator_user_id,
+                MAX(gm.created_at) AS last_message_at,
+                MAX(gm.id) AS last_message_id,
+                (
+                    SELECT gm2.body
+                    FROM group_messages gm2
+                    WHERE gm2.group_id = g.id
+                    ORDER BY gm2.created_at DESC, gm2.id DESC
+                    LIMIT 1
+                ) AS last_message_body,
+                (
+                    SELECT COUNT(*)
+                    FROM group_messages gm3
+                    LEFT JOIN group_message_reads gmr
+                      ON gmr.group_id = g.id
+                     AND gmr.user_id = :user_id
+                    WHERE gm3.group_id = g.id
+                      AND gm3.sender_id != :user_id
+                      AND gm3.id > COALESCE(gmr.last_read_message_id, 0)
+                ) AS unseen_count
+         FROM groups g
+         JOIN group_members membership
+           ON membership.group_id = g.id
+          AND membership.user_id = :user_id
+          AND membership.status = :status
+         LEFT JOIN group_messages gm ON gm.group_id = g.id
+         WHERE g.deleted_at IS NULL
+         GROUP BY g.id, g.name, g.creator_user_id
+         ORDER BY CASE WHEN MAX(gm.created_at) IS NULL THEN 1 ELSE 0 END ASC,
+                  MAX(gm.created_at) DESC,
+                  MAX(gm.id) DESC,
+                  g.name ASC'
+    );
+    $stmt->execute([
+        'user_id' => $currentUserId,
+        'status' => 'active',
+    ]);
+
+    return array_map(static function (array $group): array {
+        $groupId = (int) $group['id'];
+        return [
+            'id' => $groupId,
+            'type' => 'group',
+            'is_group' => true,
+            'group_id' => $groupId,
+            'name' => (string) $group['name'],
+            'creator_user_id' => (int) $group['creator_user_id'],
+            'username' => (string) $group['name'],
+            'last_message_at' => $group['last_message_at'],
+            'last_message_id' => (int) ($group['last_message_id'] ?? 0),
+            'last_message_body' => $group['last_message_body'],
+            'unseen_count' => (int) ($group['unseen_count'] ?? 0),
+            'chat_list_time' => formatChatListTime($group['last_message_at'] ?? null),
+            'chat_list_preview' => trim((string) ($group['last_message_body'] ?? '')) !== ''
+                ? (string) $group['last_message_body']
+                : 'Group created',
+            'member_count' => count(groupMembers($groupId)),
+            'url' => 'chat.php?group=' . $groupId,
+        ];
+    }, $stmt->fetchAll());
+}
+
+function combinedChatList(int $currentUserId): array
+{
+    $directChats = array_map(static function (array $chat): array {
+        $chat['type'] = 'direct';
+        $chat['is_group'] = false;
+        $chat['url'] = 'chat.php?user=' . (int) $chat['id'];
+        $chat['name'] = (string) $chat['username'];
+
+        return $chat;
+    }, chattedUsers($currentUserId));
+    $groupChats = groupChats($currentUserId);
+    $combined = array_merge($directChats, $groupChats);
+
+    usort($combined, static function (array $left, array $right): int {
+        $leftHasMessages = !empty($left['last_message_at']);
+        $rightHasMessages = !empty($right['last_message_at']);
+
+        if ($leftHasMessages !== $rightHasMessages) {
+            return $rightHasMessages <=> $leftHasMessages;
+        }
+
+        $leftTimestamp = $leftHasMessages ? (strtotime((string) $left['last_message_at']) ?: 0) : 0;
+        $rightTimestamp = $rightHasMessages ? (strtotime((string) $right['last_message_at']) ?: 0) : 0;
+
+        if ($leftTimestamp !== $rightTimestamp) {
+            return $rightTimestamp <=> $leftTimestamp;
+        }
+
+        return strcasecmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+    });
+
+    return $combined;
 }
 
 function jsonResponse(array $payload, int $statusCode = 200): void
