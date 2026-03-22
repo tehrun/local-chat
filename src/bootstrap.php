@@ -281,6 +281,18 @@ function initializeSqliteDatabase(PDO $pdo): void
         )'
     );
 
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS conversation_clears (
+            user_id INTEGER NOT NULL,
+            conversation_user_id INTEGER NOT NULL,
+            cleared_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, conversation_user_id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(conversation_user_id) REFERENCES users(id)
+        )'
+    );
+
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
          ON messages (sender_id, recipient_id, created_at, id)'
@@ -407,6 +419,18 @@ function initializeMysqlDatabase(PDO $pdo): void
             INDEX idx_typing_status_lookup (user_id, conversation_user_id, updated_at),
             CONSTRAINT fk_typing_status_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             CONSTRAINT fk_typing_status_conversation_user FOREIGN KEY (conversation_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS conversation_clears (
+            user_id INT UNSIGNED NOT NULL,
+            conversation_user_id INT UNSIGNED NOT NULL,
+            cleared_at DATETIME NOT NULL,
+            PRIMARY KEY (user_id, conversation_user_id),
+            CONSTRAINT fk_conversation_clears_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_conversation_clears_conversation_user FOREIGN KEY (conversation_user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -1405,26 +1429,83 @@ function allOtherUsers(int $currentUserId): array
                 u.created_at,
                 up.updated_at AS presence_updated_at,
                 COUNT(DISTINCT m_unseen.id) AS unseen_count,
-                MAX(m_latest.created_at) AS last_message_at,
-                MAX(m_latest.id) AS last_message_id
+                m_last.created_at AS last_message_at,
+                m_last.id AS last_message_id,
+                m_last.body AS last_message_body,
+                m_last.audio_path AS last_message_audio_path,
+                m_last.image_path AS last_message_image_path
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
-         LEFT JOIN messages m_latest
-            ON ((m_latest.sender_id = :id AND m_latest.recipient_id = u.id)
-             OR (m_latest.sender_id = u.id AND m_latest.recipient_id = :id))
+         LEFT JOIN conversation_clears cc
+            ON cc.user_id = :id
+           AND cc.conversation_user_id = u.id
+         LEFT JOIN messages m_last
+            ON m_last.id = (
+                SELECT m2.id
+                FROM messages m2
+                WHERE ((m2.sender_id = :id AND m2.recipient_id = u.id)
+                   OR (m2.sender_id = u.id AND m2.recipient_id = :id))
+                  AND (cc.cleared_at IS NULL OR m2.created_at > cc.cleared_at)
+                ORDER BY m2.created_at DESC, m2.id DESC
+                LIMIT 1
+            )
          LEFT JOIN messages m_unseen ON m_unseen.sender_id = u.id
             AND m_unseen.recipient_id = :id
             AND m_unseen.read_at IS NULL
+            AND (cc.cleared_at IS NULL OR m_unseen.created_at > cc.cleared_at)
          WHERE u.id != :id
-         GROUP BY u.id, u.username, u.created_at, up.updated_at
-         ORDER BY CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END ASC,
-                  last_message_at DESC,
-                  last_message_id DESC,
+         GROUP BY u.id, u.username, u.created_at, up.updated_at, cc.cleared_at,
+                  m_last.created_at, m_last.id, m_last.body, m_last.audio_path, m_last.image_path
+         ORDER BY CASE WHEN m_last.created_at IS NULL THEN 1 ELSE 0 END ASC,
+                  m_last.created_at DESC,
+                  m_last.id DESC,
                   username ASC'
     );
     $stmt->execute(['id' => $currentUserId]);
 
-    return decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
+    $users = decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
+
+    foreach ($users as &$user) {
+        $user['chat_list_time'] = formatChatListTime($user['last_message_at'] ?? null);
+        $user['chat_list_preview'] = chatListPreview($user);
+    }
+    unset($user);
+
+    return $users;
+}
+
+function formatChatListTime(?string $timestamp): string
+{
+    if ($timestamp === null || $timestamp === '') {
+        return '';
+    }
+
+    $time = strtotime($timestamp);
+
+    if ($time === false) {
+        return '';
+    }
+
+    return gmdate('H:i', $time);
+}
+
+function chatListPreview(array $user): string
+{
+    $body = trim((string) ($user['last_message_body'] ?? ''));
+
+    if ($body !== '') {
+        return $body;
+    }
+
+    if (!empty($user['last_message_image_path'])) {
+        return '📷 Photo';
+    }
+
+    if (!empty($user['last_message_audio_path'])) {
+        return '🎤 Voice message';
+    }
+
+    return 'Start chatting';
 }
 
 function chatListPayload(int $currentUserId): array
@@ -1555,7 +1636,55 @@ function findUserById(int $id): ?array
     return $user;
 }
 
-function registerUser(string $username, string $password): ?string
+function ensureAuthChallenge(): array
+{
+    $challenge = $_SESSION['auth_challenge'] ?? null;
+
+    if (
+        !is_array($challenge)
+        || !isset($challenge['left'], $challenge['right'], $challenge['operator'], $challenge['answer'])
+        || !is_int($challenge['left'])
+        || !is_int($challenge['right'])
+        || !is_string($challenge['operator'])
+        || !is_int($challenge['answer'])
+        || !in_array($challenge['operator'], ['+', '-'], true)
+    ) {
+        $challenge = refreshAuthChallenge();
+    }
+
+    return $challenge;
+}
+
+function refreshAuthChallenge(): array
+{
+    $left = random_int(2, 12);
+    $right = random_int(2, 12);
+    $operator = random_int(0, 1) === 0 ? '+' : '-';
+
+    if ($operator === '-' && $right > $left) {
+        [$left, $right] = [$right, $left];
+    }
+
+    $answer = $operator === '+' ? $left + $right : $left - $right;
+
+    $_SESSION['auth_challenge'] = [
+        'left' => $left,
+        'right' => $right,
+        'operator' => $operator,
+        'answer' => $answer,
+    ];
+
+    return $_SESSION['auth_challenge'];
+}
+
+function authChallengePrompt(): string
+{
+    $challenge = ensureAuthChallenge();
+
+    return sprintf('%d %s %d', $challenge['left'], $challenge['operator'], $challenge['right']);
+}
+
+function registerUser(string $username, string $password, string $confirmPassword, string $challengeAnswer): ?string
 {
     $username = trim($username);
 
@@ -1565,6 +1694,21 @@ function registerUser(string $username, string $password): ?string
 
     if (strlen($password) < 6) {
         return 'Password must be at least 6 characters.';
+    }
+
+    if (!hash_equals($password, $confirmPassword)) {
+        refreshAuthChallenge();
+
+        return 'Passwords do not match.';
+    }
+
+    $challenge = ensureAuthChallenge();
+    $normalizedAnswer = trim($challengeAnswer);
+
+    if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        refreshAuthChallenge();
+
+        return 'Incorrect verification answer. Please solve the new math question.';
     }
 
     if (findUserByUsername($username) !== null) {
@@ -1578,22 +1722,86 @@ function registerUser(string $username, string $password): ?string
         'created_at' => gmdate('c'),
     ]);
 
+    refreshAuthChallenge();
+
     return null;
 }
 
-function loginUser(string $username, string $password): ?string
+function loginUser(string $username, string $password, string $challengeAnswer): ?string
 {
+    $challenge = ensureAuthChallenge();
+    $normalizedAnswer = trim($challengeAnswer);
+
+    if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        refreshAuthChallenge();
+
+        return 'Incorrect verification answer. Please solve the new math question.';
+    }
+
     $user = findUserByUsername($username);
 
     if ($user === null || !password_verify($password, $user['password_hash'])) {
+        refreshAuthChallenge();
+
         return 'Invalid username or password.';
     }
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = $user['id'];
     csrfToken();
+    refreshAuthChallenge();
 
     return null;
+}
+
+
+function conversationClearedAt(int $userId, int $otherUserId): ?string
+{
+    $stmt = db()->prepare(
+        'SELECT cleared_at
+         FROM conversation_clears
+         WHERE user_id = :user_id
+           AND conversation_user_id = :other_user_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    $clearedAt = $stmt->fetchColumn();
+
+    return is_string($clearedAt) && $clearedAt !== '' ? $clearedAt : null;
+}
+
+function clearConversationForUser(int $userId, int $otherUserId): void
+{
+    purgeExpiredMessages();
+
+    $params = [
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+        'cleared_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO conversation_clears (user_id, conversation_user_id, cleared_at)
+             VALUES (:user_id, :other_user_id, :cleared_at)
+             ON DUPLICATE KEY UPDATE cleared_at = VALUES(cleared_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO conversation_clears (user_id, conversation_user_id, cleared_at)
+             VALUES (:user_id, :other_user_id, :cleared_at)
+             ON CONFLICT(user_id, conversation_user_id)
+             DO UPDATE SET cleared_at = excluded.cleared_at'
+        );
+    }
+
+    $stmt->execute($params);
+    clearTypingStatus($userId, $otherUserId);
+    clearTypingStatus($otherUserId, $userId);
 }
 
 function formatMessage(array $message): array
@@ -1638,18 +1846,24 @@ function conversationMessages(int $userId, int $otherUserId): array
 
 function conversationExistsForUser(int $userId, int $otherUserId): bool
 {
-    $stmt = db()->prepare(
-        'SELECT 1
+    $clearedAt = conversationClearedAt($userId, $otherUserId);
+    $sql = 'SELECT 1
          FROM messages
          WHERE ((sender_id = :user_id AND recipient_id = :other_id)
-            OR (sender_id = :other_id AND recipient_id = :user_id))
-         LIMIT 1'
-    );
-
-    $stmt->execute([
+            OR (sender_id = :other_id AND recipient_id = :user_id))';
+    $params = [
         'user_id' => $userId,
         'other_id' => $otherUserId,
-    ]);
+    ];
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+
+    $sql .= ' LIMIT 1';
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
 
     return (bool) $stmt->fetchColumn();
 }
@@ -1668,6 +1882,7 @@ function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): 
 
 function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
 {
+    $clearedAt = conversationClearedAt($userId, $otherUserId);
     $sql = 'SELECT m.*, u.username AS sender_name
             FROM messages m
             JOIN users u ON u.id = m.sender_id
@@ -1678,6 +1893,11 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
         'user_id' => $userId,
         'other_id' => $otherUserId,
     ];
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND m.created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
 
     if ($beforeMessageId !== null && $beforeMessageId > 0) {
         $sql .= ' AND m.id < :before_message_id';
@@ -1693,7 +1913,7 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
     $stmt = db()->prepare($sql);
 
     foreach ($params as $name => $value) {
-        $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
+        $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
     }
 
     if ($limit > 0) {
@@ -2019,20 +2239,26 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
 
 function conversationHasOlderMessagesWithoutMaintenance(int $userId, int $otherUserId, int $beforeMessageId): bool
 {
-    $stmt = db()->prepare(
-        'SELECT 1
+    $clearedAt = conversationClearedAt($userId, $otherUserId);
+    $sql = 'SELECT 1
          FROM messages
          WHERE (((sender_id = :user_id AND recipient_id = :other_id)
             OR (sender_id = :other_id AND recipient_id = :user_id)))
-           AND id < :before_message_id
-         LIMIT 1'
-    );
-
-    $stmt->execute([
+           AND id < :before_message_id';
+    $params = [
         'user_id' => $userId,
         'other_id' => $otherUserId,
         'before_message_id' => $beforeMessageId,
-    ]);
+    ];
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+
+    $sql .= ' LIMIT 1';
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
 
     return (bool) $stmt->fetchColumn();
 }
@@ -2041,20 +2267,27 @@ function conversationStateSignature(int $userId, int $otherUserId): string
 {
     purgeExpiredMessages();
 
-    $stmt = db()->prepare(
-        'SELECT COUNT(*) AS total_messages,
+    $clearedAt = conversationClearedAt($userId, $otherUserId);
+    $sql = 'SELECT COUNT(*) AS total_messages,
                 MAX(id) AS latest_message_id,
                 MAX(created_at) AS latest_message_created_at,
                 MAX(delivered_at) AS latest_message_delivered_at,
                 MAX(read_at) AS latest_message_read_at
          FROM messages
-         WHERE (sender_id = :user_id AND recipient_id = :other_user_id)
-            OR (sender_id = :other_user_id AND recipient_id = :user_id)'
-    );
-    $stmt->execute([
+         WHERE ((sender_id = :user_id AND recipient_id = :other_user_id)
+            OR (sender_id = :other_user_id AND recipient_id = :user_id))';
+    $params = [
         'user_id' => $userId,
         'other_user_id' => $otherUserId,
-    ]);
+    ];
+
+    if ($clearedAt !== null) {
+        $sql .= ' AND created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
     $messageState = $stmt->fetch() ?: [];
 
     $friendship = friendshipRecord($userId, $otherUserId);
