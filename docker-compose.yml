@@ -20,14 +20,14 @@ services:
     restart: unless-stopped
 
   mysql:
-    image: mysql:8.4
+    image: mysql:8.0
     environment:
       MYSQL_DATABASE: local_chat
       MYSQL_USER: local_chat
       MYSQL_PASSWORD: local_chat
       MYSQL_ROOT_PASSWORD: root
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
       interval: 5s
       timeout: 5s
       retries: 20

@@ -34,7 +34,7 @@ docker compose up --build
 The app will be available on <http://0.0.0.0:8080> (or `http://localhost:8080` from the same machine). The Compose stack starts two containers:
 
 - `app`: Apache + PHP 8.3 serving the `public/` directory on port `8080`
-- `mysql`: MySQL 8.4 with a persistent named volume
+- `mysql`: MySQL 8.0 with a persistent named volume
 
 The app container is preconfigured to use MySQL through these environment variables in `docker-compose.yml`:
 
