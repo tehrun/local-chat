@@ -927,6 +927,20 @@ async function syncPushSubscriptionWithServer(subscription) {
     });
 }
 
+async function syncServiceWorkerPushConfig() {
+    if (!('serviceWorker' in navigator) || !webPushPublicKey || !csrfToken) {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const worker = registration.active || registration.waiting || registration.installing;
+    worker?.postMessage({
+        type: 'push-config',
+        publicKey: webPushPublicKey,
+        csrfToken,
+    });
+}
+
 async function ensurePushSubscription() {
     if (!webPushPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') {
         return null;
@@ -948,6 +962,7 @@ async function ensurePushSubscription() {
         }
 
         await syncPushSubscriptionWithServer(subscription.toJSON());
+        await syncServiceWorkerPushConfig();
 
         return subscription;
     })().catch(() => null).finally(() => {
@@ -2369,6 +2384,9 @@ if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js')
             .then(() => {
+                syncServiceWorkerPushConfig().catch(() => {
+                    // Ignore service worker config sync errors.
+                });
                 if (Notification.permission === 'granted') {
                     ensurePushSubscription();
                 }

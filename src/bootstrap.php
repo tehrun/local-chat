@@ -539,6 +539,24 @@ function webPushEnabled(): bool
     return extension_loaded('openssl') && webPushPublicKey() !== null && function_exists('curl_init');
 }
 
+function defaultWebPushSubject(): string
+{
+    $configured = trim((string) envValue('CHAT_WEB_PUSH_SUBJECT', ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
+    $forwardedProto = trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $forwardedProto === 'https';
+    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? ''));
+
+    if ($host !== '') {
+        return ($isHttps ? 'https' : 'http') . '://' . $host;
+    }
+
+    return 'https://example.com';
+}
+
 function normalizePushSubscription(array $subscription): ?array
 {
     $endpoint = trim((string) ($subscription['endpoint'] ?? ''));
@@ -662,7 +680,7 @@ function createWebPushJwt(string $audience, int $expiresAt): ?array
     $claims = base64UrlEncode(encodeJson([
         'aud' => $audience,
         'exp' => $expiresAt,
-        'sub' => trim((string) envValue('CHAT_WEB_PUSH_SUBJECT', 'mailto:admin@localhost')),
+        'sub' => defaultWebPushSubject(),
     ]));
     $signingInput = $header . '.' . $claims;
 
