@@ -1877,6 +1877,7 @@ async function flushPendingTextQueue() {
 }
 
 function sendTextMessage() {
+    const composerWasFocused = document.activeElement === bodyEl;
     const body = bodyEl.value.trim();
     if (!canChat) {
         showError('Friendship revoked. You cannot send new messages until you are friends again.');
@@ -1905,6 +1906,11 @@ function sendTextMessage() {
     syncTyping(false);
     showHint(pendingTextQueue.length > 1 ? 'Queued messages are sending…' : 'Sending message…');
     updateActionButton();
+
+    if (composerWasFocused) {
+        keepComposerFocused(true);
+    }
+
     flushPendingTextQueue();
 }
 
