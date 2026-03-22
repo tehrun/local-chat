@@ -842,7 +842,7 @@ function updatePresence(isOnline, label) {
 
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
-    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Connecting...');
+    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
 }
 
 function updateFriendshipUi() {
@@ -1169,8 +1169,6 @@ function renderStatus() {
         html = `<span class="error-pill">${escapeHtml(statusMessage)}</span>`;
     } else if (statusState === 'hint' && statusMessage !== '') {
         html = `<span class="hint-pill">${escapeHtml(statusMessage)}</span>`;
-    } else if (statusState === 'idle' && canChat && streamState === 'connecting') {
-        html = '<span class="connecting-pill">Connecting...</span>';
     }
 
     statusRowEl.innerHTML = html;
