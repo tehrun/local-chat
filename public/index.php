@@ -726,6 +726,7 @@ const initialChatUsers = <?= jsonScriptValue($chatUsers) ?>;
 const initialDirectoryUsers = <?= jsonScriptValue($users) ?>;
 const initialIncomingRequests = <?= jsonScriptValue($incomingRequests) ?>;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const webPushPublicKey = <?= jsonScriptValue($user !== null ? webPushPublicKey() : null) ?>;
 const initialHomeSignature = <?= jsonScriptValue($user !== null ? chatListStateSignature((int) $user['id']) : '') ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const chatListEl = document.getElementById('chat-list');
@@ -742,6 +743,7 @@ let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
+const STREAM_FALLBACK_POLL_INTERVAL_MS = 12000;
 let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 
 const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
@@ -759,6 +761,7 @@ let notificationPermissionRequested = false;
 let notificationPermissionPromptDismissed = false;
 let hasInteracted = false;
 let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
+let pushSubscriptionSyncPromise = null;
 let directoryUsersState = Array.isArray(initialDirectoryUsers) ? [...initialDirectoryUsers] : [];
 
 const personPlusIcon = `
@@ -805,12 +808,90 @@ function requestNotificationPermission() {
     }
 
     notificationPermissionRequested = true;
-    Notification.requestPermission().catch(() => {
-        // Ignore notification permission errors.
+    Notification.requestPermission()
+        .then((permission) => {
+            if (permission === 'granted') {
+                ensurePushSubscription();
+            }
+        })
+        .catch(() => {
+            // Ignore notification permission errors.
+        });
+}
+
+function base64UrlToUint8Array(value) {
+    if (!value) {
+        return new Uint8Array();
+    }
+
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const raw = window.atob(padded);
+
+    return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+
+async function syncPushSubscriptionWithServer(subscription) {
+    const params = new URLSearchParams({
+        action: 'save_push_subscription',
+        csrf_token: csrfToken,
+        subscription: JSON.stringify(subscription),
+    });
+
+    await fetch('home_api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: params.toString(),
+        credentials: 'same-origin',
     });
 }
 
-async function playNotificationSound() {
+async function syncServiceWorkerPushConfig() {
+    if (!('serviceWorker' in navigator) || !webPushPublicKey || !csrfToken) {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const worker = registration.active || registration.waiting || registration.installing;
+    worker?.postMessage({
+        type: 'push-config',
+        publicKey: webPushPublicKey,
+        csrfToken,
+    });
+}
+
+async function ensurePushSubscription() {
+    if (!currentUserId || !webPushPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') {
+        return null;
+    }
+
+    if (pushSubscriptionSyncPromise) {
+        return pushSubscriptionSyncPromise;
+    }
+
+    pushSubscriptionSyncPromise = (async () => {
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+
+        if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: base64UrlToUint8Array(webPushPublicKey),
+            });
+        }
+
+        await syncPushSubscriptionWithServer(subscription.toJSON());
+        await syncServiceWorkerPushConfig();
+
+        return subscription;
+    })().catch(() => null).finally(() => {
+        pushSubscriptionSyncPromise = null;
+    });
+
+    return pushSubscriptionSyncPromise;
+}
+
+async function playNotificationSound(repetitions = 1) {
     if (!hasInteracted) {
         return;
     }
@@ -826,27 +907,33 @@ async function playNotificationSound() {
             await audioContext.resume();
         }
 
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        const startAt = audioContext.currentTime + 0.01;
-        const endAt = startAt + 0.18;
+        const beepCount = Math.max(1, Number.isFinite(repetitions) ? Math.floor(repetitions) : 1);
+        const firstStartAt = audioContext.currentTime + 0.01;
+        const gapSeconds = 0.28;
 
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(932.33, startAt);
-        gainNode.gain.setValueAtTime(0.0001, startAt);
-        gainNode.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+        for (let index = 0; index < beepCount; index += 1) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            const startAt = firstStartAt + (index * gapSeconds);
+            const endAt = startAt + 0.18;
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        oscillator.start(startAt);
-        oscillator.stop(endAt);
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(932.33, startAt);
+            gainNode.gain.setValueAtTime(0.0001, startAt);
+            gainNode.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.start(startAt);
+            oscillator.stop(endAt);
+        }
 
         window.setTimeout(() => {
             audioContext.close().catch(() => {
                 // Ignore audio context close errors.
             });
-        }, 400);
+        }, Math.max(400, Math.ceil((beepCount * gapSeconds * 1000) + 250)));
     } catch (error) {
         // Ignore audio playback errors.
     }
@@ -1022,9 +1109,13 @@ async function showUnreadMessageNotification(chatUser, increaseCount) {
         return;
     }
 
-    await playNotificationSound();
+    if (document.visibilityState === 'visible') {
+        return;
+    }
 
-    if (document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') {
+    await playNotificationSound(increaseCount);
+
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
         return;
     }
 
@@ -1154,6 +1245,7 @@ function applyChatListPayload(payload) {
     const nextChatSignature = JSON.stringify(chatUsers);
     const nextDirectorySignature = JSON.stringify(directoryUsers);
     const nextRequestSignature = JSON.stringify(incomingRequests);
+    let totalNewMessages = 0;
 
     chatUsers.forEach((chatUser) => {
         const userId = String(chatUser.id);
@@ -1161,11 +1253,17 @@ function applyChatListPayload(payload) {
         const previousUnseenCount = lastUnseenCounts.get(userId) || 0;
 
         if (nextUnseenCount > previousUnseenCount) {
-            showUnreadMessageNotification(chatUser, nextUnseenCount - previousUnseenCount);
+            const increaseCount = nextUnseenCount - previousUnseenCount;
+            totalNewMessages += increaseCount;
+            showUnreadMessageNotification(chatUser, increaseCount);
         }
 
         lastUnseenCounts.set(userId, nextUnseenCount);
     });
+
+    if (document.visibilityState === 'visible' && totalNewMessages > 0) {
+        playNotificationSound(totalNewMessages);
+    }
 
     if (nextChatSignature !== chatListSignature) {
         chatListSignature = nextChatSignature;
@@ -1243,8 +1341,8 @@ function scheduleChatListPoll(delay = homePollDelay) {
             homePollDelay = Math.min(MAX_HOME_POLL_INTERVAL_MS, homePollDelay + 3000);
         }
 
-        if (preferPolling && currentUserId) {
-            scheduleChatListPoll(homePollDelay);
+        if (currentUserId) {
+            scheduleChatListPoll(preferPolling ? homePollDelay : STREAM_FALLBACK_POLL_INTERVAL_MS);
         }
     }, delay);
 }
@@ -1275,6 +1373,8 @@ function connectChatListStream() {
         window.clearTimeout(chatListReconnectTimer);
         chatListReconnectTimer = window.setTimeout(connectChatListStream, 1500);
     };
+
+    scheduleChatListPoll(STREAM_FALLBACK_POLL_INTERVAL_MS);
 }
 
 applyChatListPayload({
@@ -1290,9 +1390,18 @@ connectChatListStream();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {
-            // Ignore service worker registration errors.
-        });
+        navigator.serviceWorker.register('sw.js')
+            .then(() => {
+                syncServiceWorkerPushConfig().catch(() => {
+                    // Ignore service worker config sync errors.
+                });
+                if (Notification.permission === 'granted') {
+                    ensurePushSubscription();
+                }
+            })
+            .catch(() => {
+                // Ignore service worker registration errors.
+            });
     });
 }
 
