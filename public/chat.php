@@ -884,6 +884,18 @@ if ($isGroupConversation) {
                 </button>
                 <div id="header-menu-panel" class="header-menu-panel" role="menu" aria-label="Conversation actions" hidden>
                     <button
+                        id="rename-group-button"
+                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>
+                        </svg>
+                        <span>Edit group name</span>
+                    </button>
+                    <button
                         id="add-group-member-button"
                         class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
                         type="button"
@@ -952,18 +964,6 @@ if ($isGroupConversation) {
                             <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
                         </svg>
                         <span>Delete group</span>
-                    </button>
-                    <button
-                        id="rename-group-button"
-                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
-                        type="button"
-                        role="menuitem"
-                    >
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M12 20h9"></path>
-                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>
-                        </svg>
-                        <span>Edit group name</span>
                     </button>
                 </div>
             </div>
