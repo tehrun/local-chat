@@ -371,32 +371,10 @@ if ($isGroupConversation) {
         }
         .message-row {
             display: flex;
-            align-items: flex-end;
-            gap: 8px;
             align-self: flex-start;
         }
         .message-row.mine {
             align-self: flex-end;
-            flex-direction: row-reverse;
-        }
-        .message-avatar {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            flex: 0 0 32px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            color: #fff;
-            background: linear-gradient(135deg, #0f766e, #14b8a6);
-            box-shadow: 0 6px 16px rgba(15, 118, 110, 0.22);
-        }
-        .message-row.mine .message-avatar {
-            background: linear-gradient(135deg, #128c7e, #25d366);
-            box-shadow: 0 6px 16px rgba(18, 140, 126, 0.18);
         }
         .message {
             background: var(--theirs);
@@ -1691,11 +1669,6 @@ function renderDeliveryTicks(message) {
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
 }
 
-function messageAvatarLabel(message) {
-    const name = String(message?.sender_name || '');
-    return escapeHtml(name.slice(0, 2).toUpperCase() || '?');
-}
-
 function formatHumanTimestamp(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -1856,11 +1829,9 @@ function renderMessages(messages) {
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
-            const avatar = `<div class="message-avatar" aria-hidden="true">${messageAvatarLabel(message)}</div>`;
 
             return `
                 <article class="message-row ${isMine ? 'mine' : ''}">
-                    ${avatar}
                     <div class="message">
                         ${senderLabel}
                         ${body}
