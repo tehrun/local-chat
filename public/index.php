@@ -271,7 +271,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 14px;
+            padding: 12px 14px;
             border-radius: 18px;
             background: var(--theirs);
             color: inherit;
@@ -315,6 +315,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .chat-copy {
             min-width: 0;
             flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
         .chat-copy strong {
             font-size: 16px;
@@ -323,31 +326,59 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         .chat-copy-head {
             display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 4px;
+            align-items: center;
+            gap: 12px;
             margin-bottom: 0;
+        }
+        .chat-name {
+            min-width: 0;
+            flex: 1;
+        }
+        .chat-last-time {
+            flex-shrink: 0;
+            font-size: 12px;
+            line-height: 1;
+            font-weight: 600;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        .chat-last-time.is-empty {
+            visibility: hidden;
+        }
+        .chat-preview-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        .chat-preview {
+            min-width: 0;
+            flex: 1;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .chat-time {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 24px;
-            height: 24px;
-            padding: 0 8px;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 7px;
             border-radius: 999px;
             background: var(--action);
             color: #fff;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             line-height: 1;
             white-space: nowrap;
+            flex-shrink: 0;
         }
         .chat-time.is-empty {
-            background: transparent;
-            color: transparent;
-            padding: 0;
-            min-width: 0;
+            display: none;
         }
         .auth-grid {
             display: grid;
@@ -630,14 +661,14 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <div class="avatar"><?= e(strtoupper(substr((string) $chatUser['username'], 0, 2))) ?></div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
-                                        <strong><?= e($chatUser['username']) ?></strong>
-                                        <span class="presence-badge">
-                                            <span class="dot <?= !empty($chatUser['is_online']) ? 'online' : '' ?>" data-role="presence-dot" aria-hidden="true"></span>
-                                            <span data-role="presence-label"><?= e($chatUser['presence_label'] ?? 'Offline') ?></span>
-                                        </span>
+                                        <strong class="chat-name"><?= e($chatUser['username']) ?></strong>
+                                        <span class="chat-last-time<?= ($chatUser['chat_list_time'] ?? '') !== '' ? '' : ' is-empty' ?>" data-role="chat-time"><?= e($chatUser['chat_list_time'] ?? '') ?></span>
+                                    </div>
+                                    <div class="chat-preview-row">
+                                        <span class="chat-preview" data-role="chat-preview"><?= e($chatUser['chat_list_preview'] ?? 'Start chatting') ?></span>
+                                        <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>" data-role="unseen-count"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
                                     </div>
                                 </div>
-                                <span class="chat-time<?= $unseenCount > 0 ? '' : ' is-empty' ?>" data-role="unseen-count"<?= $unseenCount > 0 ? '' : ' aria-hidden="true"' ?>><?= $unseenCount > 0 ? $unseenCount : '' ?></span>
                             </a>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -832,6 +863,8 @@ function renderDirectoryEntries(users, includeUnseenCount) {
         const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
         const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
         const username = escapeHtml(chatUser.username || '');
+        const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
+        const chatTime = escapeHtml(chatUser.chat_list_time || '');
         const presenceClass = chatUser.is_online ? ' online' : '';
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
@@ -847,7 +880,11 @@ function renderDirectoryEntries(users, includeUnseenCount) {
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
-                        <strong>${username}</strong>
+                        <strong class="chat-name">${username}</strong>
+                        <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
+                    </div>
+                    <div class="chat-preview-row">
+                        <span class="chat-preview" data-role="chat-preview">${preview}</span>
                         <span class="presence-badge">
                             <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
                             <span data-role="presence-label">${presenceLabel}</span>
@@ -868,9 +905,9 @@ function renderChatListEntries(users) {
         const userId = Number(chatUser.id);
         const unseenCount = Number(chatUser.unseen_count || 0);
         const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
-        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
         const username = escapeHtml(chatUser.username || '');
-        const presenceClass = chatUser.is_online ? ' online' : '';
+        const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
+        const chatTime = escapeHtml(chatUser.chat_list_time || '');
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
 
@@ -879,14 +916,14 @@ function renderChatListEntries(users) {
                 <div class="avatar">${avatar}</div>
                 <div class="chat-copy">
                     <div class="chat-copy-head">
-                        <strong>${username}</strong>
-                        <span class="presence-badge">
-                            <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
-                            <span data-role="presence-label">${presenceLabel}</span>
-                        </span>
+                        <strong class="chat-name">${username}</strong>
+                        <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
+                    </div>
+                    <div class="chat-preview-row">
+                        <span class="chat-preview" data-role="chat-preview">${preview}</span>
+                        <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>
                     </div>
                 </div>
-                <span class="chat-time${countClass}" data-role="unseen-count"${hiddenAttr}>${unseenCount > 0 ? String(unseenCount) : ''}</span>
             </a>`;
     }).join('');
 }

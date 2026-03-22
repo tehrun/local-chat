@@ -934,26 +934,78 @@ function allOtherUsers(int $currentUserId): array
                 u.created_at,
                 up.updated_at AS presence_updated_at,
                 COUNT(DISTINCT m_unseen.id) AS unseen_count,
-                MAX(m_latest.created_at) AS last_message_at,
-                MAX(m_latest.id) AS last_message_id
+                m_last.created_at AS last_message_at,
+                m_last.id AS last_message_id,
+                m_last.body AS last_message_body,
+                m_last.audio_path AS last_message_audio_path,
+                m_last.image_path AS last_message_image_path
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
-         LEFT JOIN messages m_latest
-            ON ((m_latest.sender_id = :id AND m_latest.recipient_id = u.id)
-             OR (m_latest.sender_id = u.id AND m_latest.recipient_id = :id))
+         LEFT JOIN messages m_last
+            ON m_last.id = (
+                SELECT m2.id
+                FROM messages m2
+                WHERE (m2.sender_id = :id AND m2.recipient_id = u.id)
+                   OR (m2.sender_id = u.id AND m2.recipient_id = :id)
+                ORDER BY m2.created_at DESC, m2.id DESC
+                LIMIT 1
+            )
          LEFT JOIN messages m_unseen ON m_unseen.sender_id = u.id
             AND m_unseen.recipient_id = :id
             AND m_unseen.read_at IS NULL
          WHERE u.id != :id
-         GROUP BY u.id, u.username, u.created_at, up.updated_at
-         ORDER BY CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END ASC,
-                  last_message_at DESC,
-                  last_message_id DESC,
+         GROUP BY u.id, u.username, u.created_at, up.updated_at,
+                  m_last.created_at, m_last.id, m_last.body, m_last.audio_path, m_last.image_path
+         ORDER BY CASE WHEN m_last.created_at IS NULL THEN 1 ELSE 0 END ASC,
+                  m_last.created_at DESC,
+                  m_last.id DESC,
                   username ASC'
     );
     $stmt->execute(['id' => $currentUserId]);
 
-    return decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
+    $users = decorateUsersWithFriendship(mapUsersWithPresence($stmt->fetchAll()), $currentUserId);
+
+    foreach ($users as &$user) {
+        $user['chat_list_time'] = formatChatListTime($user['last_message_at'] ?? null);
+        $user['chat_list_preview'] = chatListPreview($user);
+    }
+    unset($user);
+
+    return $users;
+}
+
+function formatChatListTime(?string $timestamp): string
+{
+    if ($timestamp === null || $timestamp === '') {
+        return '';
+    }
+
+    $time = strtotime($timestamp);
+
+    if ($time === false) {
+        return '';
+    }
+
+    return gmdate('H:i', $time);
+}
+
+function chatListPreview(array $user): string
+{
+    $body = trim((string) ($user['last_message_body'] ?? ''));
+
+    if ($body !== '') {
+        return $body;
+    }
+
+    if (!empty($user['last_message_image_path'])) {
+        return '📷 Photo';
+    }
+
+    if (!empty($user['last_message_audio_path'])) {
+        return '🎤 Voice message';
+    }
+
+    return 'Start chatting';
 }
 
 function chatListPayload(int $currentUserId): array
