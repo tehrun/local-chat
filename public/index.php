@@ -10,6 +10,7 @@ $errors = [];
 $notice = null;
 $user = currentUser();
 $authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
+$registrationChallengePrompt = registrationChallengePrompt();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     requireCsrfToken();
@@ -18,7 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'register') {
         $authMode = 'register';
-        $error = registerUser($_POST['username'] ?? '', $_POST['password'] ?? '');
+        $error = registerUser(
+            $_POST['username'] ?? '',
+            $_POST['password'] ?? '',
+            $_POST['confirm_password'] ?? '',
+            $_POST['verification_answer'] ?? ''
+        );
+        $registrationChallengePrompt = registrationChallengePrompt();
         if ($error !== null) {
             $errors[] = $error;
         } else {
@@ -543,6 +550,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     Password
                                     <input type="password" name="password" minlength="6" required>
                                 </label>
+                                <label>
+                                    Confirm password
+                                    <input type="password" name="confirm_password" minlength="6" required>
+                                </label>
+                                <label>
+                                    Verification: solve <?= e($registrationChallengePrompt) ?>
+                                    <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
+                                </label>
+                                <p class="meta-text">This math check is generated locally on the server and does not rely on any internet service.</p>
                                 <button class="primary" type="submit">Register</button>
                             </form>
                             <p class="auth-switch">Already have an account? <a href="index.php">Sign in</a></p>

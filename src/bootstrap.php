@@ -1084,7 +1084,55 @@ function findUserById(int $id): ?array
     return $user;
 }
 
-function registerUser(string $username, string $password): ?string
+function ensureRegistrationChallenge(): array
+{
+    $challenge = $_SESSION['registration_challenge'] ?? null;
+
+    if (
+        !is_array($challenge)
+        || !isset($challenge['left'], $challenge['right'], $challenge['operator'], $challenge['answer'])
+        || !is_int($challenge['left'])
+        || !is_int($challenge['right'])
+        || !is_string($challenge['operator'])
+        || !is_int($challenge['answer'])
+        || !in_array($challenge['operator'], ['+', '-'], true)
+    ) {
+        $challenge = refreshRegistrationChallenge();
+    }
+
+    return $challenge;
+}
+
+function refreshRegistrationChallenge(): array
+{
+    $left = random_int(2, 12);
+    $right = random_int(2, 12);
+    $operator = random_int(0, 1) === 0 ? '+' : '-';
+
+    if ($operator === '-' && $right > $left) {
+        [$left, $right] = [$right, $left];
+    }
+
+    $answer = $operator === '+' ? $left + $right : $left - $right;
+
+    $_SESSION['registration_challenge'] = [
+        'left' => $left,
+        'right' => $right,
+        'operator' => $operator,
+        'answer' => $answer,
+    ];
+
+    return $_SESSION['registration_challenge'];
+}
+
+function registrationChallengePrompt(): string
+{
+    $challenge = ensureRegistrationChallenge();
+
+    return sprintf('%d %s %d', $challenge['left'], $challenge['operator'], $challenge['right']);
+}
+
+function registerUser(string $username, string $password, string $confirmPassword, string $challengeAnswer): ?string
 {
     $username = trim($username);
 
@@ -1094,6 +1142,21 @@ function registerUser(string $username, string $password): ?string
 
     if (strlen($password) < 6) {
         return 'Password must be at least 6 characters.';
+    }
+
+    if (!hash_equals($password, $confirmPassword)) {
+        refreshRegistrationChallenge();
+
+        return 'Passwords do not match.';
+    }
+
+    $challenge = ensureRegistrationChallenge();
+    $normalizedAnswer = trim($challengeAnswer);
+
+    if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        refreshRegistrationChallenge();
+
+        return 'Incorrect verification answer. Please solve the new math question.';
     }
 
     if (findUserByUsername($username) !== null) {
@@ -1106,6 +1169,8 @@ function registerUser(string $username, string $password): ?string
         'password_hash' => password_hash($password, PASSWORD_DEFAULT),
         'created_at' => gmdate('c'),
     ]);
+
+    refreshRegistrationChallenge();
 
     return null;
 }
