@@ -49,6 +49,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
             --keyboard-offset: 0px;
+            --composer-clearance: 136px;
         }
         * { box-sizing: border-box; }
         body {
@@ -210,9 +211,9 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             display: flex;
             flex-direction: column;
             gap: 10px;
-            padding: 6px 4px max(18px, env(safe-area-inset-bottom, 0px));
+            padding: 6px 4px calc(var(--composer-clearance) + env(safe-area-inset-bottom, 0px));
             overscroll-behavior: contain;
-            scroll-padding-bottom: 18px;
+            scroll-padding-bottom: calc(var(--composer-clearance) - 18px);
         }
         .conversation-actions {
             position: absolute;
@@ -1173,12 +1174,23 @@ function updateKeyboardOffset() {
     const viewport = window.visualViewport;
     if (!viewport) {
         document.documentElement.style.setProperty('--keyboard-offset', '0px');
+        updateComposerClearance();
         return;
     }
 
     const keyboardOffset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
     document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(keyboardOffset)}px`);
+    updateComposerClearance();
+}
 
+function updateComposerClearance() {
+    const composerWrap = document.querySelector('.composer-wrap');
+    if (!(composerWrap instanceof HTMLElement)) {
+        return;
+    }
+
+    const clearance = Math.max(136, composerWrap.offsetHeight + 22);
+    document.documentElement.style.setProperty('--composer-clearance', `${clearance}px`);
 }
 
 function renderStatus() {
@@ -1195,7 +1207,9 @@ function renderStatus() {
     }
 
     statusRowEl.innerHTML = html;
+    updateComposerClearance();
 }
+
 
 function showHint(message) {
     statusState = 'hint';
@@ -1877,6 +1891,7 @@ function sendTextMessage() {
     shouldAutoScroll = shouldPinToBottom;
     bodyEl.value = '';
     autoResizeComposer();
+    updateComposerClearance();
     updateKeyboardOffset();
     updateComposerDirection();
     typingActive = false;
@@ -2208,6 +2223,7 @@ imageButton.addEventListener('touchstart', preserveComposerFocus, { passive: fal
 
 window.visualViewport?.addEventListener('resize', updateKeyboardOffset);
 window.visualViewport?.addEventListener('scroll', updateKeyboardOffset);
+window.addEventListener('resize', updateComposerClearance);
 bodyEl.addEventListener('focus', updateKeyboardOffset);
 bodyEl.addEventListener('blur', () => {
     window.setTimeout(updateKeyboardOffset, 150);
@@ -2216,6 +2232,7 @@ bodyEl.addEventListener('blur', () => {
 bodyEl.addEventListener('input', () => {
     markUserInteraction();
     autoResizeComposer();
+    updateComposerClearance();
     updateComposerDirection();
     updateActionButton();
     markTyping();
@@ -2385,6 +2402,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 autoResizeComposer();
+updateComposerClearance();
 updateKeyboardOffset();
 updateComposerDirection();
 updateActionButton();
