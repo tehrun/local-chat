@@ -104,7 +104,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             min-height: 100vh;
             max-width: 720px;
             margin: 0 auto;
-            background: linear-gradient(180deg, #0b141a 0, #0b141a 72px, var(--bg) 72px);
+            background: var(--bg);
         }
         .shell {
             min-height: 100vh;
@@ -503,6 +503,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             margin: 0;
             font-size: 18px;
         }
+        .chat-switcher-search {
+            padding: 0 18px 14px;
+        }
+        .chat-switcher-search input {
+            margin-top: 0;
+        }
         .chat-switcher-close {
             border: none;
             background: #dfe5e7;
@@ -518,6 +524,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: flex;
             flex-direction: column;
             gap: 10px;
+        }
+        .chat-switcher-empty {
+            margin: 0 18px 18px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #fff;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
         }
         @media (min-width: 721px) {
             .app {
@@ -694,10 +709,14 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <div class="chat-switcher" id="chat-switcher" hidden>
         <div class="chat-switcher-panel" role="dialog" aria-modal="true" aria-labelledby="chat-switcher-title">
             <div class="chat-switcher-header">
-                <h2 id="chat-switcher-title">All users</h2>
+                <h2 id="chat-switcher-title">Search users</h2>
                 <button class="chat-switcher-close" id="chat-switcher-close" type="button" aria-label="Close user list">×</button>
             </div>
+            <div class="chat-switcher-search">
+                <input id="chat-switcher-search-input" type="search" placeholder="Search users by name" autocomplete="off" aria-label="Search users by name">
+            </div>
             <div class="chat-switcher-list" id="chat-switcher-list"></div>
+            <p class="chat-switcher-empty" id="chat-switcher-empty" hidden>No users match your search.</p>
         </div>
     </div>
 <?php endif; ?>
@@ -729,6 +748,8 @@ const chatSwitcherToggle = document.getElementById('chat-switcher-toggle');
 const chatSwitcherEl = document.getElementById('chat-switcher');
 const chatSwitcherListEl = document.getElementById('chat-switcher-list');
 const chatSwitcherClose = document.getElementById('chat-switcher-close');
+const chatSwitcherSearchInput = document.getElementById('chat-switcher-search-input');
+const chatSwitcherEmptyEl = document.getElementById('chat-switcher-empty');
 const loginForm = document.getElementById('login-form');
 const loginSubmitButton = document.getElementById('login-submit');
 const loginUsernameInput = loginForm?.querySelector('[data-login-field="username"]') || null;
@@ -738,6 +759,7 @@ let notificationPermissionRequested = false;
 let notificationPermissionPromptDismissed = false;
 let hasInteracted = false;
 let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
+let directoryUsersState = Array.isArray(initialDirectoryUsers) ? [...initialDirectoryUsers] : [];
 
 const personPlusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -863,8 +885,6 @@ function renderDirectoryEntries(users, includeUnseenCount) {
         const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
         const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
         const username = escapeHtml(chatUser.username || '');
-        const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
-        const chatTime = escapeHtml(chatUser.chat_list_time || '');
         const presenceClass = chatUser.is_online ? ' online' : '';
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
@@ -881,10 +901,8 @@ function renderDirectoryEntries(users, includeUnseenCount) {
                 <div class="chat-copy">
                     <div class="chat-copy-head">
                         <strong class="chat-name">${username}</strong>
-                        <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
                     </div>
                     <div class="chat-preview-row">
-                        <span class="chat-preview" data-role="chat-preview">${preview}</span>
                         <span class="presence-badge">
                             <span class="dot${presenceClass}" data-role="presence-dot" aria-hidden="true"></span>
                             <span data-role="presence-label">${presenceLabel}</span>
@@ -926,6 +944,15 @@ function renderChatListEntries(users) {
                 </div>
             </a>`;
     }).join('');
+}
+
+function filteredDirectoryUsers() {
+    const query = String(chatSwitcherSearchInput?.value || '').trim().toLowerCase();
+    if (query === '') {
+        return [];
+    }
+
+    return directoryUsersState.filter((chatUser) => String(chatUser.username || '').toLowerCase().includes(query));
 }
 
 function renderIncomingRequests(requests) {
@@ -1027,16 +1054,29 @@ function renderChatSwitcher(users) {
         return;
     }
 
-    if (!Array.isArray(users) || users.length === 0) {
+    const hasUsers = Array.isArray(users) && users.length > 0;
+    const searchQuery = String(chatSwitcherSearchInput?.value || '').trim();
+
+    if (!hasUsers) {
         chatSwitcherListEl.innerHTML = `
             <div class="card">
                 <h2 class="panel-title">No other users yet</h2>
                 <p class="panel-text">Create another account on this network to start chatting.</p>
             </div>`;
+        if (chatSwitcherEmptyEl) {
+            chatSwitcherEmptyEl.hidden = true;
+        }
         return;
     }
 
-    chatSwitcherListEl.innerHTML = renderDirectoryEntries(users, false);
+    const visibleUsers = filteredDirectoryUsers();
+    chatSwitcherListEl.innerHTML = renderDirectoryEntries(visibleUsers, false);
+    if (chatSwitcherEmptyEl) {
+        chatSwitcherEmptyEl.textContent = searchQuery === ''
+            ? 'Search by name to find and add a user.'
+            : 'No users match your search.';
+        chatSwitcherEmptyEl.hidden = visibleUsers.length > 0;
+    }
 }
 
 function setChatSwitcherOpen(isOpen) {
@@ -1046,6 +1086,12 @@ function setChatSwitcherOpen(isOpen) {
 
     chatSwitcherEl.hidden = !isOpen;
     document.body.style.overflow = isOpen ? 'hidden' : '';
+    if (isOpen) {
+        renderChatSwitcher(directoryUsersState);
+        chatSwitcherSearchInput?.focus();
+    } else if (chatSwitcherSearchInput) {
+        chatSwitcherSearchInput.value = '';
+    }
 }
 
 
@@ -1128,7 +1174,8 @@ function applyChatListPayload(payload) {
 
     if (nextDirectorySignature !== directorySignature) {
         directorySignature = nextDirectorySignature;
-        renderChatSwitcher(directoryUsers);
+        directoryUsersState = directoryUsers;
+        renderChatSwitcher(directoryUsersState);
     }
 
     if (nextRequestSignature !== requestSignature) {
@@ -1270,6 +1317,9 @@ chatSwitcherEl?.addEventListener('click', (event) => {
     if (event.target === chatSwitcherEl) {
         setChatSwitcherOpen(false);
     }
+});
+chatSwitcherSearchInput?.addEventListener('input', () => {
+    renderChatSwitcher(directoryUsersState);
 });
 document.addEventListener('keydown', (event) => {
     markUserInteraction();

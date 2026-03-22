@@ -73,7 +73,7 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
             flex-direction: column;
             max-width: 720px;
             margin: 0 auto;
-            background: linear-gradient(180deg, #0b141a 0, #0b141a 72px, var(--bg) 72px);
+            background: var(--bg);
         }
         .chat-shell {
             min-height: 100vh;
@@ -655,6 +655,19 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                 </div>
             </div>
             <button
+                id="revoke-friendship-button"
+                class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
+                type="button"
+                aria-label="Revoke friendship"
+                title="Revoke friendship"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M17 11h4"></path>
+                </svg>
+            </button>
+            <button
                 id="delete-conversation-button"
                 class="header-icon-button"
                 type="button"
@@ -667,19 +680,6 @@ $initialConversationSignature = conversationStateSignature((int) $user['id'], $o
                     <path d="M14 11v6"></path>
                     <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
                     <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path>
-                </svg>
-            </button>
-            <button
-                id="revoke-friendship-button"
-                class="header-icon-button<?= $friendship !== null && $friendship['status'] === 'accepted' ? '' : ' hidden' ?>"
-                type="button"
-                aria-label="Revoke friendship"
-                title="Revoke friendship"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M15 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M17 11h4"></path>
                 </svg>
             </button>
         </header>
