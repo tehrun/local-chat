@@ -354,11 +354,8 @@ if ($isGroupConversation) {
             stroke-linejoin: round;
         }
         .empty-state,
-        .message {
-            max-width: min(82%, 420px);
-            border-radius: 18px;
-            padding: 10px 12px;
-            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        .message-row {
+            max-width: min(88%, 460px);
             word-break: break-word;
         }
         .empty-state {
@@ -368,14 +365,57 @@ if ($isGroupConversation) {
             color: var(--muted);
             text-align: center;
             margin-top: 16px;
+            border-radius: 18px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+        }
+        .message-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            align-self: flex-start;
+        }
+        .message-row.mine {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            flex: 0 0 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            color: #fff;
+            background: linear-gradient(135deg, #0f766e, #14b8a6);
+            box-shadow: 0 6px 16px rgba(15, 118, 110, 0.22);
+        }
+        .message-row.mine .message-avatar {
+            background: linear-gradient(135deg, #128c7e, #25d366);
+            box-shadow: 0 6px 16px rgba(18, 140, 126, 0.18);
         }
         .message {
             background: var(--theirs);
-            align-self: flex-start;
+            border-radius: 18px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
+            min-width: 0;
         }
-        .message.mine {
+        .message-row.mine .message {
             background: var(--mine);
-            align-self: flex-end;
+        }
+        .message-sender {
+            margin: 0 0 4px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f766e;
+        }
+        .message-row.mine .message-sender {
+            color: #0b5d54;
         }
         .message-text {
             white-space: pre-wrap;
@@ -400,9 +440,9 @@ if ($isGroupConversation) {
             color: var(--muted);
             display: flex;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: space-between;
             gap: 4px;
-            text-align: right;
+            text-align: left;
         }
         .meta-label {
             min-width: 0;
@@ -1651,6 +1691,48 @@ function renderDeliveryTicks(message) {
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
 }
 
+function messageAvatarLabel(message) {
+    const name = String(message?.sender_name || '');
+    return escapeHtml(name.slice(0, 2).toUpperCase() || '?');
+}
+
+function formatHumanTimestamp(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return escapeHtml(String(value || ''));
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+    const timeLabel = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date);
+
+    if (diffDays === 0) {
+        return `Today ${timeLabel}`;
+    }
+
+    if (diffDays === -1) {
+        return `Yesterday ${timeLabel}`;
+    }
+
+    if (diffDays === 1) {
+        return `Tomorrow ${timeLabel}`;
+    }
+
+    const dateLabel = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    }).format(date);
+
+    return `${dateLabel} ${timeLabel}`;
+}
+
 function upsertMessage(message) {
     const messages = window.__messagesState || [];
     const nextMessages = messages.filter((item) => item.id !== message.id);
@@ -1757,6 +1839,7 @@ function renderMessages(messages) {
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
+            const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
             const body = message.body
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
@@ -1769,13 +1852,22 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
+            const senderLabel = shouldShowSender
+                ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
+                : '';
+            const timeLabel = formatHumanTimestamp(message.created_at);
+            const avatar = `<div class="message-avatar" aria-hidden="true">${messageAvatarLabel(message)}</div>`;
 
             return `
-                <article class="message ${isMine ? 'mine' : ''}">
-                    ${body}
-                    ${image}
-                    ${audio}
-                    <div class="meta"><span class="meta-label">${escapeHtml(message.sender_name)} · ${escapeHtml(message.created_at_label)}${pendingLabel}</span>${ticks}</div>
+                <article class="message-row ${isMine ? 'mine' : ''}">
+                    ${avatar}
+                    <div class="message">
+                        ${senderLabel}
+                        ${body}
+                        ${image}
+                        ${audio}
+                        <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
+                    </div>
                 </article>`;
         }).join('');
 
