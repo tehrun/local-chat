@@ -2,11 +2,6 @@
 
 declare(strict_types=1);
 
-configureSession();
-session_start();
-
-applySecurityHeaders();
-
 define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
@@ -20,6 +15,11 @@ define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
 define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
+
+configureSession();
+session_start();
+
+applySecurityHeaders();
 
 function configureSession(): void
 {
