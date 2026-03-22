@@ -1527,6 +1527,12 @@ function keepComposerFocused(force = false) {
     });
 }
 
+function scheduleComposerFocusRestore() {
+    keepComposerFocused(true);
+    window.setTimeout(() => keepComposerFocused(true), 0);
+    window.setTimeout(() => keepComposerFocused(true), 80);
+}
+
 function preserveComposerFocus(event) {
     if (!(event.target instanceof HTMLElement)) {
         return;
@@ -1908,7 +1914,7 @@ function sendTextMessage() {
     updateActionButton();
 
     if (composerWasFocused) {
-        keepComposerFocused(true);
+        scheduleComposerFocusRestore();
     }
 
     flushPendingTextQueue();
@@ -2363,8 +2369,13 @@ revokeFriendshipButton.addEventListener('click', async () => {
 actionButton.addEventListener('click', async (event) => {
     event.preventDefault();
     markUserInteraction();
+    const composerWasFocused = document.activeElement === bodyEl;
     if (bodyEl.value.trim() !== '') {
         sendTextMessage();
+        if (composerWasFocused) {
+            actionButton.blur();
+            scheduleComposerFocusRestore();
+        }
         return;
     }
 
