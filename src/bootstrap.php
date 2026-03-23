@@ -2653,7 +2653,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
         'friendship' => friendshipRecord($userId, $otherUserId),
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
-            'label' => $otherUser['presence_label'] ?? 'Offline',
+            'updated_at' => $otherUser['presence_updated_at'] ?? null,
         ],
     ];
 }
@@ -2731,7 +2731,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
         ],
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
-            'label' => $otherUser['presence_label'] ?? 'Offline',
+            'updated_at' => $otherUser['presence_updated_at'] ?? null,
         ],
     ]));
 }

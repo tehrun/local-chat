@@ -819,6 +819,57 @@ const rejectIcon = `
         <path d="m6 6 12 12"></path>
     </svg>`;
 
+function parseIsoTimestamp(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatClockTime(value) {
+    const date = parseIsoTimestamp(value);
+    if (!date) {
+        return '';
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date);
+}
+
+function formatPresenceLabel(isOnline, updatedAt) {
+    if (isOnline) {
+        return 'Online';
+    }
+
+    const date = parseIsoTimestamp(updatedAt);
+    if (!date) {
+        return 'Offline';
+    }
+
+    const now = new Date();
+    const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+    const timeLabel = formatClockTime(updatedAt);
+
+    if (diffDays === 0) {
+        return `Last seen today at ${timeLabel}`;
+    }
+
+    if (diffDays === -1) {
+        return `Last seen yesterday at ${timeLabel}`;
+    }
+
+    const dateLabel = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    }).format(date);
+
+    return `Last seen ${dateLabel} at ${timeLabel}`;
+}
+
 function updateLoginButtonState() {
     if (!loginSubmitButton) {
         return;
@@ -1008,7 +1059,7 @@ function renderDirectoryEntries(users, includeUnseenCount) {
         const userId = Number(chatUser.id);
         const unseenCount = Number(chatUser.unseen_count || 0);
         const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
-        const presenceLabel = escapeHtml(chatUser.presence_label || 'Offline');
+        const presenceLabel = escapeHtml(formatPresenceLabel(Boolean(chatUser.is_online), chatUser.presence_updated_at || null));
         const username = escapeHtml(chatUser.username || '');
         const presenceClass = chatUser.is_online ? ' online' : '';
         const countClass = unseenCount > 0 ? '' : ' is-empty';
@@ -1051,7 +1102,7 @@ function renderChatListEntries(users) {
         const avatar = escapeHtml(displayName.slice(0, 2).toUpperCase());
         const username = escapeHtml(displayName);
         const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
-        const chatTime = escapeHtml(chatUser.chat_list_time || '');
+        const chatTime = escapeHtml(formatClockTime(chatUser.last_message_at || chatUser.chat_list_time || ''));
         const countClass = unseenCount > 0 ? '' : ' is-empty';
         const hiddenAttr = unseenCount > 0 ? '' : ' aria-hidden="true"';
         const href = escapeHtml(chatUser.url || `chat.php?user=${userId}`);
@@ -1098,7 +1149,7 @@ function renderIncomingRequests(requests) {
     friendRequestListEl.innerHTML = requests.map((request) => {
         const userId = Number(request.sender_id);
         const avatar = escapeHtml(String(request.sender_name || '').slice(0, 2).toUpperCase());
-        const presenceLabel = escapeHtml(request.presence_label || 'Offline');
+        const presenceLabel = escapeHtml(formatPresenceLabel(Boolean(request.is_online), request.presence_updated_at || null));
         const senderName = escapeHtml(request.sender_name || 'Unknown');
         const presenceClass = request.is_online ? ' online' : '';
         return `
