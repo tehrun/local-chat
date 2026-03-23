@@ -595,7 +595,7 @@ if ($isGroupConversation) {
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
-            background: var(--header);
+            background: transparent;
             box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
         }
         .composer-stack {
@@ -605,7 +605,7 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: rgba(255, 255, 255, 0.14);
+            background: var(--composer);
             border-radius: 26px;
             padding: 10px;
             box-shadow: none;
