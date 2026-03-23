@@ -228,6 +228,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .header-menu-item,
         .header-menu-label {
             width: 100%;
+            min-height: 48px;
             border: none;
             border-radius: 14px;
             background: transparent;
@@ -239,6 +240,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             font-size: 14px;
             font-weight: 700;
             text-align: left;
+            box-sizing: border-box;
         }
         .header-menu-item {
             cursor: pointer;
@@ -284,6 +286,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             margin: 0;
         }
         .theme-switch {
+            margin: 0;
             appearance: none;
             width: 42px;
             height: 24px;
