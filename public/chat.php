@@ -605,7 +605,7 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: var(--composer);
+            background: transparent;
             border-radius: 26px;
             padding: 10px;
             box-shadow: none;
