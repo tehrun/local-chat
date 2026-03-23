@@ -598,6 +598,10 @@ if ($isGroupConversation) {
             background: transparent;
             box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
         }
+        :root:not([data-theme="dark"]) .composer-wrap {
+            background: rgba(255, 255, 255, 0.14);
+            box-shadow: none;
+        }
         .composer-stack {
             position: relative;
         }
