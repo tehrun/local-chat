@@ -585,6 +585,37 @@ if ($isGroupConversation) {
             opacity: 0.7;
             cursor: wait;
         }
+        .message-file {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.12);
+            color: inherit;
+            text-decoration: none;
+        }
+        .message-file-icon {
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+        .message-file-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .message-file-copy strong,
+        .message-file-copy span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .message-file-copy span {
+            opacity: 0.72;
+            font-size: 0.78rem;
+        }
         .message-photo-button {
             display: block;
             border: none;
@@ -1040,8 +1071,17 @@ if ($isGroupConversation) {
                 </div>
                 <div class="composer">
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
+                    <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
                     <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
+                    <button id="file-button" class="composer-icon-button" type="button" aria-label="Share file"<?= $canChat ? '' : ' disabled' ?>>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"></path>
+                            <path d="M14 3v5h5"></path>
+                            <path d="M9 13h6"></path>
+                            <path d="M9 17h4"></path>
+                        </svg>
+                    </button>
                     <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
@@ -1092,6 +1132,8 @@ const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
+const fileButton = document.getElementById('file-button');
+const fileInput = document.getElementById('file-input');
 const imageButton = document.getElementById('image-button');
 const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
@@ -1279,6 +1321,10 @@ function supportsCapturedVoiceUpload() {
     return Boolean(voiceFileInput);
 }
 
+function supportsFileUpload() {
+    return Boolean(fileInput);
+}
+
 function supportsImageUpload() {
     return Boolean(imageFileInput);
 }
@@ -1345,6 +1391,7 @@ function updateFriendshipUi() {
     if (isGroupConversation) {
         canChat = true;
         actionButton.disabled = activeUploadCount > 0;
+        fileButton.disabled = activeUploadCount > 0;
         imageButton.disabled = activeUploadCount > 0;
         bodyEl.disabled = false;
         return;
@@ -1353,6 +1400,7 @@ function updateFriendshipUi() {
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || activeUploadCount > 0;
+    fileButton.disabled = !canChat || activeUploadCount > 0;
     imageButton.disabled = !canChat || activeUploadCount > 0;
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
@@ -1534,7 +1582,9 @@ async function showMessageNotification(message) {
     }
 
     const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
-    const body = message.body ? message.body.slice(0, 120) : 'Sent you a voice note';
+    const body = message.body
+        ? message.body.slice(0, 120)
+        : (message.image_path ? 'Sent you an image' : (message.file_path ? 'Sent you a file' : 'Sent you a voice note'));
 
     if (registration) {
         registration.showNotification(conversationDisplayName, {
@@ -2034,6 +2084,8 @@ function renderMessages(messages) {
         message.body || '',
         message.audio_path || '',
         message.image_path || '',
+        message.file_path || '',
+        message.file_name || '',
     ]));
     if (signature === renderedSignature) {
         return;
@@ -2042,7 +2094,7 @@ function renderMessages(messages) {
     renderedSignature = signature;
 
     if (messages.length === 0) {
-        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a photo, or tap the microphone to send a voice note.</div>';
+        messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
         messagesEl.innerHTML = messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
@@ -2056,6 +2108,9 @@ function renderMessages(messages) {
                 : '';
             const audio = message.audio_path
                 ? `<audio controls preload="none" src="media.php?message=${Number(message.id)}"></audio>`
+                : '';
+            const file = message.file_path
+                ? `<a class="message-file" href="media.php?message=${Number(message.id)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
@@ -2071,6 +2126,7 @@ function renderMessages(messages) {
                         ${body}
                         ${image}
                         ${audio}
+                        ${file}
                         <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
                     </div>
                 </article>`;
@@ -2721,6 +2777,72 @@ async function sendSelectedImageFile(file) {
     }
 }
 
+async function uploadSharedFile(file) {
+    if (!(file instanceof File) || file.size === 0) {
+        showError('Please choose a file to share.');
+        return false;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+        showError('Files must be 10MB or smaller.');
+        return false;
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'send_file');
+        formData.append('csrf_token', csrfToken);
+        formData.append('shared_file', file, file.name || 'shared-file');
+
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: formData,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send file.');
+            return false;
+        }
+
+        applyConversationPayload(payload);
+        scrollMessagesToEnd();
+        showHint('File sent.');
+        return true;
+    } catch (error) {
+        showError('Could not send file right now. Please try again.');
+        return false;
+    }
+}
+
+async function sendSelectedFile(file) {
+    if (!canChat) {
+        showError('Friendship revoked. You cannot send new messages until you are friends again.');
+        return;
+    }
+
+    if (!(file instanceof File) || file.size === 0) {
+        showError('Please choose a file to share.');
+        return;
+    }
+
+    showHint('Uploading file…');
+    activeUploadCount += 1;
+    isSending = true;
+    updateFriendshipUi();
+
+    try {
+        await uploadSharedFile(file);
+    } finally {
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
+        fileInput.value = '';
+        updateFriendshipUi();
+        updateActionButton();
+    }
+}
+
 async function openVoiceFallbackPicker() {
     if (!supportsCapturedVoiceUpload() || isSending) {
         showError('Voice capture is not available on this device/browser.');
@@ -2853,6 +2975,22 @@ async function toggleRecording() {
     await startRecording();
 }
 
+fileButton.addEventListener('click', () => {
+    markUserInteraction();
+    if (!canChat || isSending || !supportsFileUpload()) {
+        return;
+    }
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', async () => {
+    markUserInteraction();
+    const [file] = fileInput.files || [];
+    if (file) {
+        await sendSelectedFile(file);
+    }
+});
+
 imageButton.addEventListener('click', () => {
     markUserInteraction();
     if (!canChat || isSending || !supportsImageUpload()) {
@@ -2882,8 +3020,11 @@ actionButton.addEventListener('pointerdown', sendTextMessageFromActionPress);
 actionButton.addEventListener('mousedown', preserveComposerFocus);
 actionButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 actionButton.addEventListener('touchstart', sendTextMessageFromActionPress, { passive: false });
+fileButton.addEventListener('pointerdown', preserveComposerFocus);
 imageButton.addEventListener('pointerdown', preserveComposerFocus);
+fileButton.addEventListener('mousedown', preserveComposerFocus);
 imageButton.addEventListener('mousedown', preserveComposerFocus);
+fileButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 imageButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 
 window.visualViewport?.addEventListener('resize', updateKeyboardOffset);

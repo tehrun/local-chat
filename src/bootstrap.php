@@ -414,6 +414,8 @@ function initializeSqliteDatabase(PDO $pdo): void
             body TEXT,
             audio_path TEXT,
             image_path TEXT,
+            file_path TEXT,
+            file_name TEXT,
             delivered_at TEXT,
             read_at TEXT,
             created_at TEXT NOT NULL,
@@ -461,6 +463,14 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('image_path', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN image_path TEXT');
+    }
+
+    if (!in_array('file_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path TEXT');
+    }
+
+    if (!in_array('file_name', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name TEXT');
     }
 
     if (!in_array('delivered_at', $columns, true)) {
@@ -663,6 +673,8 @@ function initializeMysqlDatabase(PDO $pdo): void
             body LONGTEXT NULL,
             audio_path VARCHAR(255) NULL,
             image_path VARCHAR(255) NULL,
+            file_path VARCHAR(255) NULL,
+            file_name VARCHAR(255) NULL,
             delivered_at DATETIME NULL,
             read_at DATETIME NULL,
             created_at DATETIME NOT NULL,
@@ -1298,11 +1310,11 @@ function purgeExpiredMessages(bool $force = false): void
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
-    $stmt = $pdo->prepare('SELECT audio_path, image_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL)');
+    $stmt = $pdo->prepare('SELECT audio_path, image_path, file_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)');
     $stmt->execute(['cutoff' => $cutoff]);
 
     foreach ($stmt->fetchAll() as $row) {
-        foreach (['audio_path', 'image_path'] as $column) {
+        foreach (['audio_path', 'image_path', 'file_path'] as $column) {
             $relativePath = $row[$column] ?? null;
             if (!is_string($relativePath) || $relativePath === '') {
                 continue;
@@ -1816,7 +1828,8 @@ function allOtherUsers(int $currentUserId): array
                 m_last.id AS last_message_id,
                 m_last.body AS last_message_body,
                 m_last.audio_path AS last_message_audio_path,
-                m_last.image_path AS last_message_image_path
+                m_last.image_path AS last_message_image_path,
+                m_last.file_path AS last_message_file_path
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          LEFT JOIN conversation_clears cc
@@ -1886,6 +1899,10 @@ function chatListPreview(array $user): string
 
     if (!empty($user['last_message_audio_path'])) {
         return '🎤 Voice message';
+    }
+
+    if (!empty($user['last_message_file_path'])) {
+        return '📎 File';
     }
 
     return 'Start chatting';
@@ -2235,6 +2252,8 @@ function formatMessage(array $message): array
         'body' => $message['body'],
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'] ?? null,
+        'file_path' => $message['file_path'] ?? null,
+        'file_name' => $message['file_name'] ?? null,
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'created_at' => $message['created_at'],
@@ -2549,6 +2568,62 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'audio_path' => $relativePath,
+        'created_at' => gmdate('c'),
+    ]);
+
+    clearTypingStatus($senderId, $recipientId);
+    triggerPushNotificationsForMessage($recipientId);
+
+    return findMessageById((int) db()->lastInsertId());
+}
+
+function sendFileMessage(int $senderId, int $recipientId, array $file): array|string|null
+{
+    purgeExpiredMessages();
+
+    if (!canUsersChat($senderId, $recipientId)) {
+        return 'You can only message users after they accept your friend request.';
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'File upload failed. Please choose a file to share.';
+    }
+
+    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
+        return 'File must be 10MB or smaller.';
+    }
+
+    $originalName = trim((string) ($file['name'] ?? ''));
+    if ($originalName === '') {
+        $originalName = 'shared-file';
+    }
+
+    $sanitizedName = preg_replace('/[^A-Za-z0-9._-]+/', '-', $originalName);
+    $sanitizedName = trim((string) $sanitizedName, '-.');
+    if ($sanitizedName === '') {
+        $sanitizedName = 'shared-file';
+    }
+
+    $extension = strtolower((string) pathinfo($sanitizedName, PATHINFO_EXTENSION));
+    $storedExtension = $extension !== '' ? '.' . substr($extension, 0, 20) : '';
+    $filename = sprintf('file_%s_%s%s', $senderId, bin2hex(random_bytes(8)), $storedExtension);
+    $target = UPLOAD_PATH . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return 'Could not save the file.';
+    }
+
+    $relativePath = 'storage/uploads/' . $filename;
+
+    $stmt = db()->prepare(
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, :created_at)'
+    );
+    $stmt->execute([
+        'sender_id' => $senderId,
+        'recipient_id' => $recipientId,
+        'file_path' => $relativePath,
+        'file_name' => mb_substr($sanitizedName, 0, 255),
         'created_at' => gmdate('c'),
     ]);
 
