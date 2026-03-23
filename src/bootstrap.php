@@ -1247,6 +1247,30 @@ function triggerPushNotificationsForMessage(int $recipientId): void
     triggerPushNotificationsForUser($recipientId);
 }
 
+function outgoingFriendRequestUpdates(int $currentUserId): array
+{
+    $stmt = db()->prepare(
+        'SELECT fr.id, fr.recipient_id, fr.status, fr.responded_at, u.username AS recipient_name
+         FROM friend_requests fr
+         INNER JOIN users u ON u.id = fr.recipient_id
+         WHERE fr.sender_id = :user_id
+           AND fr.status IN (\'accepted\', \'rejected\')
+         ORDER BY fr.responded_at DESC, fr.id DESC
+         LIMIT 20'
+    );
+    $stmt->execute(['user_id' => $currentUserId]);
+
+    return array_map(static function (array $row): array {
+        return [
+            'id' => (int) $row['id'],
+            'recipient_id' => (int) $row['recipient_id'],
+            'recipient_name' => (string) ($row['recipient_name'] ?? 'Unknown'),
+            'status' => (string) $row['status'],
+            'responded_at' => (string) ($row['responded_at'] ?? ''),
+        ];
+    }, $stmt->fetchAll());
+}
+
 function pushNotificationPayload(int $currentUserId): array
 {
     $chatUsers = array_values(array_filter(
@@ -1256,6 +1280,8 @@ function pushNotificationPayload(int $currentUserId): array
 
     return [
         'chat_users' => $chatUsers,
+        'incoming_requests' => incomingFriendRequests($currentUserId),
+        'outgoing_request_updates' => outgoingFriendRequestUpdates($currentUserId),
         'generated_at' => gmdate('c'),
     ];
 }
@@ -1611,6 +1637,7 @@ function sendFriendRequest(int $senderId, int $recipientId): ?string
     }
 
     $stmt->execute($params);
+    triggerPushNotificationsForUser($recipientId);
 
     return null;
 }
@@ -1638,6 +1665,8 @@ function respondToFriendRequest(int $currentUserId, int $otherUserId, string $re
         'responded_at' => gmdate('c'),
         'id' => $friendship['id'],
     ]);
+
+    triggerPushNotificationsForUser($otherUserId);
 
     return null;
 }
