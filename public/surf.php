@@ -359,29 +359,32 @@ if ($assetUrl !== null) {
     exit;
 }
 
-$requestedUrl = surfPrepareTargetUrl();
+$defaultUrl = 'https://www.google.com/';
+$requestedUrl = surfPrepareTargetUrl() ?? $defaultUrl;
 $pageHtml = '';
 $pageError = null;
 $finalUrl = null;
 $statusCode = null;
 $contentType = null;
-$defaultUrl = 'https://www.google.com/';
+$pageTitle = 'Surf Mode';
 
-if ($requestedUrl !== null) {
-    try {
-        $response = surfFetch($requestedUrl);
-        $finalUrl = $response['final_url'];
-        $statusCode = $response['status'];
-        $contentType = $response['content_type'];
+try {
+    $response = surfFetch($requestedUrl);
+    $finalUrl = $response['final_url'];
+    $statusCode = $response['status'];
+    $contentType = $response['content_type'];
 
-        if (!str_contains(strtolower($contentType), 'text/html')) {
-            $pageError = 'This proof of concept only renders HTML pages. The requested URL returned ' . $contentType . '.';
-        } else {
-            $pageHtml = surfRewriteHtml((string) $response['body'], $finalUrl);
+    if (!str_contains(strtolower($contentType), 'text/html')) {
+        $pageError = 'This proof of concept only renders HTML pages. The requested URL returned ' . $contentType . '.';
+    } else {
+        $pageHtml = surfRewriteHtml((string) $response['body'], $finalUrl);
+        $titleHost = parse_url($finalUrl, PHP_URL_HOST);
+        if (is_string($titleHost) && $titleHost !== '') {
+            $pageTitle = $titleHost;
         }
-    } catch (Throwable $exception) {
-        $pageError = $exception->getMessage();
     }
+} catch (Throwable $exception) {
+    $pageError = $exception->getMessage();
 }
 ?>
 <!DOCTYPE html>
@@ -389,168 +392,62 @@ if ($requestedUrl !== null) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Surf Mode · Local Chat</title>
+    <title><?= e($pageTitle) ?></title>
     <style>
-        :root {
-            color-scheme: light;
-            --bg: #0b141a;
-            --panel: #111b21;
-            --card: #202c33;
-            --ink: #e9edef;
-            --muted: #8696a0;
-            --accent: #25d366;
-            --danger: #ff6b6b;
-            --border: rgba(255, 255, 255, 0.1);
-        }
-
-        * { box-sizing: border-box; }
-        body {
+        html, body {
             margin: 0;
-            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: linear-gradient(180deg, #0b141a 0%, #111b21 100%);
-            color: var(--ink);
-        }
-
-        .shell {
-            max-width: 1200px;
-            margin: 0 auto;
-            min-height: 100vh;
-            padding: 24px;
-        }
-
-        .topbar, .panel {
-            background: rgba(17, 27, 33, 0.92);
-            border: 1px solid var(--border);
-            border-radius: 18px;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
-        }
-
-        .topbar {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            padding: 18px 20px;
-            margin-bottom: 18px;
-        }
-
-        .topbar h1 { margin: 0 0 6px; font-size: 1.35rem; }
-        .topbar p { margin: 0; color: var(--muted); }
-        .actions { display: flex; gap: 12px; flex-wrap: wrap; }
-        .button, .address-bar button {
-            appearance: none;
-            border: 0;
-            border-radius: 12px;
-            padding: 12px 16px;
-            font: inherit;
-            cursor: pointer;
-            text-decoration: none;
-        }
-
-        .button { background: #233138; color: var(--ink); }
-        .button.primary, .address-bar button { background: var(--accent); color: #06260f; font-weight: 700; }
-        .panel { padding: 20px; }
-        .address-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-        .address-bar input {
-            flex: 1 1 540px;
-            min-width: 220px;
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            background: #0f171c;
-            color: var(--ink);
-            padding: 13px 14px;
-            font: inherit;
-        }
-
-        .note, .error, .meta {
-            border-radius: 14px;
-            padding: 14px 16px;
-            margin-bottom: 16px;
-        }
-
-        .note { background: rgba(37, 211, 102, 0.12); color: #c7f7d7; border: 1px solid rgba(37, 211, 102, 0.25); }
-        .error { background: rgba(255, 107, 107, 0.12); color: #ffd7d7; border: 1px solid rgba(255, 107, 107, 0.25); }
-        .meta { background: rgba(255, 255, 255, 0.04); color: var(--muted); border: 1px solid var(--border); }
-        .browser {
+            min-height: 100%;
             background: #fff;
+        }
+
+        body {
             color: #111;
-            border-radius: 18px;
-            overflow: hidden;
-            min-height: 70vh;
-            border: 1px solid rgba(255,255,255,0.08);
         }
 
-        .browser-inner {
-            padding: 0;
-            overflow: auto;
+        .surf-error {
+            max-width: 760px;
+            margin: 48px auto;
+            padding: 20px 22px;
+            border: 1px solid #f1b5b5;
+            border-radius: 14px;
+            background: #fff5f5;
+            color: #6e2020;
+            font: 16px/1.5 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        .browser-inner img, .browser-inner video, .browser-inner iframe { max-width: 100%; }
-        .browser-inner form, .browser-inner table { max-width: 100%; }
+        .surf-error h1 {
+            margin: 0 0 12px;
+            font-size: 1.2rem;
+        }
 
-        @media (max-width: 720px) {
-            .shell { padding: 14px; }
-            .topbar, .panel { border-radius: 14px; }
-            .address-bar { flex-direction: column; }
-            .address-bar button { width: 100%; }
+        .surf-error p {
+            margin: 0 0 10px;
+        }
+
+        .surf-error a {
+            color: inherit;
+            font-weight: 600;
+        }
+
+        img, video, iframe, table {
+            max-width: 100%;
         }
     </style>
 </head>
 <body>
-<div class="shell">
-    <div class="topbar">
-        <div>
-            <h1>Surf mode</h1>
-            <p>Proof of concept server-side browsing for signed-in users. Signed in as <strong><?= e($user['username']) ?></strong>.</p>
-        </div>
-        <div class="actions">
-            <a class="button" href="index.php">← Back to chat</a>
-            <a class="button" href="surf.php?url=<?= e(rawurlencode($defaultUrl)) ?>">Open Google</a>
-        </div>
-    </div>
-
-    <div class="panel">
-        <div class="note">
-            Remote pages are fetched by the server with cURL, then rewritten to stay inside this app. This proof of concept blocks local/private hosts, strips scripts, and only supports HTML pages and GET-based navigation.
-        </div>
-
-        <form class="address-bar" method="get" action="surf.php">
-            <input
-                type="text"
-                name="url"
-                value="<?= e($requestedUrl ?? $defaultUrl) ?>"
-                placeholder="Enter a public URL, for example https://www.google.com/"
-                autocomplete="off"
-                spellcheck="false"
-            >
-            <button type="submit">Browse via server</button>
-        </form>
-
-        <?php if ($pageError !== null): ?>
-            <div class="error">Could not open that page: <?= e($pageError) ?></div>
-        <?php elseif ($finalUrl !== null): ?>
-            <div class="meta">
-                <strong>Final URL:</strong> <?= e($finalUrl) ?><br>
-                <strong>Status:</strong> <?= e((string) $statusCode) ?><br>
-                <strong>Content-Type:</strong> <?= e((string) $contentType) ?>
-            </div>
+<?php if ($pageError !== null): ?>
+    <div class="surf-error">
+        <h1>Could not open page</h1>
+        <p><?= e($pageError) ?></p>
+        <?php if ($finalUrl !== null): ?>
+            <p>Final URL: <?= e($finalUrl) ?></p>
+            <p>Status: <?= e((string) $statusCode) ?> · Content-Type: <?= e((string) $contentType) ?></p>
         <?php endif; ?>
-
-        <div class="browser">
-            <div class="browser-inner">
-                <?php if ($pageHtml !== ''): ?>
-                    <?= $pageHtml ?>
-                <?php else: ?>
-                    <div style="padding: 28px;">
-                        <h2 style="margin-top: 0;">Ready to browse</h2>
-                        <p>Try <a href="surf.php?url=<?= e(rawurlencode($defaultUrl)) ?>">Google</a> or enter another public URL above.</p>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
+        <p><a href="surf.php?url=<?= e(rawurlencode($defaultUrl)) ?>">Open Google</a></p>
+        <p><a href="index.php">Back to chat</a></p>
     </div>
-</div>
+<?php else: ?>
+    <?= $pageHtml ?>
+<?php endif; ?>
 </body>
 </html>
