@@ -409,33 +409,16 @@ if ($isGroupConversation) {
             text-align: left;
         }
         .message-audio {
-            margin-top: 10px;
-            padding: 10px 12px;
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.2);
+            margin-top: 8px;
             position: relative;
             z-index: 1;
         }
-        .message-row.mine .message-audio {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        .message-audio-label {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 8px;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.01em;
-            color: rgba(17, 27, 33, 0.78);
-        }
-        .message-row.mine .message-audio-label {
-            color: rgba(7, 94, 84, 0.92);
-        }
         .message-audio audio {
             display: block;
-            width: min(280px, 100%);
-            min-height: 46px;
+            width: min(260px, 100%);
+            max-width: 100%;
+            min-height: 44px;
+            border-radius: 999px;
             pointer-events: auto;
             touch-action: manipulation;
             accent-color: #075e54;
@@ -2135,7 +2118,7 @@ function renderMessages(messages) {
                 ? `<button class="message-photo-button" type="button" data-image-src="media.php?message=${Number(message.id)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="media.php?message=${Number(message.id)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<div class="message-audio"><div class="message-audio-label">🎤 Voice note</div><audio controls preload="metadata" src="media.php?message=${Number(message.id)}" aria-label="Voice note"></audio></div>`
+                ? `<div class="message-audio"><audio controls preload="metadata" src="media.php?message=${Number(message.id)}" aria-label="Voice message"></audio></div>`
                 : '';
             const file = message.file_path
                 ? `<a class="message-file" href="media.php?message=${Number(message.id)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
