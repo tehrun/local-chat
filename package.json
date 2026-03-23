@@ -1,0 +1,11 @@
+{
+  "name": "local-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "surf:browser": "node scripts/surf_browser.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.53.1"
+  }
+}

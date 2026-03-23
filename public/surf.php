@@ -6,11 +6,32 @@ require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
 
-const SURF_ALLOWED_SCHEMES = ['http', 'https'];
-const SURF_RESERVED_QUERY_KEYS = ['url', 'asset', 'surf_target'];
-const SURF_FETCH_TIMEOUT_SECONDS = 12;
-const SURF_MAX_REDIRECTS = 5;
-const SURF_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1 LocalChatSurf/1.0';
+const SURF_VIEWPORT_WIDTH = 390;
+const SURF_VIEWPORT_HEIGHT = 844;
+const SURF_MAX_ACTION_BODY_BYTES = 32768;
+
+function surfStoragePath(): string
+{
+    $path = STORAGE_PATH . '/surf';
+    if (!is_dir($path)) {
+        mkdir($path, 0777, true);
+    }
+
+    return $path;
+}
+
+function surfSessionDirectory(array $user): string
+{
+    $id = (string) ($user['id'] ?? 'guest');
+    $sessionId = session_id();
+    $fingerprint = hash('sha256', $id . '|' . $sessionId);
+    $path = surfStoragePath() . '/' . $fingerprint;
+    if (!is_dir($path)) {
+        mkdir($path, 0777, true);
+    }
+
+    return $path;
+}
 
 function surfNormalizeUrl(?string $candidate): ?string
 {
@@ -30,533 +51,183 @@ function surfNormalizeUrl(?string $candidate): ?string
     return $candidate;
 }
 
-function surfIsPrivateOrReservedIp(string $ip): bool
+function surfViewportFromRequest(): array
 {
-    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
-    }
-
-    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-        if ($ip === '::1') {
-            return true;
-        }
-
-        $normalized = strtolower($ip);
-        return str_starts_with($normalized, 'fc')
-            || str_starts_with($normalized, 'fd')
-            || str_starts_with($normalized, 'fe8')
-            || str_starts_with($normalized, 'fe9')
-            || str_starts_with($normalized, 'fea')
-            || str_starts_with($normalized, 'feb');
-    }
-
-    return true;
-}
-
-function surfResolveHostIps(string $host): array
-{
-    if (filter_var($host, FILTER_VALIDATE_IP)) {
-        return [$host];
-    }
-
-    $ips = gethostbynamel($host);
-    if (is_array($ips) && $ips !== []) {
-        return $ips;
-    }
-
-    if (function_exists('dns_get_record')) {
-        $records = @dns_get_record($host, DNS_A + DNS_AAAA);
-        if (is_array($records)) {
-            $resolved = [];
-            foreach ($records as $record) {
-                if (isset($record['ip']) && is_string($record['ip'])) {
-                    $resolved[] = $record['ip'];
-                }
-                if (isset($record['ipv6']) && is_string($record['ipv6'])) {
-                    $resolved[] = $record['ipv6'];
-                }
-            }
-            if ($resolved !== []) {
-                return array_values(array_unique($resolved));
-            }
-        }
-    }
-
-    return [];
-}
-
-function surfAssertUrlIsAllowed(string $url): void
-{
-    $parts = parse_url($url);
-    if (!is_array($parts)) {
-        throw new RuntimeException('The URL is invalid.');
-    }
-
-    $scheme = strtolower((string) ($parts['scheme'] ?? ''));
-    if (!in_array($scheme, SURF_ALLOWED_SCHEMES, true)) {
-        throw new RuntimeException('Only http and https URLs are allowed.');
-    }
-
-    $host = strtolower((string) ($parts['host'] ?? ''));
-    if ($host === '' || $host === 'localhost' || str_ends_with($host, '.localhost')) {
-        throw new RuntimeException('Local addresses are blocked.');
-    }
-
-    $port = isset($parts['port']) ? (int) $parts['port'] : null;
-    if ($port !== null && !in_array($port, [80, 443], true)) {
-        throw new RuntimeException('Only ports 80 and 443 are allowed.');
-    }
-
-    $ips = surfResolveHostIps($host);
-    if ($ips === []) {
-        throw new RuntimeException('Could not resolve that host.');
-    }
-
-    foreach ($ips as $ip) {
-        if (surfIsPrivateOrReservedIp($ip)) {
-            throw new RuntimeException('Private or reserved network targets are blocked.');
-        }
-    }
-}
-
-function surfBuildAbsoluteUrl(string $baseUrl, string $candidate): ?string
-{
-    $candidate = trim($candidate);
-    if ($candidate === '' || str_starts_with($candidate, 'javascript:') || str_starts_with($candidate, 'data:') || str_starts_with($candidate, 'mailto:') || str_starts_with($candidate, 'tel:')) {
-        return null;
-    }
-
-    if (preg_match('~^[a-z][a-z0-9+.-]*://~i', $candidate)) {
-        return $candidate;
-    }
-
-    $base = parse_url($baseUrl);
-    if (!is_array($base) || !isset($base['scheme'], $base['host'])) {
-        return null;
-    }
-
-    $scheme = $base['scheme'];
-    $host = $base['host'];
-    $port = isset($base['port']) ? ':' . $base['port'] : '';
-
-    if (str_starts_with($candidate, '//')) {
-        return $scheme . ':' . $candidate;
-    }
-
-    if (str_starts_with($candidate, '#')) {
-        return $baseUrl . $candidate;
-    }
-
-    $fragment = '';
-    $fragmentPosition = strpos($candidate, '#');
-    if ($fragmentPosition !== false) {
-        $fragment = substr($candidate, $fragmentPosition);
-        $candidate = substr($candidate, 0, $fragmentPosition);
-    }
-
-    $query = '';
-    $queryPosition = strpos($candidate, '?');
-    if ($queryPosition !== false) {
-        $query = substr($candidate, $queryPosition);
-        $candidate = substr($candidate, 0, $queryPosition);
-    }
-
-    $path = (string) ($base['path'] ?? '/');
-    $path = preg_replace('~/[^/]*$~', '/', $path) ?? '/';
-
-    if ($candidate === '') {
-        $normalizedPath = (string) ($base['path'] ?? '/');
-    } elseif (str_starts_with($candidate, '/')) {
-        $normalizedPath = $candidate;
-    } else {
-        $resolvedPath = $path . $candidate;
-        $segments = [];
-        foreach (explode('/', $resolvedPath) as $segment) {
-            if ($segment === '' || $segment === '.') {
-                continue;
-            }
-            if ($segment === '..') {
-                array_pop($segments);
-                continue;
-            }
-            $segments[] = $segment;
-        }
-
-        $normalizedPath = '/' . implode('/', $segments);
-        if (str_ends_with($resolvedPath, '/') && !str_ends_with($normalizedPath, '/')) {
-            $normalizedPath .= '/';
-        }
-    }
-
-    return sprintf('%s://%s%s%s%s%s', $scheme, $host, $port, $normalizedPath, $query, $fragment);
-}
-
-function surfIsGoogleHost(string $host): bool
-{
-    $host = strtolower($host);
-    return $host === 'google.com'
-        || $host === 'www.google.com'
-        || str_starts_with($host, 'www.google.')
-        || preg_match('/(^|\.)google\.[a-z.]+$/', $host) === 1;
-}
-
-function surfOptimizeTargetUrl(string $url): string
-{
-    $parts = parse_url($url);
-    if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
-        return $url;
-    }
-
-    if (!surfIsGoogleHost((string) $parts['host'])) {
-        return $url;
-    }
-
-    $path = (string) ($parts['path'] ?? '/');
-    $query = [];
-    if (isset($parts['query'])) {
-        parse_str((string) $parts['query'], $query);
-    }
-
-    if ($path === '/' || $path === '' || $path === '/webhp') {
-        $query['igu'] = '1';
-        if (isset($query['q']) && $query['q'] !== '') {
-            $path = '/search';
-        }
-    }
-
-    if ($path === '/search') {
-        $query['gbv'] = '1';
-        $query['igu'] = '1';
-        if (!isset($query['num']) || (string) $query['num'] === '') {
-            $query['num'] = '10';
-        }
-    }
-
-    $authority = $parts['host'];
-    if (isset($parts['port'])) {
-        $authority .= ':' . $parts['port'];
-    }
-
-    $rebuilt = sprintf('%s://%s%s', $parts['scheme'], $authority, $path);
-    if ($query !== []) {
-        $rebuilt .= '?' . http_build_query($query);
-    }
-    if (isset($parts['fragment']) && $parts['fragment'] !== '') {
-        $rebuilt .= '#' . $parts['fragment'];
-    }
-
-    return $rebuilt;
-}
-
-function surfEnsureHeadElement(DOMDocument $dom): DOMElement
-{
-    $heads = $dom->getElementsByTagName('head');
-    if ($heads->length > 0) {
-        return $heads->item(0);
-    }
-
-    $head = $dom->createElement('head');
-    $html = $dom->getElementsByTagName('html')->item(0);
-    if ($html instanceof DOMElement) {
-        $html->insertBefore($head, $html->firstChild);
-        return $head;
-    }
-
-    $dom->insertBefore($head, $dom->firstChild);
-    return $head;
-}
-
-function surfEnsureResponsiveDocument(DOMDocument $dom, DOMXPath $xpath): void
-{
-    $head = surfEnsureHeadElement($dom);
-
-    $hasViewport = $xpath->query('//meta[@name="viewport"]');
-    if ($hasViewport === false || $hasViewport->length === 0) {
-        $viewport = $dom->createElement('meta');
-        $viewport->setAttribute('name', 'viewport');
-        $viewport->setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
-        $head->appendChild($viewport);
-    }
-
-    $style = $dom->createElement('style', <<<'CSS'
-html, body {
-    max-width: 100%;
-    overflow-x: hidden;
-    -webkit-text-size-adjust: 100%;
-}
-img, video, iframe, table, pre, code, input, textarea, select {
-    max-width: 100%;
-    box-sizing: border-box;
-}
-body {
-    visibility: visible !important;
-    opacity: 1 !important;
-}
-CSS);
-    $style->setAttribute('data-local-chat-surf', 'responsive');
-    $head->appendChild($style);
-}
-
-function surfProxyUrl(string $absoluteUrl, bool $asset = false): string
-{
-    $absoluteUrl = surfOptimizeTargetUrl($absoluteUrl);
-    $params = $asset ? ['asset' => $absoluteUrl] : ['url' => $absoluteUrl];
-    return 'surf.php?' . http_build_query($params);
-}
-
-function surfFetch(string $url, bool $binary = false): array
-{
-    surfAssertUrlIsAllowed($url);
-
-    $ch = curl_init($url);
-    if ($ch === false) {
-        throw new RuntimeException('Could not initialize the outbound request.');
-    }
-
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS => SURF_MAX_REDIRECTS,
-        CURLOPT_CONNECTTIMEOUT => SURF_FETCH_TIMEOUT_SECONDS,
-        CURLOPT_TIMEOUT => SURF_FETCH_TIMEOUT_SECONDS,
-        CURLOPT_USERAGENT => SURF_USER_AGENT,
-        CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-        CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-        CURLOPT_HEADER => true,
-        CURLOPT_ENCODING => '',
-    ]);
-
-    $rawResponse = curl_exec($ch);
-    if ($rawResponse === false) {
-        $error = curl_error($ch);
-        curl_close($ch);
-        throw new RuntimeException('Remote request failed: ' . $error);
-    }
-
-    $statusCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-    $contentType = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-    $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-    curl_close($ch);
-
-    surfAssertUrlIsAllowed($finalUrl);
-
-    $headersText = substr($rawResponse, 0, $headerSize) ?: '';
-    $body = substr($rawResponse, $headerSize);
-    $headers = preg_split("/(?:\r\n|\n|\r){2,}/", trim($headersText)) ?: [];
-    $lastHeaderBlock = trim((string) end($headers));
+    $width = isset($_REQUEST['viewport_width']) ? (int) $_REQUEST['viewport_width'] : SURF_VIEWPORT_WIDTH;
+    $height = isset($_REQUEST['viewport_height']) ? (int) $_REQUEST['viewport_height'] : SURF_VIEWPORT_HEIGHT;
 
     return [
-        'status' => $statusCode,
-        'content_type' => $contentType,
-        'final_url' => $finalUrl,
-        'headers' => $lastHeaderBlock,
-        'body' => $binary ? $body : (string) $body,
+        'width' => max(320, min(1600, $width)),
+        'height' => max(320, min(2400, $height)),
     ];
 }
 
-function surfPrepareTargetUrl(): ?string
+function surfReadJsonBody(): array
 {
-    $directUrl = surfNormalizeUrl($_GET['url'] ?? null);
-    if ($directUrl !== null) {
-        return surfOptimizeTargetUrl($directUrl);
+    $raw = file_get_contents('php://input', false, null, 0, SURF_MAX_ACTION_BODY_BYTES);
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
     }
 
-    $formTarget = surfNormalizeUrl($_GET['surf_target'] ?? null);
-    if ($formTarget === null) {
-        return null;
-    }
-
-    $query = [];
-    foreach ($_GET as $key => $value) {
-        if (in_array($key, SURF_RESERVED_QUERY_KEYS, true)) {
-            continue;
-        }
-        if (!is_string($key)) {
-            continue;
-        }
-        $query[$key] = $value;
-    }
-
-    if ($query === []) {
-        return surfOptimizeTargetUrl($formTarget);
-    }
-
-    $separator = str_contains($formTarget, '?') ? '&' : '?';
-    return surfOptimizeTargetUrl($formTarget . $separator . http_build_query($query));
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
 }
 
-function surfRewriteHtml(string $html, string $baseUrl): string
+function surfBrowserScriptPath(): string
 {
-    libxml_use_internal_errors(true);
-    $dom = new DOMDocument();
-    $html = mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
-    $loaded = $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-    if ($loaded === false) {
-        libxml_clear_errors();
-        return '<pre>' . e($html) . '</pre>';
-    }
-
-    $xpath = new DOMXPath($dom);
-
-    foreach ($xpath->query('//script|//noscript|//meta[@http-equiv="Content-Security-Policy"]') ?: [] as $node) {
-        $node->parentNode?->removeChild($node);
-    }
-
-    foreach ($xpath->query('//a[@href]') ?: [] as $anchor) {
-        $href = $anchor->getAttribute('href');
-        $absolute = surfBuildAbsoluteUrl($baseUrl, $href);
-        if ($absolute === null) {
-            continue;
-        }
-        $anchor->setAttribute('href', surfProxyUrl($absolute));
-        $anchor->setAttribute('rel', 'noopener noreferrer');
-    }
-
-    foreach ($xpath->query('//*[@src]') ?: [] as $node) {
-        $src = $node->getAttribute('src');
-        $absolute = surfBuildAbsoluteUrl($baseUrl, $src);
-        if ($absolute === null) {
-            $node->removeAttribute('src');
-            continue;
-        }
-        $node->setAttribute('src', surfProxyUrl($absolute, true));
-    }
-
-    foreach ($xpath->query('//link[@href]') ?: [] as $node) {
-        $href = $node->getAttribute('href');
-        $absolute = surfBuildAbsoluteUrl($baseUrl, $href);
-        if ($absolute === null) {
-            $node->parentNode?->removeChild($node);
-            continue;
-        }
-        $node->setAttribute('href', surfProxyUrl($absolute, true));
-    }
-
-    surfEnsureResponsiveDocument($dom, $xpath);
-
-    foreach ($xpath->query('//form[@action] | //form[not(@action)]') ?: [] as $form) {
-        $method = strtolower((string) $form->getAttribute('method'));
-        if ($method !== '' && $method !== 'get') {
-            $banner = $dom->createElement('p', 'POST forms are disabled in this proof of concept. Copy the target URL into the address bar instead.');
-            $banner->setAttribute('style', 'padding:12px;background:#fff3cd;color:#6b4f00;border:1px solid #f0d98a;border-radius:10px;');
-            $form->parentNode?->insertBefore($banner, $form);
-            $form->setAttribute('onsubmit', 'return false;');
-            continue;
-        }
-
-        $action = $form->getAttribute('action');
-        $absolute = $action !== '' ? surfBuildAbsoluteUrl($baseUrl, $action) : $baseUrl;
-        if ($absolute === null) {
-            continue;
-        }
-
-        $form->setAttribute('action', 'surf.php');
-        $form->setAttribute('method', 'get');
-
-        if ($absolute !== $baseUrl) {
-            $absolute = surfOptimizeTargetUrl($absolute);
-        }
-
-        $existing = $xpath->query('.//input[@type="hidden" and @name="surf_target"]', $form);
-        if ($existing === false || $existing->length === 0) {
-            $hidden = $dom->createElement('input');
-            $hidden->setAttribute('type', 'hidden');
-            $hidden->setAttribute('name', 'surf_target');
-            $hidden->setAttribute('value', $absolute);
-            $form->insertBefore($hidden, $form->firstChild);
-        }
-    }
-
-    $bodyContent = $dom->saveHTML();
-    libxml_clear_errors();
-
-    return is_string($bodyContent) ? $bodyContent : '<pre>' . e($html) . '</pre>';
+    return BASE_PATH . '/scripts/surf_browser.mjs';
 }
 
-$assetUrl = surfNormalizeUrl($_GET['asset'] ?? null);
-if ($assetUrl !== null) {
-    try {
-        $asset = surfFetch($assetUrl, true);
-    } catch (Throwable $exception) {
-        http_response_code(502);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo 'Surf asset fetch failed: ' . $exception->getMessage();
-        exit;
+function surfRunBrowserAction(string $action, array $payload, array $user): array
+{
+    $script = surfBrowserScriptPath();
+    if (!is_file($script)) {
+        throw new RuntimeException('Surf browser worker is missing.');
     }
 
-    $contentType = $asset['content_type'] !== '' ? $asset['content_type'] : 'application/octet-stream';
-    header('Content-Type: ' . $contentType);
-    header('Cache-Control: private, max-age=300');
-    echo $asset['body'];
+    $payload['viewport'] = $payload['viewport'] ?? surfViewportFromRequest();
+    $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
+    $command = sprintf(
+        'node %s %s %s %s',
+        escapeshellarg($script),
+        escapeshellarg($action),
+        escapeshellarg(surfSessionDirectory($user)),
+        escapeshellarg($payloadJson)
+    );
+
+    $descriptorSpec = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+
+    $process = proc_open($command, $descriptorSpec, $pipes, BASE_PATH);
+    if (!is_resource($process)) {
+        throw new RuntimeException('Could not start the Surf browser worker.');
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+
+    $decoded = json_decode(is_string($stdout) ? trim($stdout) : '', true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException(trim((string) $stderr) !== '' ? trim((string) $stderr) : 'Surf browser worker returned an invalid response.');
+    }
+
+    if (($decoded['ok'] ?? false) !== true || $exitCode !== 0) {
+        $message = (string) ($decoded['error'] ?? trim((string) $stderr) ?: 'Unknown Surf browser error.');
+        throw new RuntimeException($message);
+    }
+
+    return $decoded;
+}
+
+function surfJsonResponse(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-$defaultUrl = 'https://www.google.com/?igu=1';
-$requestedUrl = surfOptimizeTargetUrl(surfPrepareTargetUrl() ?? $defaultUrl);
-$pageHtml = '';
-$pageError = null;
-$finalUrl = null;
-$statusCode = null;
-$contentType = null;
-$pageTitle = 'Surf Mode';
-$addressValue = $requestedUrl;
+$action = isset($_GET['action']) && is_string($_GET['action']) ? $_GET['action'] : null;
 
-try {
-    $response = surfFetch($requestedUrl);
-    $finalUrl = $response['final_url'];
-    $addressValue = $finalUrl !== '' ? $finalUrl : $requestedUrl;
-    $statusCode = $response['status'];
-    $contentType = $response['content_type'];
-
-    if (!str_contains(strtolower($contentType), 'text/html')) {
-        $pageError = 'This proof of concept only renders HTML pages. The requested URL returned ' . $contentType . '.';
-    } else {
-        $pageHtml = surfRewriteHtml((string) $response['body'], $finalUrl);
-        $titleHost = parse_url($finalUrl, PHP_URL_HOST);
-        if (is_string($titleHost) && $titleHost !== '') {
-            $pageTitle = $titleHost;
-        }
+if ($action !== null) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        surfJsonResponse(['ok' => false, 'error' => 'POST is required.'], 405);
     }
-} catch (Throwable $exception) {
-    $pageError = $exception->getMessage();
+
+    $body = surfReadJsonBody();
+    $csrfToken = (string) ($body['csrf_token'] ?? '');
+    if (!hash_equals(csrfToken(), $csrfToken)) {
+        surfJsonResponse(['ok' => false, 'error' => 'Invalid CSRF token.'], 403);
+    }
+
+    try {
+        $payload = [
+            'viewport' => surfViewportFromRequest(),
+        ];
+
+        if ($action === 'navigate') {
+            $payload['url'] = surfNormalizeUrl($body['url'] ?? null) ?? 'https://www.google.com/';
+        } elseif ($action === 'click') {
+            $payload['x'] = (int) ($body['x'] ?? 0);
+            $payload['y'] = (int) ($body['y'] ?? 0);
+        } elseif ($action === 'type') {
+            $payload['text'] = (string) ($body['text'] ?? '');
+        } elseif ($action === 'key') {
+            $payload['key'] = (string) ($body['key'] ?? '');
+        } elseif ($action === 'scroll') {
+            $payload['deltaY'] = (int) ($body['deltaY'] ?? 0);
+        } elseif ($action !== 'status') {
+            surfJsonResponse(['ok' => false, 'error' => 'Unknown action.'], 404);
+        }
+
+        $result = surfRunBrowserAction($action, $payload, $user);
+        surfJsonResponse($result);
+    } catch (Throwable $exception) {
+        surfJsonResponse(['ok' => false, 'error' => $exception->getMessage()], 502);
+    }
 }
+
+$initialUrl = surfNormalizeUrl($_GET['url'] ?? null) ?? 'https://www.google.com/';
+$csrf = csrfToken();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($pageTitle) ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Surf Mode</title>
     <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         html, body {
             margin: 0;
             min-height: 100%;
-            background: #fff;
-        }
-
-        body {
-            color: #111;
+            background: #0b141a;
+            color: #f5f7fa;
             font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        .surf-chrome {
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .surf-shell {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .surf-toolbar {
             position: sticky;
             top: 0;
-            z-index: 9999;
+            z-index: 20;
             display: flex;
             gap: 10px;
             align-items: center;
-            padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.96);
-            border-bottom: 1px solid rgba(17, 27, 33, 0.12);
-            backdrop-filter: blur(10px);
+            padding: 12px;
+            background: rgba(11, 20, 26, 0.92);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
         }
 
         .surf-address-form {
             display: flex;
-            align-items: center;
             gap: 8px;
+            align-items: center;
             flex: 1;
             min-width: 0;
         }
@@ -564,108 +235,249 @@ try {
         .surf-address-input {
             width: 100%;
             min-width: 0;
-            padding: 11px 14px;
-            border: 1px solid rgba(17, 27, 33, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 999px;
-            font: inherit;
+            padding: 12px 14px;
+            background: #111b21;
             color: inherit;
-            background: #fff;
-            box-sizing: border-box;
+            font: inherit;
         }
 
-        .surf-address-button,
-        .surf-back-link {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 10px 14px;
+        .surf-button,
+        .surf-link {
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 999px;
-            border: 1px solid rgba(17, 27, 33, 0.12);
-            background: #fff;
-            color: #111;
+            background: #202c33;
+            color: inherit;
             font: inherit;
             font-weight: 600;
+            padding: 11px 14px;
             text-decoration: none;
-            white-space: nowrap;
             cursor: pointer;
+            white-space: nowrap;
         }
 
-        .surf-address-button {
+        .surf-button--primary {
+            background: #25d366;
+            border-color: #25d366;
+            color: #0b141a;
+        }
+
+        .surf-statusbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
             background: #111b21;
-            border-color: #111b21;
-            color: #fff;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 13px;
+            color: #c7d1d8;
         }
 
-        .surf-page {
-            min-height: calc(100vh - 65px);
+        .surf-status-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .surf-viewer-wrap {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+        }
+
+        .surf-viewer {
+            width: min(100%, 1100px);
+            max-height: calc(100vh - 132px);
+            object-fit: contain;
+            border-radius: 18px;
+            background: #fff;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        .surf-empty,
+        .surf-error {
+            max-width: 760px;
+            margin: 24px auto;
+            padding: 18px 20px;
+            border-radius: 16px;
+        }
+
+        .surf-empty {
+            background: rgba(255, 255, 255, 0.06);
+            color: #d8e1e8;
         }
 
         .surf-error {
-            max-width: 760px;
-            margin: 32px auto;
-            padding: 20px 22px;
-            border: 1px solid #f1b5b5;
-            border-radius: 14px;
-            background: #fff5f5;
-            color: #6e2020;
-            font: 16px/1.5 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: rgba(255, 89, 89, 0.14);
+            border: 1px solid rgba(255, 89, 89, 0.3);
+            color: #ffd5d5;
+            display: none;
         }
 
-        .surf-error h1 {
-            margin: 0 0 12px;
-            font-size: 1.2rem;
-        }
-
-        .surf-error p {
-            margin: 0 0 10px;
-        }
-
-        .surf-error a {
-            color: inherit;
-            font-weight: 600;
-        }
-
-        img, video, iframe, table {
-            max-width: 100%;
+        .surf-hint {
+            padding: 0 12px 12px;
+            color: #93a4b0;
+            font-size: 12px;
+            text-align: center;
         }
 
         @media (max-width: 720px) {
-            .surf-chrome {
+            .surf-toolbar {
                 flex-wrap: wrap;
             }
 
-            .surf-address-form {
+            .surf-address-form,
+            .surf-link {
                 width: 100%;
             }
 
-            .surf-back-link {
+            .surf-viewer {
                 width: 100%;
+                border-radius: 14px;
+            }
+
+            .surf-statusbar {
+                flex-direction: column;
+                align-items: flex-start;
             }
         }
     </style>
 </head>
 <body>
-<div class="surf-chrome">
-    <form class="surf-address-form" method="get" action="surf.php">
-        <input class="surf-address-input" type="text" name="url" value="<?= e($addressValue) ?>" placeholder="Enter a website URL" inputmode="url" autocomplete="off" spellcheck="false">
-        <button class="surf-address-button" type="submit">Go</button>
-    </form>
-    <a class="surf-back-link" href="index.php">Back to chat</a>
-</div>
-<div class="surf-page">
-<?php if ($pageError !== null): ?>
-    <div class="surf-error">
-        <h1>Could not open page</h1>
-        <p><?= e($pageError) ?></p>
-        <?php if ($finalUrl !== null): ?>
-            <p>Final URL: <?= e($finalUrl) ?></p>
-            <p>Status: <?= e((string) $statusCode) ?> · Content-Type: <?= e((string) $contentType) ?></p>
-        <?php endif; ?>
-        <p><a href="surf.php?url=<?= e(rawurlencode($defaultUrl)) ?>">Open Google</a></p>
+<div class="surf-shell">
+    <div class="surf-toolbar">
+        <form class="surf-address-form" id="surf-address-form">
+            <input class="surf-address-input" id="surf-address-input" type="text" value="<?= e($initialUrl) ?>" placeholder="Enter a website URL" inputmode="url" autocomplete="off" spellcheck="false">
+            <button class="surf-button surf-button--primary" type="submit">Go</button>
+        </form>
+        <a class="surf-link" href="index.php">Back to chat</a>
     </div>
-<?php else: ?>
-    <?= $pageHtml ?>
-<?php endif; ?>
+    <div class="surf-statusbar">
+        <div class="surf-status-text" id="surf-current-url">Starting browser…</div>
+        <div id="surf-current-title">Surf Mode</div>
+    </div>
+    <div class="surf-error" id="surf-error"></div>
+    <div class="surf-viewer-wrap">
+        <img id="surf-viewer" class="surf-viewer" alt="Surf mode remote browser view">
+    </div>
+    <div class="surf-hint">Click inside the page to focus it, then type, press Enter, or scroll to interact with the remote browser.</div>
 </div>
+<script>
+const surfState = {
+    csrfToken: <?= json_encode($csrf, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>,
+    viewer: document.getElementById('surf-viewer'),
+    addressInput: document.getElementById('surf-address-input'),
+    statusUrl: document.getElementById('surf-current-url'),
+    statusTitle: document.getElementById('surf-current-title'),
+    errorBox: document.getElementById('surf-error'),
+    viewport: { width: window.innerWidth <= 720 ? 390 : 1280, height: window.innerWidth <= 720 ? 844 : 900 },
+    activeViewport: { width: 390, height: 844 },
+    browserFocused: false,
+    busy: false,
+};
+
+async function surfAction(action, payload = {}) {
+    surfState.busy = true;
+    try {
+        const response = await fetch(`surf.php?action=${encodeURIComponent(action)}&viewport_width=${surfState.viewport.width}&viewport_height=${surfState.viewport.height}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({ csrf_token: surfState.csrfToken, ...payload }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Surf action failed.');
+        }
+        surfRender(data);
+    } catch (error) {
+        surfState.errorBox.style.display = 'block';
+        surfState.errorBox.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+        surfState.busy = false;
+    }
+}
+
+function surfRender(data) {
+    surfState.errorBox.style.display = 'none';
+    surfState.errorBox.textContent = '';
+    surfState.statusUrl.textContent = data.url || 'about:blank';
+    surfState.statusTitle.textContent = data.title || 'Surf Mode';
+    surfState.addressInput.value = data.url || surfState.addressInput.value;
+    if (data.viewport && data.viewport.width && data.viewport.height) {
+        surfState.activeViewport = data.viewport;
+    }
+    if (data.screenshot) {
+        surfState.viewer.src = `data:image/png;base64,${data.screenshot}`;
+    }
+}
+
+function surfViewerCoordinates(event) {
+    const rect = surfState.viewer.getBoundingClientRect();
+    const scaleX = surfState.activeViewport.width / rect.width;
+    const scaleY = surfState.activeViewport.height / rect.height;
+    return {
+        x: Math.max(0, Math.round((event.clientX - rect.left) * scaleX)),
+        y: Math.max(0, Math.round((event.clientY - rect.top) * scaleY)),
+    };
+}
+
+document.getElementById('surf-address-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await surfAction('navigate', { url: surfState.addressInput.value });
+});
+
+surfState.viewer.addEventListener('click', async (event) => {
+    const point = surfViewerCoordinates(event);
+    surfState.browserFocused = true;
+    await surfAction('click', point);
+});
+
+surfState.viewer.addEventListener('wheel', async (event) => {
+    event.preventDefault();
+    await surfAction('scroll', { deltaY: event.deltaY });
+}, { passive: false });
+
+window.addEventListener('keydown', async (event) => {
+    if (!surfState.browserFocused || surfState.busy || event.target === surfState.addressInput) {
+        return;
+    }
+
+    const specialKeys = new Set(['Enter', 'Backspace', 'Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+    if (specialKeys.has(event.key)) {
+        event.preventDefault();
+        await surfAction('key', { key: event.key });
+        return;
+    }
+
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        await surfAction('type', { text: event.key });
+    }
+});
+
+window.addEventListener('resize', () => {
+    surfState.viewport = {
+        width: window.innerWidth <= 720 ? 390 : 1280,
+        height: window.innerWidth <= 720 ? 844 : 900,
+    };
+});
+
+setInterval(() => {
+    if (!surfState.busy) {
+        surfAction('status');
+    }
+}, 2500);
+
+surfAction('navigate', { url: surfState.addressInput.value });
+</script>
 </body>
 </html>
