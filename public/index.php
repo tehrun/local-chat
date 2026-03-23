@@ -75,6 +75,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
+    <link rel="stylesheet" href="assets/app.css">
     <title>Local Chat</title>
     <style>
         :root {
@@ -596,11 +597,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
     </style>
 </head>
-<body>
+<body data-page="home">
 <div class="app">
     <div class="shell">
         <header class="topbar">
-            <div>
+            <div class="topbar-copy">
+                <span class="topbar-eyebrow">Private messaging, refined</span>
                 <h1>Local Chat</h1>
                 <p>Simple private conversations on your local network.</p>
             </div>
@@ -756,6 +758,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                 <span class="dot"></span>
                 <span>Now installable on supported devices and browsers.</span>
             </div>
+
+            <?php if ($user !== null): ?>
+                <div class="card product-note">
+                    <h2 class="panel-title">Smooth app-style experience</h2>
+                    <p class="panel-text">Live updates, premium overlays, and richer feedback now make the chat list feel closer to an installed mobile app.</p>
+                </div>
+            <?php endif; ?>
         </main>
     </div>
 </div>
@@ -1731,5 +1740,6 @@ installButton?.addEventListener('click', async () => {
     installButton.hidden = true;
 });
 </script>
+<script src="assets/app.js"></script>
 </body>
 </html>

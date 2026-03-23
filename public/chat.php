@@ -57,6 +57,7 @@ if ($isGroupConversation) {
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
+    <link rel="stylesheet" href="assets/app.css">
     <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
     <style>
         :root {
@@ -928,7 +929,7 @@ if ($isGroupConversation) {
         }
     </style>
 </head>
-<body>
+<body data-page="chat">
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
@@ -938,6 +939,7 @@ if ($isGroupConversation) {
                 </svg>
             </a>
             <div class="topbar-meta">
+                <span class="topbar-eyebrow">Conversation space</span>
                 <?php if ($isGroupConversation): ?>
                     <button id="group-members-button" class="header-members-trigger" type="button" aria-haspopup="dialog" aria-controls="group-members-modal">
                         <h1 id="header-title"><?= e((string) $group['name']) ?></h1>
@@ -956,6 +958,7 @@ if ($isGroupConversation) {
                     </div>
                 <?php endif; ?>
             </div>
+            <div class="header-live-pill" aria-hidden="true">Live</div>
             <div class="header-menu">
                 <button
                     id="header-menu-button"
@@ -3589,5 +3592,6 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 </script>
+<script src="assets/app.js"></script>
 </body>
 </html>
