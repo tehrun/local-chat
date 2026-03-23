@@ -811,6 +811,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </span>
                                 <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode">
                             </label>
+                            <a class="header-menu-item" href="surf.php" role="menuitem">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M3 12h18"></path>
+                                    <path d="M12 3a15.3 15.3 0 0 1 4 9 15.3 15.3 0 0 1-4 9 15.3 15.3 0 0 1-4-9 15.3 15.3 0 0 1 4-9Z"></path>
+                                </svg>
+                                <span class="header-menu-copy">
+                                    <strong>Surf mode</strong>
+                                    <span>Browse public websites via the server</span>
+                                </span>
+                            </a>
                             <form method="post">
                                 <input type="hidden" name="action" value="logout">
                                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">

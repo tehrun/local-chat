@@ -11,6 +11,7 @@ A lightweight PHP private chat app using SQLite by default, with optional MySQL 
 - hold-to-record private voice note uploads using the device microphone
 - browser notifications and alert sounds for new messages and friend requests after the first user interaction
 - background Web Push notifications for new messages, including when the installed app is closed (when the browser/platform supports Web Push)
+- experimental Surf mode proof of concept that fetches public HTML pages through the server for signed-in users
 - automatic 7-day retention for chat history, with uploaded photos, files, and voice notes expiring after 24 hours
 
 ## Requirements
