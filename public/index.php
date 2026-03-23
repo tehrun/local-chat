@@ -796,6 +796,11 @@ let hasInteracted = false;
 let lastUnseenCounts = new Map(initialChatUsers.map((chatUser) => [String(chatUser.id), Number(chatUser.unseen_count || 0)]));
 let pushSubscriptionSyncPromise = null;
 let directoryUsersState = Array.isArray(initialDirectoryUsers) ? [...initialDirectoryUsers] : [];
+let lastFriendshipStates = new Map(initialDirectoryUsers.map((chatUser) => [String(chatUser.id), {
+    status: String(chatUser.friendship_status || 'none'),
+    direction: chatUser.request_direction || null,
+    username: String(chatUser.username || ''),
+}]));
 
 const personPlusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -1142,6 +1147,39 @@ async function showFriendRequestNotification(request) {
     });
 }
 
+
+async function showFriendRequestResponseNotification(update) {
+    if (!update || document.visibilityState === 'visible') {
+        return;
+    }
+
+    await playNotificationSound();
+
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+    if (!registration) {
+        return;
+    }
+
+    const recipientName = update.recipient_name || update.username || 'Someone';
+    const accepted = update.status === 'accepted';
+
+    registration.showNotification(accepted ? 'Friend request accepted' : 'Friend request rejected', {
+        body: accepted
+            ? `${recipientName} accepted your friend request.`
+            : `${recipientName} rejected your friend request.`,
+        icon: 'icons/icon.svg',
+        tag: `friend-request-response-${update.id || update.recipient_id || recipientName}`,
+        renotify: true,
+        data: { url: accepted && update.recipient_id ? `chat.php?user=${Number(update.recipient_id)}` : 'index.php' },
+    }).catch(() => {
+        // Ignore notification errors.
+    });
+}
+
 async function showUnreadMessageNotification(chatUser, increaseCount) {
     if (!chatUser || increaseCount <= 0) {
         return;
@@ -1310,6 +1348,33 @@ function applyChatListPayload(payload) {
     }
 
     if (nextDirectorySignature !== directorySignature) {
+        directoryUsers.forEach((chatUser) => {
+            const userId = String(chatUser.id);
+            const previousState = lastFriendshipStates.get(userId);
+            const nextState = {
+                status: String(chatUser.friendship_status || 'none'),
+                direction: chatUser.request_direction || null,
+                username: String(chatUser.username || ''),
+                recipient_id: Number(chatUser.id || 0),
+            };
+
+            if (
+                previousState
+                && previousState.status === 'pending'
+                && previousState.direction === 'outgoing'
+                && (nextState.status === 'accepted' || nextState.status === 'rejected')
+            ) {
+                showFriendRequestResponseNotification({
+                    id: userId,
+                    recipient_id: nextState.recipient_id,
+                    recipient_name: nextState.username,
+                    status: nextState.status,
+                });
+            }
+
+            lastFriendshipStates.set(userId, nextState);
+        });
+
         directorySignature = nextDirectorySignature;
         directoryUsersState = directoryUsers;
         renderChatSwitcher(directoryUsersState);
