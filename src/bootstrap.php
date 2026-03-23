@@ -424,6 +424,28 @@ function initializeSqliteDatabase(PDO $pdo): void
         )'
     );
 
+    $columns = mysqlTableColumns($pdo, 'messages');
+
+    if (!in_array('image_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path VARCHAR(255) NULL AFTER audio_path');
+    }
+
+    if (!in_array('file_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path VARCHAR(255) NULL AFTER image_path');
+    }
+
+    if (!in_array('file_name', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
+    }
+
+    if (!in_array('delivered_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER file_name');
+    }
+
+    if (!in_array('read_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
+    }
+
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS typing_status (
             user_id INTEGER NOT NULL,
@@ -654,6 +676,16 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
 }
 
+function mysqlTableColumns(PDO $pdo, string $table): array
+{
+    $stmt = $pdo->query(sprintf('SHOW COLUMNS FROM `%s`', str_replace('`', '``', $table)));
+
+    return array_map(
+        static fn (array $column): string => (string) ($column['Field'] ?? ''),
+        $stmt ? $stmt->fetchAll() : []
+    );
+}
+
 function initializeMysqlDatabase(PDO $pdo): void
 {
     $pdo->exec(
@@ -684,6 +716,28 @@ function initializeMysqlDatabase(PDO $pdo): void
             CONSTRAINT fk_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $columns = mysqlTableColumns($pdo, 'messages');
+
+    if (!in_array('image_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path VARCHAR(255) NULL AFTER audio_path');
+    }
+
+    if (!in_array('file_path', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path VARCHAR(255) NULL AFTER image_path');
+    }
+
+    if (!in_array('file_name', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
+    }
+
+    if (!in_array('delivered_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER file_name');
+    }
+
+    if (!in_array('read_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
+    }
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS typing_status (
