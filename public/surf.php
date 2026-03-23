@@ -6,40 +6,29 @@ require __DIR__ . '/../src/bootstrap.php';
 
 $user = requireAuth();
 
-function surfDetectedNodeBinary(): ?string
+function surfNodeBinaryCandidates(): array
 {
     $configured = trim((string) getenv('CHAT_NODE_BINARY'));
-    if ($configured !== '') {
-        if (is_executable($configured)) {
-            return $configured;
-        }
+    $candidates = [];
 
-        $resolved = shell_exec('command -v ' . escapeshellarg($configured) . ' 2>/dev/null');
-        if (is_string($resolved) && trim($resolved) !== '') {
-            return trim($resolved);
-        }
+    if ($configured !== '') {
+        $candidates[] = $configured;
     }
 
-    foreach (['node', 'nodejs', '/usr/bin/node', '/usr/local/bin/node'] as $candidate) {
-        if (str_contains($candidate, '/')) {
-            if (is_executable($candidate)) {
-                return $candidate;
-            }
-            continue;
-        }
+    array_push($candidates, '/usr/bin/node', '/usr/bin/nodejs', '/usr/local/bin/node', '/usr/local/bin/nodejs');
 
-        $resolved = shell_exec('command -v ' . escapeshellarg($candidate) . ' 2>/dev/null');
-        if (is_string($resolved) && trim($resolved) !== '') {
-            return trim($resolved);
+    return array_values(array_unique($candidates));
+}
+
+function surfDetectedNodeBinary(): ?string
+{
+    foreach (surfNodeBinaryCandidates() as $candidate) {
+        if (is_executable($candidate)) {
+            return $candidate;
         }
     }
 
     return null;
-}
-
-if (surfDetectedNodeBinary() === null) {
-    require __DIR__ . '/surf_proxy_fallback.php';
-    return;
 }
 
 const SURF_VIEWPORT_WIDTH = 390;
@@ -121,7 +110,8 @@ function surfResolveNodeBinary(): string
         return $resolved;
     }
 
-    throw new RuntimeException('Surf mode requires Node.js. Install Node, or set CHAT_NODE_BINARY to the full path of the node/nodejs executable.');
+    $candidates = implode(', ', surfNodeBinaryCandidates());
+    throw new RuntimeException('Surf mode requires a Node.js binary at one of these full paths: ' . $candidates . '. Set CHAT_NODE_BINARY to the correct full path before PHP starts.');
 }
 
 function surfRunBrowserAction(string $action, array $payload, array $user): array

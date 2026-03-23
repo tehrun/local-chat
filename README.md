@@ -30,7 +30,7 @@ npm install
 php -S 127.0.0.1:8000 -t public
 ```
 
-If your host exposes the Node binary as `nodejs` (or stores it outside the default `PATH`), set `CHAT_NODE_BINARY` to that executable name or full path before PHP starts. When Node.js is completely unavailable, Surf mode automatically falls back to the older server-side HTML proxy so the feature still works with reduced compatibility.
+If your host stores Node outside the default locations, set `CHAT_NODE_BINARY` to the full executable path before PHP starts, for example `CHAT_NODE_BINARY=/usr/bin/nodejs`. Surf mode no longer includes the older HTML-proxy fallback, so a working Node.js binary is required.
 
 Then open <http://127.0.0.1:8000>. When running on PHP's built-in dev server, the chat UI falls back to short polling instead of Server-Sent Events so message sends do not get blocked by the single-worker server. Both the conversation page and the home/chat-list page now check lightweight signatures first, only fetch their full payloads when something actually changed, and back off toward slower polling while the UI is idle. On multi-worker hosting, the conversation and home pages keep SSE connections open and also use lightweight signatures to avoid unnecessary full payload reloads. On phones, install the app behind HTTPS or use a secure local tunnel so the browser can grant microphone access for hold-to-record voice notes.
 
