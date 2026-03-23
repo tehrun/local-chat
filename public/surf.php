@@ -10,6 +10,7 @@ const SURF_ALLOWED_SCHEMES = ['http', 'https'];
 const SURF_RESERVED_QUERY_KEYS = ['url', 'asset', 'surf_target'];
 const SURF_FETCH_TIMEOUT_SECONDS = 12;
 const SURF_MAX_REDIRECTS = 5;
+const SURF_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1 LocalChatSurf/1.0';
 
 function surfNormalizeUrl(?string $candidate): ?string
 {
@@ -142,33 +143,101 @@ function surfBuildAbsoluteUrl(string $baseUrl, string $candidate): ?string
         return $scheme . ':' . $candidate;
     }
 
+    if (str_starts_with($candidate, '#')) {
+        return $baseUrl . $candidate;
+    }
+
+    $fragment = '';
+    $fragmentPosition = strpos($candidate, '#');
+    if ($fragmentPosition !== false) {
+        $fragment = substr($candidate, $fragmentPosition);
+        $candidate = substr($candidate, 0, $fragmentPosition);
+    }
+
+    $query = '';
+    $queryPosition = strpos($candidate, '?');
+    if ($queryPosition !== false) {
+        $query = substr($candidate, $queryPosition);
+        $candidate = substr($candidate, 0, $queryPosition);
+    }
+
     $path = (string) ($base['path'] ?? '/');
     $path = preg_replace('~/[^/]*$~', '/', $path) ?? '/';
 
-    if (str_starts_with($candidate, '/')) {
-        $resolvedPath = $candidate;
+    if ($candidate === '') {
+        $normalizedPath = (string) ($base['path'] ?? '/');
+    } elseif (str_starts_with($candidate, '/')) {
+        $normalizedPath = $candidate;
     } else {
         $resolvedPath = $path . $candidate;
-    }
-
-    $segments = [];
-    foreach (explode('/', $resolvedPath) as $segment) {
-        if ($segment === '' || $segment === '.') {
-            continue;
+        $segments = [];
+        foreach (explode('/', $resolvedPath) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = $segment;
         }
-        if ($segment === '..') {
-            array_pop($segments);
-            continue;
+
+        $normalizedPath = '/' . implode('/', $segments);
+        if (str_ends_with($resolvedPath, '/') && !str_ends_with($normalizedPath, '/')) {
+            $normalizedPath .= '/';
         }
-        $segments[] = $segment;
     }
 
-    $normalizedPath = '/' . implode('/', $segments);
-    if (str_ends_with($resolvedPath, '/') && !str_ends_with($normalizedPath, '/')) {
-        $normalizedPath .= '/';
+    return sprintf('%s://%s%s%s%s%s', $scheme, $host, $port, $normalizedPath, $query, $fragment);
+}
+
+function surfEnsureHeadElement(DOMDocument $dom): DOMElement
+{
+    $heads = $dom->getElementsByTagName('head');
+    if ($heads->length > 0) {
+        return $heads->item(0);
     }
 
-    return sprintf('%s://%s%s%s', $scheme, $host, $port, $normalizedPath);
+    $head = $dom->createElement('head');
+    $html = $dom->getElementsByTagName('html')->item(0);
+    if ($html instanceof DOMElement) {
+        $html->insertBefore($head, $html->firstChild);
+        return $head;
+    }
+
+    $dom->insertBefore($head, $dom->firstChild);
+    return $head;
+}
+
+function surfEnsureResponsiveDocument(DOMDocument $dom, DOMXPath $xpath): void
+{
+    $head = surfEnsureHeadElement($dom);
+
+    $hasViewport = $xpath->query('//meta[@name="viewport"]');
+    if ($hasViewport === false || $hasViewport->length === 0) {
+        $viewport = $dom->createElement('meta');
+        $viewport->setAttribute('name', 'viewport');
+        $viewport->setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
+        $head->appendChild($viewport);
+    }
+
+    $style = $dom->createElement('style', <<<'CSS'
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+}
+img, video, iframe, table, pre, code, input, textarea, select {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+body {
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+CSS);
+    $style->setAttribute('data-local-chat-surf', 'responsive');
+    $head->appendChild($style);
 }
 
 function surfProxyUrl(string $absoluteUrl, bool $asset = false): string
@@ -192,7 +261,7 @@ function surfFetch(string $url, bool $binary = false): array
         CURLOPT_MAXREDIRS => SURF_MAX_REDIRECTS,
         CURLOPT_CONNECTTIMEOUT => SURF_FETCH_TIMEOUT_SECONDS,
         CURLOPT_TIMEOUT => SURF_FETCH_TIMEOUT_SECONDS,
-        CURLOPT_USERAGENT => 'LocalChat Surf Mode POC/1.0',
+        CURLOPT_USERAGENT => SURF_USER_AGENT,
         CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         CURLOPT_HEADER => true,
@@ -272,7 +341,7 @@ function surfRewriteHtml(string $html, string $baseUrl): string
 
     $xpath = new DOMXPath($dom);
 
-    foreach ($xpath->query('//script|//noscript|//meta[@http-equiv]') ?: [] as $node) {
+    foreach ($xpath->query('//script|//noscript|//meta[@http-equiv="Content-Security-Policy"]') ?: [] as $node) {
         $node->parentNode?->removeChild($node);
     }
 
@@ -305,6 +374,8 @@ function surfRewriteHtml(string $html, string $baseUrl): string
         }
         $node->setAttribute('href', surfProxyUrl($absolute, true));
     }
+
+    surfEnsureResponsiveDocument($dom, $xpath);
 
     foreach ($xpath->query('//form[@action] | //form[not(@action)]') ?: [] as $form) {
         $method = strtolower((string) $form->getAttribute('method'));
