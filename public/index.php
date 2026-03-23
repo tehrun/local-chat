@@ -666,9 +666,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             height: 60px;
             border: none;
             border-radius: 50%;
-            background: var(--action);
-            color: #fff;
-            box-shadow: 0 12px 26px rgba(37, 211, 102, 0.34);
+            background: #fff;
+            color: #111b21;
+            box-shadow: 0 12px 26px rgba(17, 27, 33, 0.22);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -689,7 +689,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             position: fixed;
             inset: 0;
             z-index: 25;
-            background: rgba(11, 20, 26, 0.42);
+            background: rgba(0, 0, 0, 0.86);
             display: flex;
             align-items: flex-end;
             justify-content: center;
@@ -698,7 +698,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .chat-switcher-panel {
             width: min(100%, 420px);
             max-height: min(70vh, 560px);
-            background: rgba(247, 245, 241, 0.98);
+            background: #fff;
+            color: #111b21;
             border-radius: 24px;
             box-shadow: var(--shadow);
             display: flex;
@@ -748,7 +749,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             padding: 14px 16px;
             border-radius: 16px;
             background: #fff;
-            color: var(--muted);
+            color: #667781;
             font-size: 14px;
             text-align: center;
         }
@@ -1057,7 +1058,7 @@ function loadStoredTheme() {
         // Ignore storage access errors.
     }
 
-    applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme('light');
 }
 
 function setSettingsMenuOpen(isOpen) {

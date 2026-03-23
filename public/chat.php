@@ -106,7 +106,7 @@ if ($isGroupConversation) {
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
-            color: var(--text);
+            color: #fff;
         }
         .app {
             min-height: 100vh;
@@ -595,7 +595,8 @@ if ($isGroupConversation) {
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
-            background: linear-gradient(180deg, rgba(239,234,226,0) 0%, rgba(239,234,226,0.96) 18%, rgba(239,234,226,1) 45%);
+            background: var(--header);
+            box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
         }
         .composer-stack {
             position: relative;
@@ -604,10 +605,10 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: var(--composer);
+            background: rgba(255, 255, 255, 0.14);
             border-radius: 26px;
             padding: 10px;
-            box-shadow: var(--shadow);
+            box-shadow: none;
         }
         .composer textarea {
             flex: 1;
@@ -733,7 +734,7 @@ if ($isGroupConversation) {
         .lightbox.is-visible {
             opacity: 1;
             pointer-events: auto;
-            background: rgba(11, 20, 26, 0.88);
+            background: rgba(0, 0, 0, 0.92);
         }
         .lightbox-inner {
             position: relative;
@@ -743,6 +744,10 @@ if ($isGroupConversation) {
             flex-direction: column;
             align-items: center;
             gap: 16px;
+            padding: 18px;
+            border-radius: 28px;
+            background: #fff;
+            color: #111b21;
             transform: translateY(24px) scale(0.94);
             transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
@@ -759,7 +764,7 @@ if ($isGroupConversation) {
         .lightbox-button {
             border: none;
             border-radius: 999px;
-            background: rgba(255,255,255,0.14);
+            background: #111b21;
             color: #fff;
             min-height: 44px;
             padding: 12px 16px;
@@ -776,7 +781,7 @@ if ($isGroupConversation) {
         }
         .lightbox-button:hover,
         .lightbox-button:focus-visible {
-            background: rgba(255,255,255,0.22);
+            background: #24313a;
         }
         .lightbox-button:active {
             transform: scale(0.97);
@@ -858,7 +863,7 @@ if ($isGroupConversation) {
             position: fixed;
             inset: 0;
             z-index: 40;
-            background: rgba(11, 20, 26, 0.42);
+            background: rgba(0, 0, 0, 0.86);
             display: flex;
             align-items: flex-end;
             justify-content: center;
@@ -867,7 +872,8 @@ if ($isGroupConversation) {
         .member-picker-panel {
             width: min(100%, 420px);
             max-height: min(72vh, 560px);
-            background: rgba(247, 245, 241, 0.98);
+            background: #fff;
+            color: #111b21;
             border-radius: 24px;
             box-shadow: var(--shadow);
             display: flex;
@@ -1296,7 +1302,7 @@ function applyTheme(theme) {
     } catch (error) {
         // Ignore storage access errors.
     }
-    applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme('light');
 })();
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
