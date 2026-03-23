@@ -704,6 +704,23 @@ if ($isGroupConversation) {
             opacity: 0.7;
             cursor: wait;
         }
+        .attachment-trigger {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--muted);
+            box-shadow: none;
+        }
+        .attachment-trigger:active,
+        .attachment-trigger:focus-visible {
+            background: transparent;
+        }
+        .attachment-trigger svg {
+            width: 20px;
+            height: 20px;
+        }
         .message-file {
             display: flex;
             align-items: center;
@@ -1236,7 +1253,7 @@ if ($isGroupConversation) {
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
                     <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
                     <div class="attachment-menu-wrap">
-                        <button id="attachment-button" class="composer-icon-button" type="button" aria-label="Open attachment options" aria-expanded="false" aria-controls="attachment-menu"<?= $canChat ? '' : ' disabled' ?>>
+                        <button id="attachment-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open attachment options" aria-expanded="false" aria-controls="attachment-menu"<?= $canChat ? '' : ' disabled' ?>>
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4.5 4.5 0 1 1 6.36 6.36l-9.9 9.9a3 3 0 0 1-4.24-4.24l8.48-8.49"></path>
                             </svg>
