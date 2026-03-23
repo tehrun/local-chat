@@ -602,7 +602,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
 
             <div class="card intro-bubble">
                 <h2 class="panel-title">Welcome</h2>
-                <p class="panel-text">Send text messages and voice notes, see who is online, and keep chats automatically cleaned up after 24 hours.</p>
+                <p class="panel-text">Send text messages and voice notes, see who is online, and keep chat history for 7 days while uploaded photos, files, and voice notes expire after 24 hours.</p>
             </div>
 
             <?php if ($user === null): ?>

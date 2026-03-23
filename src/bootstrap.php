@@ -9,7 +9,8 @@ define('TMP_UPLOAD_PATH', STORAGE_PATH . '/tmp');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('DEFAULT_DB_HOST', '127.0.0.1');
 define('DEFAULT_DB_PORT', '3306');
-define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
+define('MESSAGE_RETENTION_TTL_SECONDS', 7 * 24 * 60 * 60);
+define('MEDIA_RETENTION_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
 define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
@@ -1338,12 +1339,13 @@ function purgeExpiredMessages(bool $force = false): void
         return;
     }
 
-    $cutoff = gmdate('c', time() - MESSAGE_TTL_SECONDS);
+    $messageCutoff = gmdate('c', time() - MESSAGE_RETENTION_TTL_SECONDS);
+    $mediaCutoff = gmdate('c', time() - MEDIA_RETENTION_TTL_SECONDS);
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
     $stmt = $pdo->prepare('SELECT audio_path, image_path, file_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)');
-    $stmt->execute(['cutoff' => $cutoff]);
+    $stmt->execute(['cutoff' => $mediaCutoff]);
 
     foreach ($stmt->fetchAll() as $row) {
         foreach (['audio_path', 'image_path', 'file_path'] as $column) {
@@ -1363,8 +1365,19 @@ function purgeExpiredMessages(bool $force = false): void
         }
     }
 
+    $clearMedia = $pdo->prepare(
+        'UPDATE messages
+         SET audio_path = NULL,
+             image_path = NULL,
+             file_path = NULL,
+             file_name = NULL
+         WHERE created_at < :cutoff
+           AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL OR file_name IS NOT NULL)'
+    );
+    $clearMedia->execute(['cutoff' => $mediaCutoff]);
+
     $delete = $pdo->prepare('DELETE FROM messages WHERE created_at < :cutoff');
-    $delete->execute(['cutoff' => $cutoff]);
+    $delete->execute(['cutoff' => $messageCutoff]);
 
     $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
     $deleteTyping->execute(['cutoff' => $typingCutoff]);
@@ -1937,6 +1950,10 @@ function chatListPreview(array $user): string
         return '📎 File';
     }
 
+    if (messageHasExpiredAttachment($user)) {
+        return 'Attachment expired';
+    }
+
     return 'Start chatting';
 }
 
@@ -2274,6 +2291,20 @@ function clearConversationForUser(int $userId, int $otherUserId): void
     clearTypingStatus($otherUserId, $userId);
 }
 
+function messageHasExpiredAttachment(array $message): bool
+{
+    $body = trim((string) ($message['body'] ?? ''));
+    $hasAttachment = !empty($message['audio_path']) || !empty($message['image_path']) || !empty($message['file_path']);
+
+    if ($body !== '' || $hasAttachment) {
+        return false;
+    }
+
+    $createdAt = strtotime((string) ($message['created_at'] ?? $message['last_message_at'] ?? ''));
+
+    return $createdAt !== false && $createdAt <= (time() - MEDIA_RETENTION_TTL_SECONDS);
+}
+
 function formatMessage(array $message): array
 {
     return [
@@ -2286,6 +2317,7 @@ function formatMessage(array $message): array
         'image_path' => $message['image_path'] ?? null,
         'file_path' => $message['file_path'] ?? null,
         'file_name' => $message['file_name'] ?? null,
+        'attachment_expired' => messageHasExpiredAttachment($message),
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'created_at' => $message['created_at'],

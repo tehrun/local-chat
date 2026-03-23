@@ -11,7 +11,7 @@ A lightweight PHP private chat app using SQLite by default, with optional MySQL 
 - hold-to-record private voice note uploads using the device microphone
 - browser notifications and alert sounds for new messages and friend requests after the first user interaction
 - background Web Push notifications for new messages, including when the installed app is closed (when the browser/platform supports Web Push)
-- automatic 24-hour retention for chat history
+- automatic 7-day retention for chat history, with uploaded photos, files, and voice notes expiring after 24 hours
 
 ## Requirements
 
@@ -39,7 +39,7 @@ For background Web Push notifications, serve the app over HTTPS (or a secure loc
 - Uploaded shared files and voice notes: `storage/uploads/`
 - Uploaded chat images: `storage/tmp/`
 
-Messages older than 24 hours are purged automatically whenever the app loads inbox or conversation pages, before new messages are saved, and while live polling requests keep the chat updated.
+Messages older than 7 days are purged automatically whenever the app loads inbox or conversation pages, before new messages are saved, and while live polling requests keep the chat updated. Uploaded photos, files, and voice notes are deleted from disk after 24 hours, and their message rows stay behind so the conversation still reads correctly.
 
 ## Database configuration
 

@@ -414,6 +414,10 @@ if ($isGroupConversation) {
             direction: ltr;
             text-align: left;
         }
+        .message-text.muted {
+            color: var(--muted);
+            font-style: italic;
+        }
         .message audio {
             width: 100%;
             margin-top: 6px;
@@ -1590,7 +1594,7 @@ async function showMessageNotification(message) {
     const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
     const body = message.body
         ? message.body.slice(0, 120)
-        : (message.image_path ? 'Sent you an image' : (message.file_path ? 'Sent you a file' : 'Sent you a voice note'));
+        : (message.image_path ? 'Sent you an image' : (message.file_path ? 'Sent you a file' : (message.audio_path ? 'Sent you a voice note' : (message.attachment_expired ? 'Sent an attachment that has expired' : 'New message'))));
 
     if (registration) {
         registration.showNotification(conversationDisplayName, {
@@ -2092,6 +2096,7 @@ function renderMessages(messages) {
         message.image_path || '',
         message.file_path || '',
         message.file_name || '',
+        Boolean(message.attachment_expired),
     ]));
     if (signature === renderedSignature) {
         return;
@@ -2118,6 +2123,9 @@ function renderMessages(messages) {
             const file = message.file_path
                 ? `<a class="message-file" href="media.php?message=${Number(message.id)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
                 : '';
+            const expiredAttachment = message.attachment_expired
+                ? '<div class="message-text muted" dir="auto">Attachment expired.</div>'
+                : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
             const senderLabel = shouldShowSender
@@ -2141,6 +2149,7 @@ function renderMessages(messages) {
                         ${image}
                         ${audio}
                         ${file}
+                        ${expiredAttachment}
                         <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
                     </div>
                 </article>`;
