@@ -242,6 +242,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         .header-menu-item {
             cursor: pointer;
+            text-decoration: none;
             transition: background 0.15s ease, color 0.15s ease;
         }
         .header-menu-item:hover,
@@ -819,7 +820,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </svg>
                                 <span class="header-menu-copy">
                                     <strong>Surf mode</strong>
-                                    <span>Browse public websites via the server</span>
                                 </span>
                             </a>
                             <form method="post">
