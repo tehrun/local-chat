@@ -17,11 +17,34 @@ define('PURGE_INTERVAL_SECONDS', 30);
 define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
 define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
+define('SESSION_BACKEND_NAME', 'database');
 
+ensureStorageDirectories();
 configureSession();
+installSessionHandler();
 session_start();
 
 applySecurityHeaders();
+
+
+function ensureStorageDirectories(): void
+{
+    if (!is_dir(dirname(DB_PATH))) {
+        mkdir(dirname(DB_PATH), 0777, true);
+    }
+
+    if (!is_dir(UPLOAD_PATH)) {
+        mkdir(UPLOAD_PATH, 0777, true);
+    }
+
+    if (!is_dir(TMP_UPLOAD_PATH)) {
+        mkdir(TMP_UPLOAD_PATH, 0777, true);
+    }
+
+    if (!is_dir(WEB_PUSH_KEY_PATH)) {
+        mkdir(WEB_PUSH_KEY_PATH, 0777, true);
+    }
+}
 
 function configureSession(): void
 {
@@ -42,6 +65,8 @@ function configureSession(): void
 
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
+    ini_set('session.gc_probability', '0');
+    ini_set('session.gc_divisor', '1000');
     ini_set('session.gc_maxlifetime', (string) SESSION_TTL_SECONDS);
     ini_set('session.cookie_lifetime', (string) SESSION_TTL_SECONDS);
     ini_set('session.cookie_httponly', '1');
@@ -50,6 +75,150 @@ function configureSession(): void
     if ($isHttps) {
         ini_set('session.cookie_secure', '1');
     }
+}
+
+
+function installSessionHandler(): void
+{
+    static $installed = false;
+
+    if ($installed) {
+        return;
+    }
+
+    $handler = new class () implements SessionHandlerInterface {
+        public function open(string $path, string $name): bool
+        {
+            return true;
+        }
+
+        public function close(): bool
+        {
+            $this->gc(SESSION_TTL_SECONDS);
+
+            return true;
+        }
+
+        public function read(string $id): string|false
+        {
+            $this->deleteExpiredSession($id);
+
+            $stmt = db()->prepare(
+                'SELECT payload, expires_at
+                 FROM sessions
+                 WHERE id = :id
+                 LIMIT 1'
+            );
+            $stmt->execute(['id' => $id]);
+            $session = $stmt->fetch();
+
+            if (!is_array($session)) {
+                return '';
+            }
+
+            $expiresAt = strtotime((string) ($session['expires_at'] ?? ''));
+            if ($expiresAt === false || $expiresAt <= time()) {
+                $this->destroy($id);
+
+                return '';
+            }
+
+            return is_string($session['payload'] ?? null) ? $session['payload'] : '';
+        }
+
+        public function write(string $id, string $data): bool
+        {
+            $now = gmdate('c');
+            $expiresAt = gmdate('c', time() + SESSION_TTL_SECONDS);
+
+            if (dbDriver() === 'mysql') {
+                $stmt = db()->prepare(
+                    'INSERT INTO sessions (id, payload, created_at, last_seen_at, expires_at)
+                     VALUES (:id, :payload, :created_at, :last_seen_at, :expires_at)
+                     ON DUPLICATE KEY UPDATE
+                        payload = VALUES(payload),
+                        last_seen_at = VALUES(last_seen_at),
+                        expires_at = VALUES(expires_at)'
+                );
+            } else {
+                $stmt = db()->prepare(
+                    'INSERT INTO sessions (id, payload, created_at, last_seen_at, expires_at)
+                     VALUES (:id, :payload, :created_at, :last_seen_at, :expires_at)
+                     ON CONFLICT(id) DO UPDATE SET
+                        payload = excluded.payload,
+                        last_seen_at = excluded.last_seen_at,
+                        expires_at = excluded.expires_at'
+                );
+            }
+
+            $stmt->execute([
+                'id' => $id,
+                'payload' => $data,
+                'created_at' => $now,
+                'last_seen_at' => $now,
+                'expires_at' => $expiresAt,
+            ]);
+
+            return true;
+        }
+
+        public function destroy(string $id): bool
+        {
+            $stmt = db()->prepare('DELETE FROM sessions WHERE id = :id');
+            $stmt->execute(['id' => $id]);
+
+            return true;
+        }
+
+        public function gc(int $max_lifetime): int|false
+        {
+            $stmt = db()->prepare('DELETE FROM sessions WHERE expires_at <= :now');
+            $stmt->execute(['now' => gmdate('c')]);
+
+            return $stmt->rowCount();
+        }
+
+        private function deleteExpiredSession(string $id): void
+        {
+            $stmt = db()->prepare('DELETE FROM sessions WHERE id = :id AND expires_at <= :now');
+            $stmt->execute([
+                'id' => $id,
+                'now' => gmdate('c'),
+            ]);
+        }
+    };
+
+    session_set_save_handler($handler, true);
+    $installed = true;
+}
+
+function sessionDiagnostics(): array
+{
+    $sessionId = session_id();
+    $sessionRecord = null;
+
+    if ($sessionId !== '') {
+        $stmt = db()->prepare(
+            'SELECT id, created_at, last_seen_at, expires_at
+             FROM sessions
+             WHERE id = :id
+             LIMIT 1'
+        );
+        $stmt->execute(['id' => $sessionId]);
+        $row = $stmt->fetch();
+        $sessionRecord = is_array($row) ? $row : null;
+    }
+
+    return [
+        'backend' => SESSION_BACKEND_NAME,
+        'ttl_seconds' => SESSION_TTL_SECONDS,
+        'php_session_name' => session_name(),
+        'session_id' => $sessionId !== '' ? $sessionId : null,
+        'session_status' => session_status(),
+        'effective_expires_at' => $sessionRecord['expires_at'] ?? ($sessionId !== '' ? gmdate('c', time() + SESSION_TTL_SECONDS) : null),
+        'created_at' => $sessionRecord['created_at'] ?? null,
+        'last_seen_at' => $sessionRecord['last_seen_at'] ?? null,
+    ];
 }
 
 function applySecurityHeaders(): void
@@ -138,23 +307,6 @@ function requireCsrfToken(): void
     if (!verifyCsrfToken(is_string($token) ? $token : null)) {
         jsonResponse(['error' => 'Invalid CSRF token.'], 419);
     }
-}
-
-
-if (!is_dir(dirname(DB_PATH))) {
-    mkdir(dirname(DB_PATH), 0777, true);
-}
-
-if (!is_dir(UPLOAD_PATH)) {
-    mkdir(UPLOAD_PATH, 0777, true);
-}
-
-if (!is_dir(TMP_UPLOAD_PATH)) {
-    mkdir(TMP_UPLOAD_PATH, 0777, true);
-}
-
-if (!is_dir(WEB_PUSH_KEY_PATH)) {
-    mkdir(WEB_PUSH_KEY_PATH, 0777, true);
 }
 
 function db(): PDO
@@ -318,6 +470,21 @@ function initializeSqliteDatabase(PDO $pdo): void
     if (!in_array('read_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN read_at TEXT');
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+         ON sessions (expires_at)'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS user_presence (
@@ -536,6 +703,17 @@ function initializeMysqlDatabase(PDO $pdo): void
             updated_at DATETIME NOT NULL,
             INDEX idx_user_presence_updated (updated_at),
             CONSTRAINT fk_user_presence_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS sessions (
+            id VARCHAR(128) NOT NULL PRIMARY KEY,
+            payload LONGTEXT NOT NULL,
+            created_at DATETIME NOT NULL,
+            last_seen_at DATETIME NOT NULL,
+            expires_at DATETIME NOT NULL,
+            INDEX idx_sessions_expires_at (expires_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
