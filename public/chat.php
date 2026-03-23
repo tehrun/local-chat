@@ -409,7 +409,7 @@ if ($isGroupConversation) {
             text-align: left;
         }
         .message audio {
-            width: min(300px, 100%);
+            width: 100%;
             margin-top: 6px;
         }
         .meta {
