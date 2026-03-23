@@ -201,10 +201,16 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             border-radius: 999px;
             background: rgba(7, 94, 84, 0.12);
             color: var(--header);
-            padding: 8px 12px;
-            font-size: 13px;
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            font-size: 20px;
+            line-height: 1;
             font-weight: 700;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             flex-shrink: 0;
         }
         .intro-dismiss:hover {
@@ -629,7 +635,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <h2 class="panel-title">Welcome</h2>
                     <p class="panel-text">Send text messages and voice notes, see who is online, and keep chat history for 7 days while uploaded photos, files, and voice notes expire after 24 hours.</p>
                 </div>
-                <button class="intro-dismiss" id="welcome-dismiss-button" type="button" aria-label="Dismiss welcome message">Dismiss</button>
+                <button class="intro-dismiss" id="welcome-dismiss-button" type="button" aria-label="Dismiss welcome message">&times;</button>
             </div>
 
             <?php if ($user === null): ?>
