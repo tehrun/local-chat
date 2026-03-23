@@ -424,26 +424,29 @@ function initializeSqliteDatabase(PDO $pdo): void
         )'
     );
 
-    $columns = mysqlTableColumns($pdo, 'messages');
+    $columns = array_map(
+        static fn (array $column): string => (string) $column['name'],
+        $pdo->query('PRAGMA table_info(messages)')->fetchAll()
+    );
 
     if (!in_array('image_path', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path VARCHAR(255) NULL AFTER audio_path');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path TEXT');
     }
 
     if (!in_array('file_path', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path VARCHAR(255) NULL AFTER image_path');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path TEXT');
     }
 
     if (!in_array('file_name', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name TEXT');
     }
 
     if (!in_array('delivered_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER file_name');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at TEXT');
     }
 
     if (!in_array('read_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at TEXT');
     }
 
     $pdo->exec(
@@ -477,31 +480,6 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_messages_pending_delivery
          ON messages (recipient_id, sender_id, delivered_at, read_at, created_at, id)'
     );
-
-    $columns = array_map(
-        static fn (array $column): string => (string) $column['name'],
-        $pdo->query('PRAGMA table_info(messages)')->fetchAll()
-    );
-
-    if (!in_array('image_path', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN image_path TEXT');
-    }
-
-    if (!in_array('file_path', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN file_path TEXT');
-    }
-
-    if (!in_array('file_name', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN file_name TEXT');
-    }
-
-    if (!in_array('delivered_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at TEXT');
-    }
-
-    if (!in_array('read_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN read_at TEXT');
-    }
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS sessions (
