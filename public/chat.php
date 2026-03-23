@@ -73,9 +73,28 @@ if ($isGroupConversation) {
             --action-active: #128c7e;
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
+            --menu-surface: rgba(255, 255, 255, 0.98);
+            --menu-hover: rgba(7, 94, 84, 0.08);
             --keyboard-offset: 0px;
             --composer-height: 74px;
             --composer-clearance: 6px;
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #0b141a;
+            --panel: #111b21;
+            --header: #202c33;
+            --composer: #202c33;
+            --mine: #144d37;
+            --theirs: #202c33;
+            --text: #e9edef;
+            --muted: #8696a0;
+            --action: #25d366;
+            --action-active: #1da851;
+            --danger: #f97066;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            --menu-surface: rgba(17, 27, 33, 0.98);
+            --menu-hover: rgba(255, 255, 255, 0.08);
         }
         * { box-sizing: border-box; }
         body {
@@ -87,7 +106,7 @@ if ($isGroupConversation) {
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
-            color: var(--text);
+            color: #fff;
         }
         .app {
             min-height: 100vh;
@@ -199,7 +218,7 @@ if ($isGroupConversation) {
             min-width: 216px;
             padding: 8px;
             border-radius: 18px;
-            background: rgba(255, 255, 255, 0.98);
+            background: var(--menu-surface);
             box-shadow: 0 20px 40px rgba(17, 27, 33, 0.24);
             display: flex;
             flex-direction: column;
@@ -233,7 +252,7 @@ if ($isGroupConversation) {
         }
         .header-menu-item:hover,
         .header-menu-item:focus-visible {
-            background: rgba(7, 94, 84, 0.08);
+            background: var(--menu-hover);
         }
         .header-menu-item.danger {
             color: var(--danger);
@@ -254,6 +273,34 @@ if ($isGroupConversation) {
             stroke-linecap: round;
             stroke-linejoin: round;
             flex-shrink: 0;
+        }
+        .theme-switch {
+            appearance: none;
+            width: 42px;
+            height: 24px;
+            border-radius: 999px;
+            background: rgba(134, 150, 160, 0.45);
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            flex-shrink: 0;
+        }
+        .theme-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+        }
+        .theme-switch:checked {
+            background: var(--action);
+        }
+        .theme-switch:checked::after {
+            transform: translateX(18px);
         }
         .topbar-meta {
             min-width: 0;
@@ -548,7 +595,8 @@ if ($isGroupConversation) {
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
-            background: linear-gradient(180deg, rgba(239,234,226,0) 0%, rgba(239,234,226,0.96) 18%, rgba(239,234,226,1) 45%);
+            background: var(--header);
+            box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
         }
         .composer-stack {
             position: relative;
@@ -557,10 +605,10 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: var(--composer);
+            background: rgba(255, 255, 255, 0.14);
             border-radius: 26px;
             padding: 10px;
-            box-shadow: var(--shadow);
+            box-shadow: none;
         }
         .composer textarea {
             flex: 1;
@@ -686,7 +734,7 @@ if ($isGroupConversation) {
         .lightbox.is-visible {
             opacity: 1;
             pointer-events: auto;
-            background: rgba(11, 20, 26, 0.88);
+            background: rgba(0, 0, 0, 0.92);
         }
         .lightbox-inner {
             position: relative;
@@ -696,6 +744,10 @@ if ($isGroupConversation) {
             flex-direction: column;
             align-items: center;
             gap: 16px;
+            padding: 18px;
+            border-radius: 28px;
+            background: #fff;
+            color: #111b21;
             transform: translateY(24px) scale(0.94);
             transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
@@ -712,7 +764,7 @@ if ($isGroupConversation) {
         .lightbox-button {
             border: none;
             border-radius: 999px;
-            background: rgba(255,255,255,0.14);
+            background: #111b21;
             color: #fff;
             min-height: 44px;
             padding: 12px 16px;
@@ -729,7 +781,7 @@ if ($isGroupConversation) {
         }
         .lightbox-button:hover,
         .lightbox-button:focus-visible {
-            background: rgba(255,255,255,0.22);
+            background: #24313a;
         }
         .lightbox-button:active {
             transform: scale(0.97);
@@ -811,7 +863,7 @@ if ($isGroupConversation) {
             position: fixed;
             inset: 0;
             z-index: 40;
-            background: rgba(11, 20, 26, 0.42);
+            background: rgba(0, 0, 0, 0.86);
             display: flex;
             align-items: flex-end;
             justify-content: center;
@@ -820,7 +872,8 @@ if ($isGroupConversation) {
         .member-picker-panel {
             width: min(100%, 420px);
             max-height: min(72vh, 560px);
-            background: rgba(247, 245, 241, 0.98);
+            background: #fff;
+            color: #111b21;
             border-radius: 24px;
             box-shadow: var(--shadow);
             display: flex;
@@ -1012,6 +1065,13 @@ if ($isGroupConversation) {
                         </svg>
                         <span>Revoke friendship</span>
                     </button>
+                    <label class="header-menu-item" for="theme-toggle" role="menuitem">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
+                        </svg>
+                        <span>Dark mode</span>
+                        <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode" style="margin-left:auto;">
+                    </label>
                     <button
                         id="delete-conversation-button"
                         class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
@@ -1219,6 +1279,31 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
+const themeToggle = document.getElementById('theme-toggle');
+const themeStorageKey = 'localchat:theme';
+const rootEl = document.documentElement;
+
+function applyTheme(theme) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    rootEl.setAttribute('data-theme', nextTheme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
+    if (themeToggle) {
+        themeToggle.checked = nextTheme === 'dark';
+    }
+}
+
+(function loadStoredTheme() {
+    try {
+        const storedTheme = window.localStorage.getItem(themeStorageKey);
+        if (storedTheme === 'dark' || storedTheme === 'light') {
+            applyTheme(storedTheme);
+            return;
+        }
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+    applyTheme('light');
+})();
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
 const memberPickerListEl = document.getElementById('member-picker-list');
@@ -3512,6 +3597,16 @@ document.addEventListener('click', (event) => {
     setHeaderMenuOpen(false);
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
+
+themeToggle?.addEventListener('change', () => {
+    const nextTheme = themeToggle.checked ? 'dark' : 'light';
+    applyTheme(nextTheme);
+    try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+});
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
