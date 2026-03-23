@@ -500,10 +500,12 @@ $finalUrl = null;
 $statusCode = null;
 $contentType = null;
 $pageTitle = 'Surf Mode';
+$addressValue = $requestedUrl;
 
 try {
     $response = surfFetch($requestedUrl);
     $finalUrl = $response['final_url'];
+    $addressValue = $finalUrl !== '' ? $finalUrl : $requestedUrl;
     $statusCode = $response['status'];
     $contentType = $response['content_type'];
 
@@ -535,11 +537,72 @@ try {
 
         body {
             color: #111;
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .surf-chrome {
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.96);
+            border-bottom: 1px solid rgba(17, 27, 33, 0.12);
+            backdrop-filter: blur(10px);
+        }
+
+        .surf-address-form {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .surf-address-input {
+            width: 100%;
+            min-width: 0;
+            padding: 11px 14px;
+            border: 1px solid rgba(17, 27, 33, 0.16);
+            border-radius: 999px;
+            font: inherit;
+            color: inherit;
+            background: #fff;
+            box-sizing: border-box;
+        }
+
+        .surf-address-button,
+        .surf-back-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(17, 27, 33, 0.12);
+            background: #fff;
+            color: #111;
+            font: inherit;
+            font-weight: 600;
+            text-decoration: none;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .surf-address-button {
+            background: #111b21;
+            border-color: #111b21;
+            color: #fff;
+        }
+
+        .surf-page {
+            min-height: calc(100vh - 65px);
         }
 
         .surf-error {
             max-width: 760px;
-            margin: 48px auto;
+            margin: 32px auto;
             padding: 20px 22px;
             border: 1px solid #f1b5b5;
             border-radius: 14px;
@@ -565,9 +628,31 @@ try {
         img, video, iframe, table {
             max-width: 100%;
         }
+
+        @media (max-width: 720px) {
+            .surf-chrome {
+                flex-wrap: wrap;
+            }
+
+            .surf-address-form {
+                width: 100%;
+            }
+
+            .surf-back-link {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
+<div class="surf-chrome">
+    <form class="surf-address-form" method="get" action="surf.php">
+        <input class="surf-address-input" type="text" name="url" value="<?= e($addressValue) ?>" placeholder="Enter a website URL" inputmode="url" autocomplete="off" spellcheck="false">
+        <button class="surf-address-button" type="submit">Go</button>
+    </form>
+    <a class="surf-back-link" href="index.php">Back to chat</a>
+</div>
+<div class="surf-page">
 <?php if ($pageError !== null): ?>
     <div class="surf-error">
         <h1>Could not open page</h1>
@@ -577,10 +662,10 @@ try {
             <p>Status: <?= e((string) $statusCode) ?> · Content-Type: <?= e((string) $contentType) ?></p>
         <?php endif; ?>
         <p><a href="surf.php?url=<?= e(rawurlencode($defaultUrl)) ?>">Open Google</a></p>
-        <p><a href="index.php">Back to chat</a></p>
     </div>
 <?php else: ?>
     <?= $pageHtml ?>
 <?php endif; ?>
+</div>
 </body>
 </html>
