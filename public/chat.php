@@ -264,6 +264,30 @@ if ($isGroupConversation) {
             font-size: 18px;
             line-height: 1.2;
         }
+        .header-members-trigger {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0;
+            width: 100%;
+            min-width: 0;
+            padding: 0;
+            border: none;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+        .header-members-trigger.hidden {
+            display: block;
+            cursor: default;
+        }
+        .header-members-trigger:focus-visible {
+            outline: 2px solid rgba(255,255,255,0.7);
+            outline-offset: 6px;
+            border-radius: 12px;
+        }
         .topbar-meta p {
             margin: 4px 0 0;
             font-size: 13px;
@@ -882,6 +906,19 @@ if ($isGroupConversation) {
             font-size: 13px;
             color: var(--muted);
         }
+        .member-role-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 6px 10px;
+            background: rgba(7, 94, 84, 0.12);
+            color: var(--header);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: capitalize;
+            flex-shrink: 0;
+        }
 
         @media (min-width: 721px) {
             .app {
@@ -901,11 +938,23 @@ if ($isGroupConversation) {
                 </svg>
             </a>
             <div class="topbar-meta">
-                <h1 id="header-title"><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
-                <div class="presence-row">
-                    <span class="presence-light <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                    <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : 'Offline' ?></span>
-                </div>
+                <?php if ($isGroupConversation): ?>
+                    <button id="group-members-button" class="header-members-trigger" type="button" aria-haspopup="dialog" aria-controls="group-members-modal">
+                        <h1 id="header-title"><?= e((string) $group['name']) ?></h1>
+                        <div class="presence-row">
+                            <span class="presence-light" id="header-presence-light" aria-hidden="true"></span>
+                            <span id="header-presence-label"><?= e(count(groupMembers((int) $group['id'])) . ' members') ?></span>
+                        </div>
+                    </button>
+                <?php else: ?>
+                    <div id="group-members-button" class="header-members-trigger hidden">
+                        <h1 id="header-title"><?= e($otherUser['username']) ?></h1>
+                        <div class="presence-row">
+                            <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                            <span id="header-presence-label">Offline</span>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
             <div class="header-menu">
                 <button
@@ -1067,6 +1116,18 @@ if ($isGroupConversation) {
             </div>
         </div>
 
+
+        <div id="group-members-modal" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="group-members-title">
+                <div class="member-picker-header">
+                    <h2 id="group-members-title">Group members</h2>
+                    <button class="member-picker-close" id="group-members-close" type="button" aria-label="Close group members">×</button>
+                </div>
+                <div class="member-picker-list" id="group-members-list"></div>
+                <p class="member-picker-empty" id="group-members-empty" hidden>No members found.</p>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
@@ -1163,6 +1224,11 @@ const memberPickerClose = document.getElementById('member-picker-close');
 const memberPickerListEl = document.getElementById('member-picker-list');
 const memberPickerSearchInput = document.getElementById('member-picker-search-input');
 const memberPickerEmptyEl = document.getElementById('member-picker-empty');
+const groupMembersButton = document.getElementById('group-members-button');
+const groupMembersModal = document.getElementById('group-members-modal');
+const groupMembersClose = document.getElementById('group-members-close');
+const groupMembersListEl = document.getElementById('group-members-list');
+const groupMembersEmptyEl = document.getElementById('group-members-empty');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1283,6 +1349,50 @@ function renderMemberPicker() {
         ? 'Only your friends who are not already in this group appear here.'
         : 'No friends match your search.';
     memberPickerEmptyEl.hidden = candidates.length > 0;
+}
+
+function renderGroupMembers() {
+    if (!groupMembersListEl || !groupMembersEmptyEl) {
+        return;
+    }
+
+    const members = Array.isArray(groupState?.members) ? [...groupState.members] : [];
+    members.sort((left, right) => {
+        if (String(left.role || '') === 'creator' && String(right.role || '') !== 'creator') {
+            return -1;
+        }
+        if (String(left.role || '') !== 'creator' && String(right.role || '') === 'creator') {
+            return 1;
+        }
+        return String(left.username || '').localeCompare(String(right.username || ''));
+    });
+
+    groupMembersListEl.innerHTML = members.map((member) => `
+        <div class="member-picker-item">
+            <div class="member-picker-copy">
+                <strong>${escapeHtml(member.username || '')}</strong>
+                <span>${escapeHtml(member.presence_label || 'Member')}</span>
+            </div>
+            ${String(member.role || '') === 'creator' ? '<span class="member-role-chip">Creator</span>' : ''}
+        </div>
+    `).join('');
+
+    groupMembersEmptyEl.hidden = members.length > 0;
+}
+
+function setGroupMembersOpen(isOpen) {
+    if (!groupMembersModal) {
+        return;
+    }
+
+    groupMembersModal.hidden = !isOpen;
+    groupMembersModal.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+
+    if (isOpen) {
+        renderGroupMembers();
+        groupMembersClose?.focus();
+    }
 }
 
 function setMemberPickerOpen(isOpen) {
@@ -3189,6 +3299,22 @@ revokeFriendshipButton?.addEventListener('click', async () => {
     }
 });
 
+groupMembersButton?.addEventListener('click', () => {
+    if (!isGroupConversation) {
+        return;
+    }
+
+    setHeaderMenuOpen(false);
+    setGroupMembersOpen(true);
+});
+
+groupMembersClose?.addEventListener('click', () => setGroupMembersOpen(false));
+groupMembersModal?.addEventListener('click', (event) => {
+    if (event.target === groupMembersModal) {
+        setGroupMembersOpen(false);
+    }
+});
+
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
     setHeaderMenuOpen(false);
@@ -3357,6 +3483,10 @@ imageLightbox?.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     markUserInteraction();
+    if (event.key === 'Escape' && groupMembersModal && !groupMembersModal.hidden) {
+        setGroupMembersOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
         setMemberPickerOpen(false);
         return;
