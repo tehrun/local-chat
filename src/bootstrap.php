@@ -9,7 +9,8 @@ define('TMP_UPLOAD_PATH', STORAGE_PATH . '/tmp');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('DEFAULT_DB_HOST', '127.0.0.1');
 define('DEFAULT_DB_PORT', '3306');
-define('MESSAGE_TTL_SECONDS', 24 * 60 * 60);
+define('MESSAGE_RETENTION_TTL_SECONDS', 7 * 24 * 60 * 60);
+define('MEDIA_RETENTION_TTL_SECONDS', 24 * 60 * 60);
 define('TYPING_TTL_SECONDS', 8);
 define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
@@ -416,6 +417,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             image_path TEXT,
             file_path TEXT,
             file_name TEXT,
+            attachment_expired INTEGER NOT NULL DEFAULT 0,
             delivered_at TEXT,
             read_at TEXT,
             created_at TEXT NOT NULL,
@@ -439,6 +441,10 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('file_name', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN file_name TEXT');
+    }
+
+    if (!in_array('attachment_expired', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired INTEGER NOT NULL DEFAULT 0');
     }
 
     if (!in_array('delivered_at', $columns, true)) {
@@ -685,6 +691,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             image_path VARCHAR(255) NULL,
             file_path VARCHAR(255) NULL,
             file_name VARCHAR(255) NULL,
+            attachment_expired TINYINT(1) NOT NULL DEFAULT 0,
             delivered_at DATETIME NULL,
             read_at DATETIME NULL,
             created_at DATETIME NOT NULL,
@@ -709,8 +716,12 @@ function initializeMysqlDatabase(PDO $pdo): void
         $pdo->exec('ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
     }
 
+    if (!in_array('attachment_expired', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired TINYINT(1) NOT NULL DEFAULT 0 AFTER file_name');
+    }
+
     if (!in_array('delivered_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER file_name');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER attachment_expired');
     }
 
     if (!in_array('read_at', $columns, true)) {
@@ -1338,12 +1349,13 @@ function purgeExpiredMessages(bool $force = false): void
         return;
     }
 
-    $cutoff = gmdate('c', time() - MESSAGE_TTL_SECONDS);
+    $messageCutoff = gmdate('c', time() - MESSAGE_RETENTION_TTL_SECONDS);
+    $mediaCutoff = gmdate('c', time() - MEDIA_RETENTION_TTL_SECONDS);
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
     $stmt = $pdo->prepare('SELECT audio_path, image_path, file_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)');
-    $stmt->execute(['cutoff' => $cutoff]);
+    $stmt->execute(['cutoff' => $mediaCutoff]);
 
     foreach ($stmt->fetchAll() as $row) {
         foreach (['audio_path', 'image_path', 'file_path'] as $column) {
@@ -1363,8 +1375,20 @@ function purgeExpiredMessages(bool $force = false): void
         }
     }
 
+    $clearMedia = $pdo->prepare(
+        'UPDATE messages
+         SET audio_path = NULL,
+             image_path = NULL,
+             file_path = NULL,
+             file_name = NULL,
+             attachment_expired = 1
+         WHERE created_at < :cutoff
+           AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL OR file_name IS NOT NULL)'
+    );
+    $clearMedia->execute(['cutoff' => $mediaCutoff]);
+
     $delete = $pdo->prepare('DELETE FROM messages WHERE created_at < :cutoff');
-    $delete->execute(['cutoff' => $cutoff]);
+    $delete->execute(['cutoff' => $messageCutoff]);
 
     $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
     $deleteTyping->execute(['cutoff' => $typingCutoff]);
@@ -1861,7 +1885,8 @@ function allOtherUsers(int $currentUserId): array
                 m_last.body AS last_message_body,
                 m_last.audio_path AS last_message_audio_path,
                 m_last.image_path AS last_message_image_path,
-                m_last.file_path AS last_message_file_path
+                m_last.file_path AS last_message_file_path,
+                m_last.attachment_expired AS last_message_attachment_expired
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          LEFT JOIN conversation_clears cc
@@ -1935,6 +1960,10 @@ function chatListPreview(array $user): string
 
     if (!empty($user['last_message_file_path'])) {
         return '📎 File';
+    }
+
+    if (!empty($user['last_message_attachment_expired'])) {
+        return 'Attachment expired';
     }
 
     return 'Start chatting';
@@ -2274,6 +2303,11 @@ function clearConversationForUser(int $userId, int $otherUserId): void
     clearTypingStatus($otherUserId, $userId);
 }
 
+function messageHasExpiredAttachment(array $message): bool
+{
+    return !empty($message['attachment_expired']) || !empty($message['last_message_attachment_expired']);
+}
+
 function formatMessage(array $message): array
 {
     return [
@@ -2286,6 +2320,7 @@ function formatMessage(array $message): array
         'image_path' => $message['image_path'] ?? null,
         'file_path' => $message['file_path'] ?? null,
         'file_name' => $message['file_name'] ?? null,
+        'attachment_expired' => messageHasExpiredAttachment($message),
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'created_at' => $message['created_at'],
@@ -2416,8 +2451,8 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): array|s
     }
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, created_at)
-         VALUES (:sender_id, :recipient_id, :body, NULL, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, created_at)
+         VALUES (:sender_id, :recipient_id, :body, NULL, 0, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
@@ -2543,8 +2578,8 @@ function sendImageMessage(int $senderId, int $recipientId, array $file): array|s
     $relativePath = 'storage/tmp/' . $filename;
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, attachment_expired, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, 0, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
@@ -2593,8 +2628,8 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
     $relativePath = 'storage/uploads/' . $filename;
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, :audio_path, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, :audio_path, 0, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
@@ -2648,8 +2683,8 @@ function sendFileMessage(int $senderId, int $recipientId, array $file): array|st
     $relativePath = 'storage/uploads/' . $filename;
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, attachment_expired, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, 0, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
