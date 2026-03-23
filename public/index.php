@@ -666,13 +666,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             height: 60px;
             border: none;
             border-radius: 50%;
-            background: #fff;
-            color: #111b21;
+            background: var(--action);
+            color: #fff;
             box-shadow: 0 12px 26px rgba(17, 27, 33, 0.22);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
+        }
+        :root[data-theme="dark"] .floating-chat-launcher {
+            background: #fff;
+            color: #111b21;
         }
         .floating-chat-launcher svg {
             width: 28px;

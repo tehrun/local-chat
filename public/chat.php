@@ -78,6 +78,8 @@ if ($isGroupConversation) {
             --keyboard-offset: 0px;
             --composer-height: 74px;
             --composer-clearance: 6px;
+            --composer-wrap-start: rgba(239, 234, 226, 0);
+            --composer-wrap-end: rgba(239, 234, 226, 1);
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -95,6 +97,8 @@ if ($isGroupConversation) {
             --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             --menu-surface: rgba(17, 27, 33, 0.98);
             --menu-hover: rgba(255, 255, 255, 0.08);
+            --composer-wrap-start: rgba(11, 20, 26, 0);
+            --composer-wrap-end: rgba(11, 20, 26, 1);
         }
         * { box-sizing: border-box; }
         body {
@@ -106,7 +110,7 @@ if ($isGroupConversation) {
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
-            color: #fff;
+            color: var(--text);
         }
         .app {
             min-height: 100vh;
@@ -126,7 +130,7 @@ if ($isGroupConversation) {
             height: 100dvh;
             display: flex;
             flex-direction: column;
-            background: transparent;
+            background: var(--bg);
         }
         .topbar {
             position: sticky;
@@ -273,34 +277,6 @@ if ($isGroupConversation) {
             stroke-linecap: round;
             stroke-linejoin: round;
             flex-shrink: 0;
-        }
-        .theme-switch {
-            appearance: none;
-            width: 42px;
-            height: 24px;
-            border-radius: 999px;
-            background: rgba(134, 150, 160, 0.45);
-            position: relative;
-            cursor: pointer;
-            transition: background 0.2s ease;
-            flex-shrink: 0;
-        }
-        .theme-switch::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #fff;
-            transition: transform 0.2s ease;
-        }
-        .theme-switch:checked {
-            background: var(--action);
-        }
-        .theme-switch:checked::after {
-            transform: translateX(18px);
         }
         .topbar-meta {
             min-width: 0;
@@ -595,8 +571,7 @@ if ($isGroupConversation) {
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
-            background: var(--header);
-            box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
+            background: linear-gradient(180deg, var(--composer-wrap-start) 0%, color-mix(in srgb, var(--composer-wrap-end) 96%, transparent) 18%, var(--composer-wrap-end) 45%);
         }
         .composer-stack {
             position: relative;
@@ -605,10 +580,72 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: rgba(255, 255, 255, 0.14);
+            background: var(--composer);
             border-radius: 26px;
             padding: 10px;
-            box-shadow: none;
+            box-shadow: var(--shadow);
+        }
+        .attachment-menu-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .attachment-menu {
+            position: absolute;
+            right: 0;
+            bottom: calc(100% + 10px);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 150px;
+            padding: 10px;
+            border-radius: 18px;
+            background: var(--menu-surface);
+            box-shadow: var(--shadow);
+            z-index: 3;
+        }
+        .attachment-menu[hidden] {
+            display: none;
+        }
+        .attachment-menu-option {
+            border: none;
+            background: transparent;
+            color: var(--text);
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font: inherit;
+            cursor: pointer;
+            text-align: left;
+        }
+        .attachment-menu-option:hover,
+        .attachment-menu-option:focus-visible {
+            background: var(--menu-hover);
+        }
+        .attachment-menu-option:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+        .attachment-menu-option svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
+        .attachment-menu-option-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .attachment-menu-option-label strong {
+            font-size: 14px;
+            font-weight: 700;
         }
         .composer textarea {
             flex: 1;
@@ -666,6 +703,25 @@ if ($isGroupConversation) {
         .composer-icon-button:disabled {
             opacity: 0.7;
             cursor: wait;
+        }
+        .attachment-trigger {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--muted);
+            box-shadow: none;
+        }
+        .attachment-trigger:active,
+        .attachment-trigger:focus-visible {
+            background: transparent;
+        }
+        .attachment-trigger svg {
+            width: 20px;
+            height: 20px;
+            transform: rotate(90deg);
+            transform-origin: 50% 50%;
         }
         .message-file {
             display: flex;
@@ -1065,13 +1121,6 @@ if ($isGroupConversation) {
                         </svg>
                         <span>Revoke friendship</span>
                     </button>
-                    <label class="header-menu-item" for="theme-toggle" role="menuitem">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
-                        </svg>
-                        <span>Dark mode</span>
-                        <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode" style="margin-left:auto;">
-                    </label>
                     <button
                         id="delete-conversation-button"
                         class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
@@ -1205,21 +1254,36 @@ if ($isGroupConversation) {
                     <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
                     <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
-                    <button id="file-button" class="composer-icon-button" type="button" aria-label="Share file"<?= $canChat ? '' : ' disabled' ?>>
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"></path>
-                            <path d="M14 3v5h5"></path>
-                            <path d="M9 13h6"></path>
-                            <path d="M9 17h4"></path>
-                        </svg>
-                    </button>
-                    <button id="image-button" class="composer-icon-button" type="button" aria-label="Upload image or open camera"<?= $canChat ? '' : ' disabled' ?>>
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
-                            <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
-                            <circle cx="9" cy="9" r="1.25"></circle>
-                        </svg>
-                    </button>
+                    <div class="attachment-menu-wrap">
+                        <button id="attachment-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open attachment options" aria-expanded="false" aria-controls="attachment-menu"<?= $canChat ? '' : ' disabled' ?>>
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4.5 4.5 0 1 1 6.36 6.36l-9.9 9.9a3 3 0 0 1-4.24-4.24l8.48-8.49"></path>
+                            </svg>
+                        </button>
+                        <div id="attachment-menu" class="attachment-menu" hidden>
+                            <button id="attachment-gallery-option" class="attachment-menu-option" type="button">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
+                                    <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
+                                    <circle cx="9" cy="9" r="1.25"></circle>
+                                </svg>
+                                <span class="attachment-menu-option-label">
+                                    <strong>Gallery</strong>
+                                </span>
+                            </button>
+                            <button id="attachment-document-option" class="attachment-menu-option" type="button">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"></path>
+                                    <path d="M14 3v5h5"></path>
+                                    <path d="M9 13h6"></path>
+                                    <path d="M9 17h4"></path>
+                                </svg>
+                                <span class="attachment-menu-option-label">
+                                    <strong>Document</strong>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
                     <button id="action-button" class="action-button" type="button" aria-label="Send message or start voice recording"<?= $canChat ? '' : ' disabled' ?>>
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M12 4.5a3 3 0 0 1 3 3v3.75a3 3 0 0 1-6 0V7.5a3 3 0 0 1 3-3Z"></path>
@@ -1263,9 +1327,11 @@ const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
-const fileButton = document.getElementById('file-button');
+const attachmentButton = document.getElementById('attachment-button');
+const attachmentMenu = document.getElementById('attachment-menu');
+const attachmentGalleryOption = document.getElementById('attachment-gallery-option');
+const attachmentDocumentOption = document.getElementById('attachment-document-option');
 const fileInput = document.getElementById('file-input');
-const imageButton = document.getElementById('image-button');
 const imageFileInput = document.getElementById('image-file-input');
 const voiceFileInput = document.getElementById('voice-file-input');
 const headerPresenceLight = document.getElementById('header-presence-light');
@@ -1279,7 +1345,6 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
-const themeToggle = document.getElementById('theme-toggle');
 const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
 
@@ -1287,9 +1352,6 @@ function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     rootEl.setAttribute('data-theme', nextTheme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
-    if (themeToggle) {
-        themeToggle.checked = nextTheme === 'dark';
-    }
 }
 
 (function loadStoredTheme() {
@@ -1534,6 +1596,20 @@ function supportsImageUpload() {
     return Boolean(imageFileInput);
 }
 
+function isAttachmentMenuOpen() {
+    return attachmentMenu instanceof HTMLElement && !attachmentMenu.hidden;
+}
+
+function setAttachmentMenuOpen(isOpen) {
+    if (!(attachmentMenu instanceof HTMLElement) || !(attachmentButton instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const nextOpen = Boolean(isOpen) && !attachmentButton.disabled;
+    attachmentMenu.hidden = !nextOpen;
+    attachmentButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+}
+
 function parseIsoTimestamp(value) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
@@ -1596,8 +1672,12 @@ function updateFriendshipUi() {
     if (isGroupConversation) {
         canChat = true;
         actionButton.disabled = activeUploadCount > 0;
-        fileButton.disabled = activeUploadCount > 0;
-        imageButton.disabled = activeUploadCount > 0;
+        attachmentButton.disabled = activeUploadCount > 0;
+        attachmentGalleryOption.disabled = activeUploadCount > 0;
+        attachmentDocumentOption.disabled = activeUploadCount > 0;
+        if (activeUploadCount > 0) {
+            setAttachmentMenuOpen(false);
+        }
         bodyEl.disabled = false;
         return;
     }
@@ -1605,8 +1685,12 @@ function updateFriendshipUi() {
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || activeUploadCount > 0;
-    fileButton.disabled = !canChat || activeUploadCount > 0;
-    imageButton.disabled = !canChat || activeUploadCount > 0;
+    attachmentButton.disabled = !canChat || activeUploadCount > 0;
+    attachmentGalleryOption.disabled = !canChat || activeUploadCount > 0;
+    attachmentDocumentOption.disabled = !canChat || activeUploadCount > 0;
+    if (!canChat || activeUploadCount > 0) {
+        setAttachmentMenuOpen(false);
+    }
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
 
@@ -3193,11 +3277,20 @@ async function toggleRecording() {
     await startRecording();
 }
 
-fileButton.addEventListener('click', () => {
+attachmentButton.addEventListener('click', () => {
+    markUserInteraction();
+    if (!canChat || isSending || (!supportsFileUpload() && !supportsImageUpload())) {
+        return;
+    }
+    setAttachmentMenuOpen(!isAttachmentMenuOpen());
+});
+
+attachmentDocumentOption.addEventListener('click', () => {
     markUserInteraction();
     if (!canChat || isSending || !supportsFileUpload()) {
         return;
     }
+    setAttachmentMenuOpen(false);
     fileInput.click();
 });
 
@@ -3209,11 +3302,12 @@ fileInput.addEventListener('change', async () => {
     }
 });
 
-imageButton.addEventListener('click', () => {
+attachmentGalleryOption.addEventListener('click', () => {
     markUserInteraction();
     if (!canChat || isSending || !supportsImageUpload()) {
         return;
     }
+    setAttachmentMenuOpen(false);
     imageFileInput.click();
 });
 
@@ -3238,12 +3332,15 @@ actionButton.addEventListener('pointerdown', sendTextMessageFromActionPress);
 actionButton.addEventListener('mousedown', preserveComposerFocus);
 actionButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 actionButton.addEventListener('touchstart', sendTextMessageFromActionPress, { passive: false });
-fileButton.addEventListener('pointerdown', preserveComposerFocus);
-imageButton.addEventListener('pointerdown', preserveComposerFocus);
-fileButton.addEventListener('mousedown', preserveComposerFocus);
-imageButton.addEventListener('mousedown', preserveComposerFocus);
-fileButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
-imageButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
+attachmentButton.addEventListener('pointerdown', preserveComposerFocus);
+attachmentDocumentOption.addEventListener('pointerdown', preserveComposerFocus);
+attachmentGalleryOption.addEventListener('pointerdown', preserveComposerFocus);
+attachmentButton.addEventListener('mousedown', preserveComposerFocus);
+attachmentDocumentOption.addEventListener('mousedown', preserveComposerFocus);
+attachmentGalleryOption.addEventListener('mousedown', preserveComposerFocus);
+attachmentButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
+attachmentDocumentOption.addEventListener('touchstart', preserveComposerFocus, { passive: false });
+attachmentGalleryOption.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 
 window.visualViewport?.addEventListener('resize', updateKeyboardOffset);
 window.visualViewport?.addEventListener('scroll', updateKeyboardOffset);
@@ -3598,15 +3695,23 @@ document.addEventListener('click', (event) => {
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
 
-themeToggle?.addEventListener('change', () => {
-    const nextTheme = themeToggle.checked ? 'dark' : 'light';
-    applyTheme(nextTheme);
-    try {
-        window.localStorage.setItem(themeStorageKey, nextTheme);
-    } catch (error) {
-        // Ignore storage access errors.
+document.addEventListener('click', (event) => {
+    if (!isAttachmentMenuOpen()) {
+        return;
+    }
+    const target = event.target;
+    if (target instanceof Node && (attachmentMenu.contains(target) || attachmentButton.contains(target))) {
+        return;
+    }
+    setAttachmentMenuOpen(false);
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        setAttachmentMenuOpen(false);
     }
 });
+
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
