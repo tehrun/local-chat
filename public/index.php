@@ -804,7 +804,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </svg>
                                 <span class="header-menu-copy">
                                     <strong>Dark mode</strong>
-                                    <span>Use a darker app theme</span>
                                 </span>
                                 <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode">
                             </label>
