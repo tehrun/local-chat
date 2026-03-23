@@ -12,7 +12,7 @@ purgeExpiredMessages();
 $stmt = db()->prepare(
     'SELECT * FROM messages
      WHERE id = :id
-       AND (audio_path IS NOT NULL OR image_path IS NOT NULL)
+       AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)
        AND (sender_id = :user_id OR recipient_id = :user_id)
      LIMIT 1'
 );
@@ -27,7 +27,7 @@ if ($message === false) {
     exit('Media not found.');
 }
 
-$relativePath = $message['image_path'] ?: $message['audio_path'];
+$relativePath = $message['image_path'] ?: ($message['audio_path'] ?: $message['file_path']);
 if (!isSafeStorageRelativePath(is_string($relativePath) ? $relativePath : null)) {
     http_response_code(404);
     exit('Media not found.');
@@ -42,5 +42,12 @@ if (!is_file($fullPath)) {
 $finfo = new finfo(FILEINFO_MIME_TYPE);
 header('Content-Type: ' . ($finfo->file($fullPath) ?: 'application/octet-stream'));
 header('Content-Length: ' . (string) filesize($fullPath));
-header('Content-Disposition: inline; filename="' . basename((string) $relativePath) . '"');
+$downloadName = trim((string) ($message['file_name'] ?? ''));
+if ($downloadName === '') {
+    $downloadName = basename((string) $relativePath);
+}
+$disposition = !empty($message['file_path']) && empty($message['image_path']) && empty($message['audio_path'])
+    ? 'attachment'
+    : 'inline';
+header('Content-Disposition: ' . $disposition . '; filename="' . addcslashes($downloadName, '\"') . '"');
 readfile($fullPath);

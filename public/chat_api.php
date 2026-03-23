@@ -234,6 +234,22 @@ if ($action === 'send_voice') {
     ]);
 }
 
+
+if ($action === 'send_file') {
+    $message = sendFileMessage((int) $user['id'], $otherUserId, $_FILES['shared_file'] ?? []);
+
+    if (is_string($message)) {
+        jsonResponse(['error' => $message], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'message' => $message,
+        'typing' => false,
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
 if ($action === 'send_image') {
     $message = sendImageMessage((int) $user['id'], $otherUserId, $_FILES['image_file'] ?? []);
 
