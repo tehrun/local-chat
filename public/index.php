@@ -1200,7 +1200,7 @@ function renderChatSwitcher(users) {
     }
 
     const visibleUsers = filteredDirectoryUsers();
-    chatSwitcherListEl.innerHTML = renderDirectoryEntries(visibleUsers, false);
+    chatSwitcherListEl.innerHTML = renderDirectoryEntries(visibleUsers, true);
     if (chatSwitcherEmptyEl) {
         chatSwitcherEmptyEl.textContent = searchQuery === ''
             ? 'Search by name to find and add a user.'
