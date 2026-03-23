@@ -376,6 +376,12 @@ if ($isGroupConversation) {
         .message-row.mine {
             align-self: flex-end;
         }
+        .message-row.private-audio {
+            width: min(88%, 460px);
+        }
+        .message-row.private-audio .message {
+            width: 100%;
+        }
         .message {
             background: var(--theirs);
             border-radius: 18px;
@@ -2119,8 +2125,16 @@ function renderMessages(messages) {
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
 
+            const rowClasses = ['message-row'];
+            if (isMine) {
+                rowClasses.push('mine');
+            }
+            if (!isGroupConversation && message.audio_path) {
+                rowClasses.push('private-audio');
+            }
+
             return `
-                <article class="message-row ${isMine ? 'mine' : ''}">
+                <article class="${rowClasses.join(' ')}">
                     <div class="message">
                         ${senderLabel}
                         ${body}
