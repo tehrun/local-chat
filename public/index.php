@@ -91,7 +91,26 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             --action-active: #128c7e;
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
+            --menu-surface: rgba(255, 255, 255, 0.98);
+            --menu-hover: rgba(7, 94, 84, 0.08);
             font-family: Arial, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #0b141a;
+            --panel: #111b21;
+            --header: #202c33;
+            --composer: #202c33;
+            --mine: #144d37;
+            --theirs: #202c33;
+            --text: #e9edef;
+            --muted: #8696a0;
+            --action: #25d366;
+            --action-active: #1da851;
+            --danger: #f97066;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            --menu-surface: rgba(17, 27, 33, 0.98);
+            --menu-hover: rgba(255, 255, 255, 0.08);
         }
         * { box-sizing: border-box; }
         body {
@@ -138,7 +157,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             align-items: center;
             gap: 10px;
             flex-shrink: 0;
-            flex-wrap: wrap;
             justify-content: flex-end;
         }
         .user-chip,
@@ -149,6 +167,148 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             font-size: 13px;
             color: #fff;
             white-space: nowrap;
+        }
+        .header-icon-button {
+            width: 40px;
+            height: 40px;
+            flex: 0 0 40px;
+            border: none;
+            border-radius: 50%;
+            color: #dff6f1;
+            background: rgba(11, 20, 26, 0.18);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .header-icon-button:hover,
+        .header-icon-button:focus-visible {
+            background: rgba(11, 20, 26, 0.3);
+        }
+        .header-icon-button:active {
+            transform: scale(0.96);
+        }
+        .header-icon-button svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .header-menu {
+            position: relative;
+            flex: 0 0 auto;
+        }
+        .header-menu-panel {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            min-width: 216px;
+            padding: 8px;
+            border-radius: 18px;
+            background: var(--menu-surface);
+            box-shadow: 0 20px 40px rgba(17, 27, 33, 0.24);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            opacity: 0;
+            transform: translateY(-8px) scale(0.98);
+            transform-origin: top right;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        .header-menu-panel.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .header-menu-item,
+        .header-menu-label {
+            width: 100%;
+            border: none;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--text);
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            text-align: left;
+        }
+        .header-menu-item {
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .header-menu-item:hover,
+        .header-menu-item:focus-visible,
+        .header-menu-label:hover,
+        .header-menu-label:focus-within {
+            background: var(--menu-hover);
+        }
+        .header-menu-item.danger {
+            color: var(--danger);
+        }
+        .header-menu-item svg,
+        .header-menu-label svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
+        .header-menu-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+            flex: 1;
+        }
+        .header-menu-copy strong {
+            font-size: 14px;
+        }
+        .header-menu-copy span {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 400;
+        }
+        .header-menu form {
+            margin: 0;
+        }
+        .theme-switch {
+            appearance: none;
+            width: 42px;
+            height: 24px;
+            border-radius: 999px;
+            background: rgba(134, 150, 160, 0.45);
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            flex-shrink: 0;
+        }
+        .theme-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+        }
+        .theme-switch:checked {
+            background: var(--action);
+        }
+        .theme-switch:checked::after {
+            transform: translateX(18px);
         }
         .install-button {
             border: 1px solid rgba(255,255,255,0.2);
@@ -175,7 +335,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             gap: 14px;
         }
         .card {
-            background: rgba(255, 255, 255, 0.88);
+            background: var(--panel);
             border-radius: 18px;
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
             padding: 16px;
@@ -237,6 +397,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         .alert.error { background: #fef3f2; color: var(--danger); }
         .alert.notice { background: #ecfdf3; color: #027a48; }
+        :root[data-theme="dark"] .alert.error { background: rgba(249, 112, 102, 0.12); }
+        :root[data-theme="dark"] .alert.notice { background: rgba(18, 140, 126, 0.18); color: #6ce9c6; }
         .request-list,
         .chat-list {
             display: flex;
@@ -442,11 +604,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         input {
             width: 100%;
             margin-top: 6px;
-            border: none;
+            border: 1px solid rgba(134, 150, 160, 0.24);
             border-radius: 14px;
             padding: 12px 14px;
             font: inherit;
-            background: #fff;
+            color: var(--text);
+            background: var(--theirs);
         }
         button.primary,
         button.secondary {
@@ -461,6 +624,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         button.primary { background: var(--action); color: #fff; }
         button.secondary { background: #dfe5e7; color: #244047; }
+        :root[data-theme="dark"] button.secondary { background: #2a3942; color: var(--text); }
         .auth-submit-ready {
             background: var(--action) !important;
             color: #fff !important;
@@ -606,13 +770,57 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             </div>
             <div class="topbar-actions">
                 <?php if ($user !== null): ?>
-                    <span class="user-chip"><?= e($user['username']) ?></span>
                     <button class="install-button" id="install-app-button" type="button" hidden>Install app</button>
-                    <form method="post">
-                        <input type="hidden" name="action" value="logout">
-                        <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
-                        <button class="logout-button" type="submit">Log out</button>
-                    </form>
+                    <div class="header-menu">
+                        <button
+                            id="settings-menu-button"
+                            class="header-icon-button"
+                            type="button"
+                            aria-label="Settings"
+                            aria-expanded="false"
+                            aria-controls="settings-menu-panel"
+                            title="Settings"
+                        >
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4.6H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.36.46.86.73 1.44.77H21a2 2 0 1 1 0 4h-.09c-.58.04-1.08.31-1.51.77Z"></path>
+                            </svg>
+                        </button>
+                        <div id="settings-menu-panel" class="header-menu-panel" role="menu" aria-label="Settings" hidden>
+                            <div class="header-menu-label" role="presentation">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="12" cy="7" r="4"></circle>
+                                </svg>
+                                <span class="header-menu-copy">
+                                    <strong><?= e($user['username']) ?></strong>
+                                    <span>Your account</span>
+                                </span>
+                            </div>
+                            <label class="header-menu-label" for="theme-toggle" role="menuitem">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
+                                </svg>
+                                <span class="header-menu-copy">
+                                    <strong>Dark mode</strong>
+                                    <span>Use a darker app theme</span>
+                                </span>
+                                <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode">
+                            </label>
+                            <form method="post">
+                                <input type="hidden" name="action" value="logout">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <button class="header-menu-item danger" type="submit" role="menuitem">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                        <path d="m16 17 5-5-5-5"></path>
+                                        <path d="M21 12H9"></path>
+                                    </svg>
+                                    <span>Log out</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 <?php endif; ?>
             </div>
         </header>
@@ -821,6 +1029,58 @@ const chatSwitcherClose = document.getElementById('chat-switcher-close');
 const chatSwitcherSearchInput = document.getElementById('chat-switcher-search-input');
 const chatSwitcherEmptyEl = document.getElementById('chat-switcher-empty');
 const createGroupButton = document.getElementById('create-group-button');
+
+const themeStorageKey = 'localchat:theme';
+const rootEl = document.documentElement;
+const settingsMenuButton = document.getElementById('settings-menu-button');
+const settingsMenuPanel = document.getElementById('settings-menu-panel');
+const themeToggle = document.getElementById('theme-toggle');
+
+function applyTheme(theme) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    rootEl.setAttribute('data-theme', nextTheme);
+    const themeColor = nextTheme === 'dark' ? '#202c33' : '#075e54';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+    if (themeToggle) {
+        themeToggle.checked = nextTheme === 'dark';
+    }
+}
+
+function loadStoredTheme() {
+    try {
+        const storedTheme = window.localStorage.getItem(themeStorageKey);
+        if (storedTheme === 'dark' || storedTheme === 'light') {
+            applyTheme(storedTheme);
+            return;
+        }
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+
+    applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+function setSettingsMenuOpen(isOpen) {
+    if (!settingsMenuButton || !settingsMenuPanel) {
+        return;
+    }
+
+    settingsMenuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    if (isOpen) {
+        settingsMenuPanel.hidden = false;
+        requestAnimationFrame(() => settingsMenuPanel.classList.add('is-open'));
+        return;
+    }
+
+    settingsMenuPanel.classList.remove('is-open');
+    window.setTimeout(() => {
+        if (!settingsMenuPanel.classList.contains('is-open')) {
+            settingsMenuPanel.hidden = true;
+        }
+    }, 180);
+}
+
+loadStoredTheme();
 const loginForm = document.getElementById('login-form');
 const loginSubmitButton = document.getElementById('login-submit');
 const loginUsernameInput = loginForm?.querySelector('[data-login-field="username"]') || null;
@@ -1627,6 +1887,39 @@ window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
     if (installButton) {
         installButton.hidden = true;
+    }
+});
+
+settingsMenuButton?.addEventListener('click', () => {
+    setSettingsMenuOpen(settingsMenuButton.getAttribute('aria-expanded') !== 'true');
+});
+
+themeToggle?.addEventListener('change', () => {
+    const nextTheme = themeToggle.checked ? 'dark' : 'light';
+    applyTheme(nextTheme);
+    try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+});
+
+document.addEventListener('click', (event) => {
+    if (!settingsMenuPanel || !settingsMenuButton) {
+        return;
+    }
+
+    const target = event.target;
+    if (target instanceof Node && (settingsMenuPanel.contains(target) || settingsMenuButton.contains(target))) {
+        return;
+    }
+
+    setSettingsMenuOpen(false);
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        setSettingsMenuOpen(false);
     }
 });
 

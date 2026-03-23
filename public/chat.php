@@ -73,9 +73,28 @@ if ($isGroupConversation) {
             --action-active: #128c7e;
             --danger: #b42318;
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
+            --menu-surface: rgba(255, 255, 255, 0.98);
+            --menu-hover: rgba(7, 94, 84, 0.08);
             --keyboard-offset: 0px;
             --composer-height: 74px;
             --composer-clearance: 6px;
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #0b141a;
+            --panel: #111b21;
+            --header: #202c33;
+            --composer: #202c33;
+            --mine: #144d37;
+            --theirs: #202c33;
+            --text: #e9edef;
+            --muted: #8696a0;
+            --action: #25d366;
+            --action-active: #1da851;
+            --danger: #f97066;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            --menu-surface: rgba(17, 27, 33, 0.98);
+            --menu-hover: rgba(255, 255, 255, 0.08);
         }
         * { box-sizing: border-box; }
         body {
@@ -199,7 +218,7 @@ if ($isGroupConversation) {
             min-width: 216px;
             padding: 8px;
             border-radius: 18px;
-            background: rgba(255, 255, 255, 0.98);
+            background: var(--menu-surface);
             box-shadow: 0 20px 40px rgba(17, 27, 33, 0.24);
             display: flex;
             flex-direction: column;
@@ -233,7 +252,7 @@ if ($isGroupConversation) {
         }
         .header-menu-item:hover,
         .header-menu-item:focus-visible {
-            background: rgba(7, 94, 84, 0.08);
+            background: var(--menu-hover);
         }
         .header-menu-item.danger {
             color: var(--danger);
@@ -254,6 +273,34 @@ if ($isGroupConversation) {
             stroke-linecap: round;
             stroke-linejoin: round;
             flex-shrink: 0;
+        }
+        .theme-switch {
+            appearance: none;
+            width: 42px;
+            height: 24px;
+            border-radius: 999px;
+            background: rgba(134, 150, 160, 0.45);
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            flex-shrink: 0;
+        }
+        .theme-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+        }
+        .theme-switch:checked {
+            background: var(--action);
+        }
+        .theme-switch:checked::after {
+            transform: translateX(18px);
         }
         .topbar-meta {
             min-width: 0;
@@ -1012,6 +1059,13 @@ if ($isGroupConversation) {
                         </svg>
                         <span>Revoke friendship</span>
                     </button>
+                    <label class="header-menu-item" for="theme-toggle" role="menuitem">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
+                        </svg>
+                        <span>Dark mode</span>
+                        <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode" style="margin-left:auto;">
+                    </label>
                     <button
                         id="delete-conversation-button"
                         class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
@@ -1219,6 +1273,31 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
+const themeToggle = document.getElementById('theme-toggle');
+const themeStorageKey = 'localchat:theme';
+const rootEl = document.documentElement;
+
+function applyTheme(theme) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    rootEl.setAttribute('data-theme', nextTheme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
+    if (themeToggle) {
+        themeToggle.checked = nextTheme === 'dark';
+    }
+}
+
+(function loadStoredTheme() {
+    try {
+        const storedTheme = window.localStorage.getItem(themeStorageKey);
+        if (storedTheme === 'dark' || storedTheme === 'light') {
+            applyTheme(storedTheme);
+            return;
+        }
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+    applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+})();
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
 const memberPickerListEl = document.getElementById('member-picker-list');
@@ -3512,6 +3591,16 @@ document.addEventListener('click', (event) => {
     setHeaderMenuOpen(false);
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
+
+themeToggle?.addEventListener('change', () => {
+    const nextTheme = themeToggle.checked ? 'dark' : 'light';
+    applyTheme(nextTheme);
+    try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+});
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
