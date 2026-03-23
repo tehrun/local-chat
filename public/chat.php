@@ -863,7 +863,7 @@ if ($isGroupConversation) {
                 <h1 id="header-title"><?= $isGroupConversation ? e((string) $group['name']) : e($otherUser['username']) ?></h1>
                 <div class="presence-row">
                     <span class="presence-light <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                    <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : e($otherUser['presence_label'] ?? 'Offline') ?></span>
+                    <span id="header-presence-label"><?= $isGroupConversation ? e(count(groupMembers((int) $group['id'])) . ' members') : 'Offline' ?></span>
                 </div>
             </div>
             <div class="header-menu">
@@ -1079,7 +1079,7 @@ const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
 const initialGroup = <?= jsonScriptValue($group) ?>;
 const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
-const initialPresenceLabel = <?= jsonScriptValue($isGroupConversation ? count(groupMembers((int) $group['id'])) . ' members' : ($otherUser['presence_label'] ?? 'Offline')) ?>;
+const initialPresenceUpdatedAt = <?= jsonScriptValue($isGroupConversation ? null : ($otherUser['presence_updated_at'] ?? null)) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
@@ -1283,10 +1283,52 @@ function supportsImageUpload() {
     return Boolean(imageFileInput);
 }
 
-function updatePresence(isOnline, label) {
+function parseIsoTimestamp(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatPresenceLabel(isOnline, updatedAt) {
+    if (isOnline) {
+        return 'Online';
+    }
+
+    const date = parseIsoTimestamp(updatedAt);
+    if (!date) {
+        return 'Offline';
+    }
+
+    const now = new Date();
+    const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+    const timeLabel = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date);
+
+    if (diffDays === 0) {
+        return `Last seen today at ${timeLabel}`;
+    }
+
+    if (diffDays === -1) {
+        return `Last seen yesterday at ${timeLabel}`;
+    }
+
+    const dateLabel = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    }).format(date);
+
+    return `Last seen ${dateLabel} at ${timeLabel}`;
+}
+
+function updatePresence(isOnline, updatedAt = null) {
     if (isGroupConversation) {
         headerPresenceLight.classList.remove('online');
-        headerPresenceLabel.textContent = label || `${groupState?.member_count || 0} members`;
+        headerPresenceLabel.textContent = `${groupState?.member_count || 0} members`;
         return;
     }
 
@@ -1296,7 +1338,7 @@ function updatePresence(isOnline, label) {
 
     otherUserOnline = Boolean(isOnline);
     headerPresenceLight.classList.toggle('online', otherUserOnline);
-    headerPresenceLabel.textContent = label || (otherUserOnline ? 'Online' : 'Offline');
+    headerPresenceLabel.textContent = formatPresenceLabel(otherUserOnline, updatedAt);
 }
 
 function updateFriendshipUi() {
@@ -2174,7 +2216,7 @@ function applyConversationPayload(payload, options = {}) {
         renameGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_rename));
     }
     if (payload.presence) {
-        updatePresence(payload.presence.is_online, payload.presence.label);
+        updatePresence(payload.presence.is_online, payload.presence.updated_at || null);
     }
     if (Object.prototype.hasOwnProperty.call(payload, 'can_chat')) {
         canChat = Boolean(payload.can_chat);
@@ -3217,7 +3259,7 @@ window.addEventListener('load', () => {
     ensureMessagesStayAtEnd();
     initialScrollPending = false;
 }, { once: true });
-updatePresence(initialPresence, initialPresenceLabel);
+updatePresence(initialPresence, initialPresenceUpdatedAt);
 updateFriendshipUi();
 renderStatus();
 connectConversationStream();
