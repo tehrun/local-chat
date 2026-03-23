@@ -78,6 +78,8 @@ if ($isGroupConversation) {
             --keyboard-offset: 0px;
             --composer-height: 74px;
             --composer-clearance: 6px;
+            --composer-wrap-start: rgba(239, 234, 226, 0);
+            --composer-wrap-end: rgba(239, 234, 226, 1);
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -95,6 +97,8 @@ if ($isGroupConversation) {
             --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             --menu-surface: rgba(17, 27, 33, 0.98);
             --menu-hover: rgba(255, 255, 255, 0.08);
+            --composer-wrap-start: rgba(11, 20, 26, 0);
+            --composer-wrap-end: rgba(11, 20, 26, 1);
         }
         * { box-sizing: border-box; }
         body {
@@ -106,7 +110,7 @@ if ($isGroupConversation) {
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: var(--bg);
-            color: #fff;
+            color: var(--text);
         }
         .app {
             min-height: 100vh;
@@ -595,12 +599,7 @@ if ($isGroupConversation) {
             padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset));
             transition: padding-bottom 0.2s ease;
-            background: transparent;
-            box-shadow: 0 -10px 24px rgba(17, 27, 33, 0.16);
-        }
-        :root:not([data-theme="dark"]) .composer-wrap {
-            background: rgba(255, 255, 255, 0.14);
-            box-shadow: none;
+            background: linear-gradient(180deg, var(--composer-wrap-start) 0%, color-mix(in srgb, var(--composer-wrap-end) 96%, transparent) 18%, var(--composer-wrap-end) 45%);
         }
         .composer-stack {
             position: relative;
@@ -609,10 +608,10 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: rgba(255, 255, 255, 0.14);
+            background: var(--composer);
             border-radius: 26px;
             padding: 10px;
-            box-shadow: none;
+            box-shadow: var(--shadow);
         }
         .composer textarea {
             flex: 1;
