@@ -78,6 +78,37 @@ function surfBrowserScriptPath(): string
     return BASE_PATH . '/scripts/surf_browser.mjs';
 }
 
+function surfResolveNodeBinary(): string
+{
+    $configured = trim((string) getenv('CHAT_NODE_BINARY'));
+    if ($configured !== '') {
+        if (is_executable($configured)) {
+            return $configured;
+        }
+
+        $resolved = shell_exec('command -v ' . escapeshellarg($configured) . ' 2>/dev/null');
+        if (is_string($resolved) && trim($resolved) !== '') {
+            return trim($resolved);
+        }
+    }
+
+    foreach (['node', 'nodejs', '/usr/bin/node', '/usr/local/bin/node'] as $candidate) {
+        if (str_contains($candidate, '/')) {
+            if (is_executable($candidate)) {
+                return $candidate;
+            }
+            continue;
+        }
+
+        $resolved = shell_exec('command -v ' . escapeshellarg($candidate) . ' 2>/dev/null');
+        if (is_string($resolved) && trim($resolved) !== '') {
+            return trim($resolved);
+        }
+    }
+
+    throw new RuntimeException('Surf mode requires Node.js. Install Node, or set CHAT_NODE_BINARY to the full path of the node/nodejs executable.');
+}
+
 function surfRunBrowserAction(string $action, array $payload, array $user): array
 {
     $script = surfBrowserScriptPath();
@@ -88,7 +119,8 @@ function surfRunBrowserAction(string $action, array $payload, array $user): arra
     $payload['viewport'] = $payload['viewport'] ?? surfViewportFromRequest();
     $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
     $command = sprintf(
-        'node %s %s %s %s',
+        '%s %s %s %s',
+        escapeshellarg(surfResolveNodeBinary()),
         escapeshellarg($script),
         escapeshellarg($action),
         escapeshellarg(surfSessionDirectory($user)),

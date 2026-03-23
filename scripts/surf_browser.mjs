@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import dns from 'node:dns/promises';
 import process from 'node:process';
 import { chromium } from 'playwright';
