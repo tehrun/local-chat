@@ -191,6 +191,63 @@ function surfBuildAbsoluteUrl(string $baseUrl, string $candidate): ?string
     return sprintf('%s://%s%s%s%s%s', $scheme, $host, $port, $normalizedPath, $query, $fragment);
 }
 
+function surfIsGoogleHost(string $host): bool
+{
+    $host = strtolower($host);
+    return $host === 'google.com'
+        || $host === 'www.google.com'
+        || str_starts_with($host, 'www.google.')
+        || preg_match('/(^|\.)google\.[a-z.]+$/', $host) === 1;
+}
+
+function surfOptimizeTargetUrl(string $url): string
+{
+    $parts = parse_url($url);
+    if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+        return $url;
+    }
+
+    if (!surfIsGoogleHost((string) $parts['host'])) {
+        return $url;
+    }
+
+    $path = (string) ($parts['path'] ?? '/');
+    $query = [];
+    if (isset($parts['query'])) {
+        parse_str((string) $parts['query'], $query);
+    }
+
+    if ($path === '/' || $path === '' || $path === '/webhp') {
+        $query['igu'] = '1';
+        if (isset($query['q']) && $query['q'] !== '') {
+            $path = '/search';
+        }
+    }
+
+    if ($path === '/search') {
+        $query['gbv'] = '1';
+        $query['igu'] = '1';
+        if (!isset($query['num']) || (string) $query['num'] === '') {
+            $query['num'] = '10';
+        }
+    }
+
+    $authority = $parts['host'];
+    if (isset($parts['port'])) {
+        $authority .= ':' . $parts['port'];
+    }
+
+    $rebuilt = sprintf('%s://%s%s', $parts['scheme'], $authority, $path);
+    if ($query !== []) {
+        $rebuilt .= '?' . http_build_query($query);
+    }
+    if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+        $rebuilt .= '#' . $parts['fragment'];
+    }
+
+    return $rebuilt;
+}
+
 function surfEnsureHeadElement(DOMDocument $dom): DOMElement
 {
     $heads = $dom->getElementsByTagName('head');
@@ -242,6 +299,7 @@ CSS);
 
 function surfProxyUrl(string $absoluteUrl, bool $asset = false): string
 {
+    $absoluteUrl = surfOptimizeTargetUrl($absoluteUrl);
     $params = $asset ? ['asset' => $absoluteUrl] : ['url' => $absoluteUrl];
     return 'surf.php?' . http_build_query($params);
 }
@@ -301,7 +359,7 @@ function surfPrepareTargetUrl(): ?string
 {
     $directUrl = surfNormalizeUrl($_GET['url'] ?? null);
     if ($directUrl !== null) {
-        return $directUrl;
+        return surfOptimizeTargetUrl($directUrl);
     }
 
     $formTarget = surfNormalizeUrl($_GET['surf_target'] ?? null);
@@ -321,11 +379,11 @@ function surfPrepareTargetUrl(): ?string
     }
 
     if ($query === []) {
-        return $formTarget;
+        return surfOptimizeTargetUrl($formTarget);
     }
 
     $separator = str_contains($formTarget, '?') ? '&' : '?';
-    return $formTarget . $separator . http_build_query($query);
+    return surfOptimizeTargetUrl($formTarget . $separator . http_build_query($query));
 }
 
 function surfRewriteHtml(string $html, string $baseUrl): string
@@ -396,6 +454,10 @@ function surfRewriteHtml(string $html, string $baseUrl): string
         $form->setAttribute('action', 'surf.php');
         $form->setAttribute('method', 'get');
 
+        if ($absolute !== $baseUrl) {
+            $absolute = surfOptimizeTargetUrl($absolute);
+        }
+
         $existing = $xpath->query('.//input[@type="hidden" and @name="surf_target"]', $form);
         if ($existing === false || $existing->length === 0) {
             $hidden = $dom->createElement('input');
@@ -430,8 +492,8 @@ if ($assetUrl !== null) {
     exit;
 }
 
-$defaultUrl = 'https://www.google.com/';
-$requestedUrl = surfPrepareTargetUrl() ?? $defaultUrl;
+$defaultUrl = 'https://www.google.com/?igu=1';
+$requestedUrl = surfOptimizeTargetUrl(surfPrepareTargetUrl() ?? $defaultUrl);
 $pageHtml = '';
 $pageError = null;
 $finalUrl = null;
