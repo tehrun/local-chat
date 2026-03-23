@@ -720,7 +720,7 @@ if ($isGroupConversation) {
         .attachment-trigger svg {
             width: 20px;
             height: 20px;
-            transform: rotate(45deg);
+            transform: rotate(90deg);
             transform-origin: 50% 50%;
         }
         .message-file {
