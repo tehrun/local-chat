@@ -185,6 +185,30 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             max-width: none;
             background: var(--mine);
             margin-left: 0;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .intro-bubble[hidden] {
+            display: none;
+        }
+        .intro-bubble-copy {
+            min-width: 0;
+        }
+        .intro-dismiss {
+            border: none;
+            border-radius: 999px;
+            background: rgba(7, 94, 84, 0.12);
+            color: var(--header);
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .intro-dismiss:hover {
+            background: rgba(7, 94, 84, 0.18);
         }
         .panel-title {
             margin: 0 0 6px;
@@ -600,9 +624,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                 <div class="alert notice"><?= e($notice) ?></div>
             <?php endif; ?>
 
-            <div class="card intro-bubble">
-                <h2 class="panel-title">Welcome</h2>
-                <p class="panel-text">Send text messages and voice notes, see who is online, and keep chat history for 7 days while uploaded photos, files, and voice notes expire after 24 hours.</p>
+            <div class="card intro-bubble" id="welcome-message" data-dismiss-key="localchat:welcome-dismissed">
+                <div class="intro-bubble-copy">
+                    <h2 class="panel-title">Welcome</h2>
+                    <p class="panel-text">Send text messages and voice notes, see who is online, and keep chat history for 7 days while uploaded photos, files, and voice notes expire after 24 hours.</p>
+                </div>
+                <button class="intro-dismiss" id="welcome-dismiss-button" type="button" aria-label="Dismiss welcome message">Dismiss</button>
             </div>
 
             <?php if ($user === null): ?>
@@ -773,6 +800,9 @@ let requestSignature = '';
 let seenIncomingRequestIds = new Set(initialIncomingRequests.map((request) => String(request.id || request.sender_id)));
 let deferredInstallPrompt = null;
 const installButton = document.getElementById('install-app-button');
+const welcomeMessage = document.getElementById('welcome-message');
+const welcomeDismissButton = document.getElementById('welcome-dismiss-button');
+const welcomeDismissStorageKey = welcomeMessage?.dataset.dismissKey || 'localchat:welcome-dismissed';
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const STREAM_FALLBACK_POLL_INTERVAL_MS = 12000;
@@ -1531,6 +1561,25 @@ function connectChatListStream() {
 
     scheduleChatListPoll(STREAM_FALLBACK_POLL_INTERVAL_MS);
 }
+
+if (welcomeMessage) {
+    try {
+        if (window.localStorage.getItem(welcomeDismissStorageKey) === '1') {
+            welcomeMessage.hidden = true;
+        }
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+}
+
+welcomeDismissButton?.addEventListener('click', () => {
+    welcomeMessage.hidden = true;
+    try {
+        window.localStorage.setItem(welcomeDismissStorageKey, '1');
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+});
 
 applyChatListPayload({
     chat_users: initialChatUsers,
