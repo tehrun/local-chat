@@ -278,34 +278,6 @@ if ($isGroupConversation) {
             stroke-linejoin: round;
             flex-shrink: 0;
         }
-        .theme-switch {
-            appearance: none;
-            width: 42px;
-            height: 24px;
-            border-radius: 999px;
-            background: rgba(134, 150, 160, 0.45);
-            position: relative;
-            cursor: pointer;
-            transition: background 0.2s ease;
-            flex-shrink: 0;
-        }
-        .theme-switch::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #fff;
-            transition: transform 0.2s ease;
-        }
-        .theme-switch:checked {
-            background: var(--action);
-        }
-        .theme-switch:checked::after {
-            transform: translateX(18px);
-        }
         .topbar-meta {
             min-width: 0;
             flex: 1;
@@ -1068,13 +1040,6 @@ if ($isGroupConversation) {
                         </svg>
                         <span>Revoke friendship</span>
                     </button>
-                    <label class="header-menu-item" for="theme-toggle" role="menuitem">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
-                        </svg>
-                        <span>Dark mode</span>
-                        <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode" style="margin-left:auto;">
-                    </label>
                     <button
                         id="delete-conversation-button"
                         class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
@@ -1282,7 +1247,6 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
-const themeToggle = document.getElementById('theme-toggle');
 const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
 
@@ -1290,9 +1254,6 @@ function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     rootEl.setAttribute('data-theme', nextTheme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
-    if (themeToggle) {
-        themeToggle.checked = nextTheme === 'dark';
-    }
 }
 
 (function loadStoredTheme() {
@@ -3601,15 +3562,6 @@ document.addEventListener('click', (event) => {
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
 
-themeToggle?.addEventListener('change', () => {
-    const nextTheme = themeToggle.checked ? 'dark' : 'light';
-    applyTheme(nextTheme);
-    try {
-        window.localStorage.setItem(themeStorageKey, nextTheme);
-    } catch (error) {
-        // Ignore storage access errors.
-    }
-});
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
