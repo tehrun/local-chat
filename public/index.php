@@ -121,7 +121,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             --menu-surface: rgba(17, 27, 33, 0.98);
             --menu-hover: rgba(255, 255, 255, 0.08);
         }
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             margin: 0;
             min-height: 100vh;
