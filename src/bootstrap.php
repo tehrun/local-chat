@@ -2053,6 +2053,7 @@ function chatListPayload(int $currentUserId): array
 {
     purgeExpiredMessages();
     touchUserPresence($currentUserId);
+    markPendingMessagesDeliveredForUser($currentUserId);
 
     return [
         'chat_users' => combinedChatList($currentUserId),
@@ -2064,6 +2065,8 @@ function chatListPayload(int $currentUserId): array
 function chatListStateSignature(int $currentUserId): string
 {
     purgeExpiredMessages();
+    touchUserPresence($currentUserId);
+    markPendingMessagesDeliveredForUser($currentUserId);
 
     $usersStmt = db()->prepare(
         'SELECT COUNT(*) AS total_users,
@@ -3340,6 +3343,20 @@ function markMessagesDelivered(int $userId, int $otherUserId): void
     $stmt->execute([
         'delivered_at' => gmdate('c'),
         'other_user_id' => $otherUserId,
+        'user_id' => $userId,
+    ]);
+}
+
+function markPendingMessagesDeliveredForUser(int $userId): void
+{
+    $stmt = db()->prepare(
+        'UPDATE messages
+         SET delivered_at = COALESCE(delivered_at, :delivered_at)
+         WHERE recipient_id = :user_id
+           AND delivered_at IS NULL'
+    );
+    $stmt->execute([
+        'delivered_at' => gmdate('c'),
         'user_id' => $userId,
     ]);
 }
