@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['username'] ?? '',
             $_POST['password'] ?? '',
             $_POST['confirm_password'] ?? '',
+            $_POST['registration_secret'] ?? '',
             $_POST['verification_answer'] ?? ''
         );
         $authChallengePrompt = authChallengePrompt();
@@ -616,7 +617,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         label {
             display: block;
-            margin-bottom: 0;
+            margin-bottom: 12px;
             font-size: 14px;
             color: var(--muted);
         }
@@ -821,7 +822,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     <span>Your account</span>
                                 </span>
                             </div>
-                            <label class="header-menu-label" for="theme-toggle" role="menuitem">
+                            <div class="header-menu-label" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
                                 </svg>
@@ -829,7 +830,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     <strong>Dark mode</strong>
                                 </span>
                                 <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode">
-                            </label>
+                            </div>
                             <a class="header-menu-item" href="surf.php" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <circle cx="12" cy="12" r="10"></circle>
@@ -901,6 +902,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <label>
                                     Confirm password
                                     <input type="password" name="confirm_password" minlength="6" required>
+                                </label>
+                                <label>
+                                    Registration secret
+                                    <input type="password" name="registration_secret" autocomplete="off" required>
                                 </label>
                                 <label>
                                     Verification: solve <?= e($authChallengePrompt) ?>
