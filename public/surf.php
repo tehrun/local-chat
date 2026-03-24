@@ -29,12 +29,12 @@ $user = requireAuth();
 <div class="app">
     <div class="card">
         <h1 class="title">Surf Mode</h1>
-        <p class="subtitle">Signed in as <strong><?= e((string) $user['username']) ?></strong>. Enter a URL and open the live page directly in your browser.</p>
+        <p class="subtitle">Signed in as <strong><?= e((string) $user['username']) ?></strong>. Enter a URL to load via server internet proxy.</p>
         <form id="surf-form" class="bar" autocomplete="off">
             <input id="surf-url" class="url" type="url" value="https://www.google.com" placeholder="https://example.com" required>
             <button class="go" type="submit">Open</button>
         </form>
-        <p class="hint">This is direct browser navigation (no screenshot mode, no server-side browser service).</p>
+        <p class="hint">Pages open through this app's server connection.</p>
     </div>
 </div>
 <script>
@@ -62,7 +62,7 @@ form.addEventListener('submit', (event) => {
         return;
     }
 
-    window.location.assign(next);
+    window.location.assign(`surf_proxy.php?url=${encodeURIComponent(next)}`);
 });
 </script>
 </body>
