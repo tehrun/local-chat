@@ -83,46 +83,60 @@ function surfIsBlockedHost(string $host): bool
     }
 
     if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        $long = ip2long($host);
-        if ($long === false) {
-            return true;
-        }
-
-        $ranges = [
-            ['0.0.0.0', '0.255.255.255'],
-            ['10.0.0.0', '10.255.255.255'],
-            ['127.0.0.0', '127.255.255.255'],
-            ['169.254.0.0', '169.254.255.255'],
-            ['172.16.0.0', '172.31.255.255'],
-            ['192.168.0.0', '192.168.255.255'],
-        ];
-
-        foreach ($ranges as [$start, $end]) {
-            $startLong = ip2long($start);
-            $endLong = ip2long($end);
-            if ($startLong !== false && $endLong !== false && $long >= $startLong && $long <= $endLong) {
-                return true;
-            }
-        }
+        return surfIsBlockedIpv4($host);
     }
 
     if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-        $normalized = strtolower($host);
-        if ($normalized === '::1' || $normalized === '::' || str_starts_with($normalized, 'fe80:') || str_starts_with($normalized, 'fc') || str_starts_with($normalized, 'fd')) {
-            return true;
-        }
+        return surfIsBlockedIpv6($host);
     }
 
     $resolved = @gethostbynamel($host);
     if (is_array($resolved)) {
         foreach ($resolved as $ip) {
-            if (surfIsBlockedHost($ip)) {
+            if (surfIsBlockedIpv4($ip)) {
                 return true;
             }
         }
     }
 
     return false;
+}
+
+function surfIsBlockedIpv4(string $ip): bool
+{
+    $long = ip2long($ip);
+    if ($long === false) {
+        return true;
+    }
+
+    $ranges = [
+        ['0.0.0.0', '0.255.255.255'],
+        ['10.0.0.0', '10.255.255.255'],
+        ['127.0.0.0', '127.255.255.255'],
+        ['169.254.0.0', '169.254.255.255'],
+        ['172.16.0.0', '172.31.255.255'],
+        ['192.168.0.0', '192.168.255.255'],
+    ];
+
+    foreach ($ranges as [$start, $end]) {
+        $startLong = ip2long($start);
+        $endLong = ip2long($end);
+        if ($startLong !== false && $endLong !== false && $long >= $startLong && $long <= $endLong) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function surfIsBlockedIpv6(string $ip): bool
+{
+    $normalized = strtolower($ip);
+    return $normalized === '::1'
+        || $normalized === '::'
+        || str_starts_with($normalized, 'fe80:')
+        || str_starts_with($normalized, 'fc')
+        || str_starts_with($normalized, 'fd');
 }
 
 function surfFetchRemoteUrl(string $targetUrl): ?array
