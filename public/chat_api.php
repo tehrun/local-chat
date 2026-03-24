@@ -68,6 +68,23 @@ if ($isGroupConversation) {
         ]);
     }
 
+    if ($action === 'react') {
+        $result = reactToGroupMessage(
+            $groupId,
+            (int) $user['id'],
+            (int) ($_POST['message_id'] ?? 0),
+            (string) ($_POST['emoji'] ?? '')
+        );
+        if (is_string($result)) {
+            jsonResponse(['error' => $result], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'message_id' => (int) ($result['message_id'] ?? 0),
+            'signature' => groupConversationStateSignature($groupId, (int) $user['id']),
+        ]);
+    }
+
     if ($action === 'delete_conversation') {
         clearGroupConversationForUser($groupId, (int) $user['id']);
         jsonResponse([

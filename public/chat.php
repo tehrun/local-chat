@@ -2345,7 +2345,7 @@ function formatHumanTimestamp(value) {
 }
 
 function renderMessageReactions(message) {
-    if (isGroupConversation || !Array.isArray(message.reactions) || message.reactions.length === 0) {
+    if (!Array.isArray(message.reactions) || message.reactions.length === 0) {
         return '';
     }
 
@@ -2363,14 +2363,27 @@ function renderMessageReactions(message) {
         return '';
     }
 
-    const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
-    const emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+    let emojiLabel = '';
+    if (isGroupConversation) {
+        const grouped = new Map();
+        Array.from(uniqueByUser.values()).forEach((emoji) => {
+            grouped.set(emoji, (grouped.get(emoji) || 0) + 1);
+        });
+        emojiLabel = Array.from(grouped.entries())
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 3)
+            .map(([emoji, total]) => `${escapeHtml(emoji)} ${total > 1 ? total : ''}`.trim())
+            .join(' ');
+    } else {
+        const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
+        emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+    }
 
     return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
 }
 
 async function setMessageReaction(messageId, emoji) {
-    if (isGroupConversation || !Number(messageId)) {
+    if (!Number(messageId)) {
         return;
     }
 
@@ -2440,7 +2453,7 @@ function hideReactionPicker() {
 }
 
 function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
-    if (isGroupConversation || !(anchorEl instanceof HTMLElement) || !messageId) {
+    if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
 
@@ -2640,7 +2653,7 @@ function renderMessages(messages) {
             }
 
             return `
-                <article class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-my-reaction="${escapeHtml(myReaction)}">
+                <article class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
                         ${body}
@@ -2670,46 +2683,54 @@ function renderMessages(messages) {
             }, { once: true });
         });
 
-        if (!isGroupConversation) {
-            messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
-                const startHold = (event) => {
-                    if (!(event.target instanceof HTMLElement)) {
-                        return;
-                    }
-                    if (event.target.closest('a, button, audio, input, textarea, label')) {
-                        return;
-                    }
+        messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
+            const canReactToRow = () => {
+                const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
+                return senderId > 0 && senderId !== currentUserId;
+            };
+            const startHold = (event) => {
+                if (!(event.target instanceof HTMLElement)) {
+                    return;
+                }
+                if (event.target.closest('a, button, audio, input, textarea, label')) {
+                    return;
+                }
+                if (!canReactToRow()) {
+                    return;
+                }
 
-                    clearReactionHoldState();
-                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
-                    if (!messageId) {
-                        return;
-                    }
-                    reactionHoldTarget = rowEl;
-                    rowEl.classList.add('reaction-target');
-                    reactionHoldTimer = window.setTimeout(() => {
-                        const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                        showReactionPicker(rowEl, messageId, existingEmoji);
-                        clearReactionHoldState();
-                    }, REACTION_HOLD_MS);
-                };
-
-                rowEl.addEventListener('pointerdown', startHold);
-                rowEl.addEventListener('pointerup', clearReactionHoldState);
-                rowEl.addEventListener('pointercancel', clearReactionHoldState);
-                rowEl.addEventListener('pointerleave', clearReactionHoldState);
-                rowEl.addEventListener('contextmenu', (event) => {
-                    event.preventDefault();
-                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
-                    if (!messageId) {
-                        return;
-                    }
+                clearReactionHoldState();
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                reactionHoldTarget = rowEl;
+                rowEl.classList.add('reaction-target');
+                reactionHoldTimer = window.setTimeout(() => {
                     const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                     showReactionPicker(rowEl, messageId, existingEmoji);
                     clearReactionHoldState();
-                });
+                }, REACTION_HOLD_MS);
+            };
+
+            rowEl.addEventListener('pointerdown', startHold);
+            rowEl.addEventListener('pointerup', clearReactionHoldState);
+            rowEl.addEventListener('pointercancel', clearReactionHoldState);
+            rowEl.addEventListener('pointerleave', clearReactionHoldState);
+            rowEl.addEventListener('contextmenu', (event) => {
+                if (!canReactToRow()) {
+                    return;
+                }
+                event.preventDefault();
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                showReactionPicker(rowEl, messageId, existingEmoji);
+                clearReactionHoldState();
             });
-        }
+        });
     }
 
     if (shouldPinToBottom) {

@@ -634,6 +634,21 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_group_messages_timeline
          ON group_messages (group_id, created_at, id)'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_reactions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            emoji TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            FOREIGN KEY(message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_message_reactions_updated
+         ON group_message_reactions (message_id, updated_at)'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_reads (
@@ -874,6 +889,18 @@ function initializeMysqlDatabase(PDO $pdo): void
             INDEX idx_group_messages_timeline (group_id, created_at, id),
             CONSTRAINT fk_group_messages_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
             CONSTRAINT fk_group_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_reactions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            emoji VARCHAR(64) NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            INDEX idx_group_message_reactions_updated (message_id, updated_at),
+            CONSTRAINT fk_group_message_reactions_message FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_message_reactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -2409,6 +2436,68 @@ function attachReactionsToMessages(array $messages): array
     }, $messages);
 }
 
+function groupMessageReactionsForMessageIds(array $messageIds): array
+{
+    $messageIds = array_values(array_unique(array_filter(array_map('intval', $messageIds), static fn (int $id): bool => $id > 0)));
+    if ($messageIds === []) {
+        return [];
+    }
+
+    $params = [];
+    $placeholders = [];
+    foreach ($messageIds as $index => $messageId) {
+        $key = ':group_message_id_' . $index;
+        $params[$key] = $messageId;
+        $placeholders[] = $key;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT message_id, user_id, emoji
+         FROM group_message_reactions
+         WHERE message_id IN (' . implode(', ', $placeholders) . ')
+         ORDER BY updated_at ASC, user_id ASC'
+    );
+    foreach ($params as $name => $value) {
+        $stmt->bindValue($name, $value, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+
+    $rows = $stmt->fetchAll() ?: [];
+    $reactionMap = [];
+    foreach ($rows as $row) {
+        $messageId = (int) ($row['message_id'] ?? 0);
+        if ($messageId <= 0) {
+            continue;
+        }
+        $reactionMap[$messageId] ??= [];
+        $reactionMap[$messageId][] = [
+            'user_id' => (int) ($row['user_id'] ?? 0),
+            'emoji' => (string) ($row['emoji'] ?? ''),
+        ];
+    }
+
+    return $reactionMap;
+}
+
+function attachReactionsToGroupMessages(array $messages): array
+{
+    if ($messages === []) {
+        return [];
+    }
+
+    $reactionMap = groupMessageReactionsForMessageIds(array_map(
+        static fn (array $message): int => (int) ($message['id'] ?? 0),
+        $messages
+    ));
+
+    return array_map(static function (array $message) use ($reactionMap): array {
+        $messageId = (int) ($message['id'] ?? 0);
+        $message['reactions'] = $reactionMap[$messageId] ?? [];
+
+        return $message;
+    }, $messages);
+}
+
 function formatMessage(array $message): array
 {
     return [
@@ -2584,7 +2673,7 @@ function reactToPrivateMessage(int $currentUserId, int $otherUserId, int $messag
     }
 
     $stmt = db()->prepare(
-        'SELECT id
+        'SELECT id, sender_id
          FROM messages
          WHERE id = :message_id
            AND ((sender_id = :current_user_id AND recipient_id = :other_user_id)
@@ -2597,8 +2686,12 @@ function reactToPrivateMessage(int $currentUserId, int $otherUserId, int $messag
         'other_user_id' => $otherUserId,
     ]);
 
-    if (!$stmt->fetchColumn()) {
+    $messageRow = $stmt->fetch();
+    if (!$messageRow) {
         return 'Message not found.';
+    }
+    if ((int) ($messageRow['sender_id'] ?? 0) === $currentUserId) {
+        return 'You can only react to messages from other people.';
     }
 
     $emoji = normalizeReactionEmoji($emoji);
@@ -2631,6 +2724,71 @@ function reactToPrivateMessage(int $currentUserId, int $otherUserId, int $messag
     } else {
         $upsertStmt = db()->prepare(
             'INSERT INTO message_reactions (message_id, user_id, emoji, updated_at)
+             VALUES (:message_id, :user_id, :emoji, :updated_at)
+             ON CONFLICT(message_id, user_id)
+             DO UPDATE SET emoji = excluded.emoji, updated_at = excluded.updated_at'
+        );
+    }
+    $upsertStmt->execute($params);
+
+    return ['message_id' => $messageId];
+}
+
+function reactToGroupMessage(int $groupId, int $currentUserId, int $messageId, string $emoji): array|string
+{
+    if (!canAccessGroupConversation($groupId, $currentUserId)) {
+        return 'Group not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id, sender_id
+         FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+    $messageRow = $stmt->fetch();
+    if (!$messageRow) {
+        return 'Message not found.';
+    }
+    if ((int) ($messageRow['sender_id'] ?? 0) === $currentUserId) {
+        return 'You can only react to messages from other people.';
+    }
+
+    $emoji = normalizeReactionEmoji($emoji);
+    if ($emoji === '') {
+        $deleteStmt = db()->prepare(
+            'DELETE FROM group_message_reactions
+             WHERE message_id = :message_id
+               AND user_id = :user_id'
+        );
+        $deleteStmt->execute([
+            'message_id' => $messageId,
+            'user_id' => $currentUserId,
+        ]);
+
+        return ['message_id' => $messageId];
+    }
+
+    $params = [
+        'message_id' => $messageId,
+        'user_id' => $currentUserId,
+        'emoji' => $emoji,
+        'updated_at' => gmdate('c'),
+    ];
+    if (dbDriver() === 'mysql') {
+        $upsertStmt = db()->prepare(
+            'INSERT INTO group_message_reactions (message_id, user_id, emoji, updated_at)
+             VALUES (:message_id, :user_id, :emoji, :updated_at)
+             ON DUPLICATE KEY UPDATE emoji = VALUES(emoji), updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $upsertStmt = db()->prepare(
+            'INSERT INTO group_message_reactions (message_id, user_id, emoji, updated_at)
              VALUES (:message_id, :user_id, :emoji, :updated_at)
              ON CONFLICT(message_id, user_id)
              DO UPDATE SET emoji = excluded.emoji, updated_at = excluded.updated_at'
@@ -3450,6 +3608,7 @@ function formatGroupMessage(array $message): array
         'body' => $message['body'],
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'],
+        'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime((string) $message['created_at'])) . ' UTC',
     ];
@@ -3496,7 +3655,7 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
         $messages = array_reverse($messages);
     }
 
-    return array_map('formatGroupMessage', $messages);
+    return attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
 }
 
 function groupConversationHasOlderMessagesWithoutMaintenance(int $groupId, int $userId, int $beforeMessageId): bool
@@ -3626,7 +3785,10 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body): array|st
         return 'Could not send message right now.';
     }
 
-    return formatGroupMessage($row);
+    $formatted = formatGroupMessage($row);
+    $withReactions = attachReactionsToGroupMessages([$formatted]);
+
+    return $withReactions[0] ?? $formatted;
 }
 
 function markGroupMessagesRead(int $groupId, int $userId): void
@@ -3709,6 +3871,15 @@ function groupConversationStateSignature(int $groupId, int $userId): string
     );
     $stmt->execute(['group_id' => $groupId]);
     $messageState = $stmt->fetch() ?: [];
+    $reactionStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_reactions,
+                MAX(gmr.updated_at) AS latest_reaction_updated_at
+         FROM group_message_reactions gmr
+         JOIN group_messages gm ON gm.id = gmr.message_id
+         WHERE gm.group_id = :group_id'
+    );
+    $reactionStmt->execute(['group_id' => $groupId]);
+    $reactionState = $reactionStmt->fetch() ?: [];
 
     $group = findGroupById($groupId);
 
@@ -3717,6 +3888,10 @@ function groupConversationStateSignature(int $groupId, int $userId): string
             'total' => (int) ($messageState['total_messages'] ?? 0),
             'latest_id' => (int) ($messageState['latest_message_id'] ?? 0),
             'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
+        ],
+        'reactions' => [
+            'total' => (int) ($reactionState['total_reactions'] ?? 0),
+            'latest_updated_at' => $reactionState['latest_reaction_updated_at'] ?? null,
         ],
         'group' => $group === null ? null : [
             'id' => (int) $group['id'],
