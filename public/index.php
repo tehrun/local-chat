@@ -613,7 +613,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         label {
             display: block;
-            margin-bottom: 12px;
+            margin-bottom: 0;
             font-size: 14px;
             color: var(--muted);
         }
