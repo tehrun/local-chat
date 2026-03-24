@@ -509,13 +509,59 @@ if ($isGroupConversation) {
             font-size: 14px;
             color: var(--danger);
         }
-        .reaction-picker button.reaction-reply {
-            width: auto;
-            border-radius: 16px;
-            font-size: 12px;
-            padding: 0 10px;
-            color: #0f766e;
+        .reaction-picker button.reaction-action {
+            width: 42px;
+            height: 34px;
+            border-radius: 8px;
+            color: var(--muted);
             border: 1px solid rgba(15, 118, 110, 0.3);
+        }
+        .reaction-picker button.reaction-action.danger {
+            color: var(--danger);
+            border-color: rgba(180, 35, 24, 0.35);
+        }
+        :root[data-theme="dark"] .reaction-picker button.reaction-action {
+            border-color: rgba(233, 237, 239, 0.24);
+        }
+        :root[data-theme="dark"] .reaction-picker button.reaction-action.danger {
+            border-color: rgba(249, 112, 102, 0.42);
+        }
+        .reaction-picker button.reaction-action svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .message-action-menu {
+            position: fixed;
+            z-index: 32;
+            min-width: 170px;
+            border-radius: 14px;
+            border: 1px solid rgba(17, 27, 33, 0.14);
+            background: var(--menu-surface);
+            box-shadow: 0 16px 30px rgba(17, 27, 33, 0.24);
+            padding: 6px;
+        }
+        .message-action-menu[hidden] {
+            display: none;
+        }
+        .message-action-menu button {
+            width: 100%;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 14px;
+            color: var(--danger);
+            cursor: pointer;
+        }
+        .message-action-menu button:hover,
+        .message-action-menu button:focus-visible {
+            background: var(--menu-hover);
         }
         .message-row.mine .message {
             background: var(--mine);
@@ -1597,6 +1643,10 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
+let messageActionMenuEl = null;
+let messageActionMessageId = 0;
+let longPressTimer = null;
+let longPressHandled = false;
 let replyTarget = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
@@ -2668,6 +2718,158 @@ function hideReactionPicker() {
     reactionPickerMessageId = 0;
 }
 
+function ensureMessageActionMenu() {
+    if (messageActionMenuEl) {
+        return messageActionMenuEl;
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'message-action-menu';
+    menu.hidden = true;
+    menu.innerHTML = '<button type="button" data-action="delete-message">Delete message</button>';
+    menu.querySelector('button[data-action="delete-message"]')?.addEventListener('click', async () => {
+        if (!messageActionMessageId) {
+            return;
+        }
+        await deleteMessageById(messageActionMessageId);
+        hideMessageActionMenu();
+    });
+    document.body.appendChild(menu);
+    messageActionMenuEl = menu;
+    return menu;
+}
+
+function hideMessageActionMenu() {
+    if (!messageActionMenuEl) {
+        return;
+    }
+    messageActionMenuEl.hidden = true;
+    messageActionMessageId = 0;
+}
+
+function showMessageActionMenu(anchorEl, messageId) {
+    if (!(anchorEl instanceof HTMLElement) || !messageId) {
+        return;
+    }
+
+    hideReactionPicker();
+    hideReactionDetailsPanel();
+    const menu = ensureMessageActionMenu();
+    menu.hidden = false;
+    messageActionMessageId = messageId;
+
+    const anchorRect = anchorEl.getBoundingClientRect();
+    requestAnimationFrame(() => {
+        const menuRect = menu.getBoundingClientRect();
+        const minLeft = 8;
+        const maxLeft = window.innerWidth - menuRect.width - 8;
+        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (menuRect.width / 2);
+        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
+        const maxTop = window.innerHeight - menuRect.height - 8;
+        const top = Math.max(8, Math.min(maxTop, anchorRect.bottom + 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    });
+}
+
+async function deleteMessageById(messageId) {
+    if (!Number(messageId)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'delete_message',
+                message_id: String(Number(messageId)),
+                csrf_token: csrfToken,
+            }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Could not delete this message right now.');
+            return;
+        }
+
+        if (payload?.payload && typeof payload.payload === 'object') {
+            removeMessage(Number(messageId));
+            applyConversationPayload(payload.payload);
+            syncReadStateSoon();
+            return;
+        }
+
+        if (typeof payload?.signature === 'string' && payload.signature !== '') {
+            conversationSignature = payload.signature;
+        }
+
+        await refreshConversation();
+    } catch (error) {
+        showError('Could not delete this message right now.');
+    }
+}
+
+async function editMessageById(messageId) {
+    const targetMessage = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+    if (!targetMessage) {
+        showError('Message not found.');
+        return;
+    }
+
+    const currentBody = String(targetMessage.body || '');
+    if (currentBody.trim() === '') {
+        showError('Only text messages can be edited.');
+        return;
+    }
+
+    const nextBody = window.prompt('Edit message', currentBody);
+    if (nextBody === null) {
+        return;
+    }
+
+    const trimmedBody = String(nextBody).trim();
+    if (trimmedBody === '') {
+        showError('Message cannot be empty.');
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'edit_message',
+                message_id: String(Number(messageId)),
+                body: trimmedBody,
+                csrf_token: csrfToken,
+            }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Could not edit this message right now.');
+            return;
+        }
+
+        if (payload?.payload && typeof payload.payload === 'object') {
+            applyConversationPayload(payload.payload);
+            syncReadStateSoon();
+            return;
+        }
+
+        await refreshConversation();
+    } catch (error) {
+        showError('Could not edit this message right now.');
+    }
+}
+
+function clearLongPressTimer() {
+    if (longPressTimer !== null) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+}
+
 function hideReactionDetailsPanel() {
     if (!reactionMembersModal) {
         return;
@@ -2683,7 +2885,7 @@ function hideReactionDetailsPanel() {
     document.body.style.overflow = '';
 }
 
-function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true) {
+function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true, actionOptions = {}) {
     if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
@@ -2698,8 +2900,16 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
     `).join('');
     const removeButton = allowReactions && existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '';
-    const replyButton = '<button type="button" class="reaction-reply" data-action="reply" aria-label="Reply to message">Reply</button>';
-    picker.innerHTML = reactionButtons + removeButton + replyButton;
+    const replyButton = actionOptions.reply !== false
+        ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"></path><path d="M4 9h9a7 7 0 0 1 7 7v1"></path></svg></button>'
+        : '';
+    const editButton = actionOptions.edit
+        ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
+        : '';
+    const deleteButton = actionOptions.delete
+        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
+        : '';
+    picker.innerHTML = reactionButtons + removeButton + replyButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -2717,6 +2927,14 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
             setReplyTargetByMessage(message);
         }
         hideReactionPicker();
+    });
+    picker.querySelector('button[data-action="edit"]')?.addEventListener('click', async () => {
+        hideReactionPicker();
+        await editMessageById(messageId);
+    });
+    picker.querySelector('button[data-action="delete"]')?.addEventListener('click', async () => {
+        hideReactionPicker();
+        await deleteMessageById(messageId);
     });
 
     const anchorRect = anchorEl.getBoundingClientRect();
@@ -2821,6 +3039,10 @@ function mergeMessages(existingMessages, incomingMessages) {
     });
 }
 
+function pendingMessages(messages) {
+    return (messages || []).filter((message) => Boolean(message && message.pending));
+}
+
 function removeMessage(messageId) {
     renderMessages((window.__messagesState || []).filter((item) => item.id !== messageId));
 }
@@ -2868,8 +3090,6 @@ function closeImageLightbox() {
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
-    hideReactionPicker();
-    hideReactionDetailsPanel();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -2890,6 +3110,11 @@ function renderMessages(messages) {
     if (signature === renderedSignature) {
         return;
     }
+
+    hideReactionPicker();
+    hideReactionDetailsPanel();
+    hideMessageActionMenu();
+    clearLongPressTimer();
 
     renderedSignature = signature;
 
@@ -2975,34 +3200,72 @@ function renderMessages(messages) {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
             };
+            const isOwnMessage = () => Number(rowEl.getAttribute('data-sender-id') || 0) === currentUserId;
             const openReactionPickerFromTap = (event) => {
-                if (!(event.target instanceof HTMLElement)) {
+                if (event.target instanceof HTMLElement && event.target.closest('a, button, audio, input, textarea, label, .message-reactions')) {
                     return;
                 }
-                if (event.target.closest('a, button, audio, input, textarea, label')) {
-                    return;
-                }
-                if (event.target.closest('.message-reactions')) {
-                    return;
-                }
-                const canReact = canReactToRow();
-                if (!canReact) {
-                    return;
-                }
-
-                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
-                if (!messageId) {
-                    return;
-                }
-                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                showReactionPicker(rowEl, messageId, existingEmoji, canReact);
+                hideReactionPicker();
+                hideMessageActionMenu();
             };
 
-            rowEl.addEventListener('click', openReactionPickerFromTap);
+            rowEl.addEventListener('click', (event) => {
+                if (longPressHandled) {
+                    longPressHandled = false;
+                    event.preventDefault();
+                    return;
+                }
+                hideMessageActionMenu();
+                openReactionPickerFromTap(event);
+            });
+
+            rowEl.addEventListener('pointerdown', (event) => {
+                if (event.pointerType === 'mouse') {
+                    return;
+                }
+                clearLongPressTimer();
+                longPressHandled = false;
+                longPressTimer = window.setTimeout(() => {
+                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                    if (!messageId) {
+                        return;
+                    }
+                    if (isOwnMessage()) {
+                        showReactionPicker(rowEl, messageId, '', false, {
+                            reply: false,
+                            edit: true,
+                            delete: true,
+                        });
+                        longPressHandled = true;
+                        return;
+                    }
+                    if (!canReactToRow()) {
+                        return;
+                    }
+                    const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                    longPressHandled = true;
+                    showReactionPicker(rowEl, messageId, existingEmoji, true, {
+                        reply: true,
+                        edit: false,
+                        delete: false,
+                    });
+                }, 480);
+            });
+            rowEl.addEventListener('pointerup', clearLongPressTimer);
+            rowEl.addEventListener('pointercancel', clearLongPressTimer);
+            rowEl.addEventListener('pointerleave', clearLongPressTimer);
             rowEl.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
                 if (!messageId) {
+                    return;
+                }
+                if (isOwnMessage()) {
+                    showReactionPicker(rowEl, messageId, '', false, {
+                        reply: false,
+                        edit: true,
+                        delete: true,
+                    });
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
@@ -3139,7 +3402,7 @@ function applyConversationPayload(payload, options = {}) {
     if (Array.isArray(payload.messages)) {
         const nextMessages = appendHistory
             ? mergeMessages(payload.messages, window.__messagesState || [])
-            : (payload.messages.length === 0 ? [] : mergeMessages(window.__messagesState || [], payload.messages));
+            : (payload.messages.length === 0 ? [] : mergeMessages(pendingMessages(window.__messagesState || []), payload.messages));
         renderMessages(nextMessages);
         const unreadCount = nextMessages.filter((message) =>
             Number(message.sender_id) !== currentUserId && !message.read_at
@@ -4303,6 +4566,10 @@ document.addEventListener('keydown', (event) => {
     }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
+        return;
+    }
+    if (event.key === 'Escape' && messageActionMenuEl && !messageActionMenuEl.hidden) {
+        hideMessageActionMenu();
     }
 }, { passive: true });
 document.addEventListener('click', (event) => {
@@ -4323,6 +4590,9 @@ document.addEventListener('pointerdown', (event) => {
     }
     if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
         hideReactionPicker();
+    }
+    if (messageActionMenuEl && !messageActionMenuEl.hidden && !messageActionMenuEl.contains(event.target)) {
+        hideMessageActionMenu();
     }
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
@@ -4372,6 +4642,12 @@ window.addEventListener('beforeunload', () => {
         const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
         navigator.sendBeacon(conversationApiUrl(), data);
     }
+});
+
+window.addEventListener('resize', () => {
+    hideReactionPicker();
+    hideMessageActionMenu();
+    clearLongPressTimer();
 });
 
 autoResizeComposer();

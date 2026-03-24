@@ -282,6 +282,20 @@ function isSafeStorageRelativePath(?string $relativePath): bool
     return str_starts_with($relativePath, 'storage/uploads/') || str_starts_with($relativePath, 'storage/tmp/');
 }
 
+function deleteStorageFileIfExists(?string $relativePath): void
+{
+    if (!isSafeStorageRelativePath($relativePath)) {
+        return;
+    }
+
+    $absolutePath = BASE_PATH . '/' . ltrim((string) $relativePath, '/');
+    if (!is_file($absolutePath)) {
+        return;
+    }
+
+    @unlink($absolutePath);
+}
+
 function csrfToken(): string
 {
     if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
@@ -2893,6 +2907,202 @@ function reactToGroupMessage(int $groupId, int $currentUserId, int $messageId, s
     $upsertStmt->execute($params);
 
     return ['message_id' => $messageId];
+}
+
+function deletePrivateMessage(int $currentUserId, int $otherUserId, int $messageId): ?string
+{
+    $messageId = max(0, $messageId);
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id, sender_id, audio_path, image_path, file_path
+         FROM messages
+         WHERE id = :message_id
+           AND ((sender_id = :current_user_id AND recipient_id = :other_user_id)
+             OR (sender_id = :other_user_id AND recipient_id = :current_user_id))
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'current_user_id' => $currentUserId,
+        'other_user_id' => $otherUserId,
+    ]);
+    $messageRow = $stmt->fetch();
+    if (!$messageRow) {
+        return 'Message not found.';
+    }
+
+    if ((int) ($messageRow['sender_id'] ?? 0) !== $currentUserId) {
+        return 'You can only delete your own messages.';
+    }
+
+    deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
+    deleteStorageFileIfExists($messageRow['image_path'] ?? null);
+    deleteStorageFileIfExists($messageRow['file_path'] ?? null);
+
+    $reactionStmt = db()->prepare('DELETE FROM message_reactions WHERE message_id = :message_id');
+    $reactionStmt->execute(['message_id' => $messageId]);
+
+    $deleteStmt = db()->prepare('DELETE FROM messages WHERE id = :message_id');
+    $deleteStmt->execute(['message_id' => $messageId]);
+
+    return null;
+}
+
+function editPrivateMessage(int $currentUserId, int $otherUserId, int $messageId, string $body): ?string
+{
+    $messageId = max(0, $messageId);
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    $trimmedBody = trim($body);
+    if ($trimmedBody === '') {
+        return 'Message cannot be empty.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE messages
+         SET body = :body
+         WHERE id = :message_id
+           AND sender_id = :current_user_id
+           AND recipient_id = :other_user_id'
+    );
+    $stmt->execute([
+        'body' => $trimmedBody,
+        'message_id' => $messageId,
+        'current_user_id' => $currentUserId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    if ($stmt->rowCount() > 0) {
+        return null;
+    }
+
+    $checkStmt = db()->prepare(
+        'SELECT sender_id
+         FROM messages
+         WHERE id = :message_id
+           AND ((sender_id = :current_user_id AND recipient_id = :other_user_id)
+             OR (sender_id = :other_user_id AND recipient_id = :current_user_id))
+         LIMIT 1'
+    );
+    $checkStmt->execute([
+        'message_id' => $messageId,
+        'current_user_id' => $currentUserId,
+        'other_user_id' => $otherUserId,
+    ]);
+    $messageRow = $checkStmt->fetch();
+    if (!$messageRow) {
+        return 'Message not found.';
+    }
+
+    return 'You can only edit your own messages.';
+}
+
+function deleteGroupMessage(int $groupId, int $currentUserId, int $messageId): ?string
+{
+    if (!canAccessGroupConversation($groupId, $currentUserId)) {
+        return 'Group not found.';
+    }
+
+    $messageId = max(0, $messageId);
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id, sender_id, audio_path, image_path
+         FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+    $messageRow = $stmt->fetch();
+    if (!$messageRow) {
+        return 'Message not found.';
+    }
+
+    if ((int) ($messageRow['sender_id'] ?? 0) !== $currentUserId) {
+        return 'You can only delete your own messages.';
+    }
+
+    deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
+    deleteStorageFileIfExists($messageRow['image_path'] ?? null);
+
+    $reactionStmt = db()->prepare('DELETE FROM group_message_reactions WHERE message_id = :message_id');
+    $reactionStmt->execute(['message_id' => $messageId]);
+
+    $deleteStmt = db()->prepare(
+        'DELETE FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id'
+    );
+    $deleteStmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+
+    return null;
+}
+
+function editGroupMessage(int $groupId, int $currentUserId, int $messageId, string $body): ?string
+{
+    if (!canAccessGroupConversation($groupId, $currentUserId)) {
+        return 'Group not found.';
+    }
+
+    $messageId = max(0, $messageId);
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    $trimmedBody = trim($body);
+    if ($trimmedBody === '') {
+        return 'Message cannot be empty.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE group_messages
+         SET body = :body
+         WHERE id = :message_id
+           AND group_id = :group_id
+           AND sender_id = :current_user_id'
+    );
+    $stmt->execute([
+        'body' => $trimmedBody,
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+        'current_user_id' => $currentUserId,
+    ]);
+
+    if ($stmt->rowCount() > 0) {
+        return null;
+    }
+
+    $checkStmt = db()->prepare(
+        'SELECT sender_id
+         FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id
+         LIMIT 1'
+    );
+    $checkStmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+    $messageRow = $checkStmt->fetch();
+    if (!$messageRow) {
+        return 'Message not found.';
+    }
+
+    return 'You can only edit your own messages.';
 }
 
 function detectUploadedAudioExtension(array $file, ?string $mime): ?string
