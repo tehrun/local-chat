@@ -2,6 +2,8 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
 import os from 'node:os';
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
 
 const SERVICE_HOST = process.env.CHAT_SURF_BROWSER_HOST || '127.0.0.1';
 const SERVICE_PORT = Number(process.env.CHAT_SURF_BROWSER_PORT || 38555);
@@ -13,6 +15,59 @@ let playwright = null;
 let browser = null;
 let startupError = null;
 
+function shouldAttemptBrowserInstall(error) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.includes("Executable doesn't exist");
+}
+
+function runProcess(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (error) => {
+      resolve({ ok: false, error: error instanceof Error ? error.message : String(error), stdout, stderr, exitCode: -1 });
+    });
+    child.on('close', (exitCode) => {
+      resolve({ ok: exitCode === 0, stdout, stderr, exitCode: exitCode ?? -1 });
+    });
+  });
+}
+
+async function installPlaywrightBrowser() {
+  const installEnabled = String(process.env.CHAT_SURF_PLAYWRIGHT_INSTALL_ON_START || '1').toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(installEnabled)) {
+    return { ok: false, skipped: true, reason: 'CHAT_SURF_PLAYWRIGHT_INSTALL_ON_START is disabled' };
+  }
+
+  const require = createRequire(import.meta.url);
+  try {
+    const cliPath = require.resolve('playwright/cli');
+    const result = await runProcess(process.execPath, [cliPath, 'install', 'chromium']);
+    if (result.ok) {
+      return { ok: true, method: 'playwright-cli', stdout: result.stdout, stderr: result.stderr };
+    }
+  } catch {
+    // Fall back to npx when CLI resolution is unavailable.
+  }
+
+  const npxResult = await runProcess('npx', ['playwright', 'install', 'chromium']);
+  return {
+    ok: npxResult.ok,
+    method: 'npx',
+    stdout: npxResult.stdout,
+    stderr: npxResult.stderr,
+    exitCode: npxResult.exitCode,
+  };
+}
+
 async function init() {
   try {
     playwright = await import('playwright');
@@ -23,6 +78,30 @@ async function init() {
     });
     await browser.version();
   } catch (error) {
+    if (shouldAttemptBrowserInstall(error)) {
+      const installResult = await installPlaywrightBrowser();
+      if (installResult.ok) {
+        try {
+          browser = await playwright.chromium.launch({
+            headless: true,
+            executablePath: BROWSER_EXECUTABLE_PATH,
+            args: ['--disable-dev-shm-usage'],
+          });
+          await browser.version();
+          startupError = null;
+          return;
+        } catch (retryError) {
+          startupError = `Browser startup failed after install attempt: ${retryError instanceof Error ? retryError.message : String(retryError)}`;
+          console.error(startupError);
+          return;
+        }
+      }
+
+      startupError = `Browser startup failed: ${error instanceof Error ? error.message : String(error)}. Auto-install failed (${installResult.method || 'unknown'}). ${String(installResult.stderr || installResult.stdout || installResult.reason || '')}`.trim();
+      console.error(startupError);
+      return;
+    }
+
     startupError = `Browser startup failed: ${error instanceof Error ? error.message : String(error)}`;
     console.error(startupError);
   }
