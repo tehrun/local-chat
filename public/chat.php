@@ -2776,6 +2776,7 @@ async function deleteMessageById(messageId) {
         }
 
         if (payload?.payload && typeof payload.payload === 'object') {
+            removeMessage(Number(messageId));
             applyConversationPayload(payload.payload);
             syncReadStateSoon();
             return;
@@ -2949,6 +2950,10 @@ function mergeMessages(existingMessages, incomingMessages) {
         }
         return leftTime - rightTime;
     });
+}
+
+function pendingMessages(messages) {
+    return (messages || []).filter((message) => Boolean(message && message.pending));
 }
 
 function removeMessage(messageId) {
@@ -3303,7 +3308,7 @@ function applyConversationPayload(payload, options = {}) {
     if (Array.isArray(payload.messages)) {
         const nextMessages = appendHistory
             ? mergeMessages(payload.messages, window.__messagesState || [])
-            : (payload.messages.length === 0 ? [] : mergeMessages(window.__messagesState || [], payload.messages));
+            : (payload.messages.length === 0 ? [] : mergeMessages(pendingMessages(window.__messagesState || []), payload.messages));
         renderMessages(nextMessages);
         const unreadCount = nextMessages.filter((message) =>
             Number(message.sender_id) !== currentUserId && !message.read_at
