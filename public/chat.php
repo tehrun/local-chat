@@ -2987,19 +2987,6 @@ function renderMessages(messages) {
             };
 
             rowEl.addEventListener('click', openReactionPickerFromTap);
-            rowEl.addEventListener('dblclick', (event) => {
-                if (event.target instanceof HTMLElement && event.target.closest('a, button, audio, input, textarea, label')) {
-                    return;
-                }
-                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
-                if (!messageId) {
-                    return;
-                }
-                const message = (window.__messagesState || []).find((item) => Number(item.id) === messageId);
-                if (message) {
-                    setReplyTargetByMessage(message);
-                }
-            });
             rowEl.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
