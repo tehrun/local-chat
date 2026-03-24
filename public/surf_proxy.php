@@ -186,7 +186,7 @@ function surfFetchRemoteUrl(string $targetUrl): ?array
 
         [$name, $value] = array_map('trim', explode(':', $line, 2));
         $lower = strtolower($name);
-        if (in_array($lower, ['content-length', 'content-security-policy', 'x-frame-options', 'transfer-encoding', 'connection'], true)) {
+        if (in_array($lower, ['content-length', 'content-encoding', 'content-security-policy', 'x-frame-options', 'transfer-encoding', 'connection'], true)) {
             continue;
         }
 
