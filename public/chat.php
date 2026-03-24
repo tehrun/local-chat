@@ -512,13 +512,15 @@ if ($isGroupConversation) {
         .reaction-picker button.reaction-action {
             width: 42px;
             height: 34px;
-            border-radius: 8px;
+            border-radius: 4px;
             color: var(--muted);
             border: 1px solid rgba(15, 118, 110, 0.3);
+            background: rgba(15, 118, 110, 0.08);
         }
         .reaction-picker button.reaction-action.danger {
             color: var(--danger);
             border-color: rgba(180, 35, 24, 0.35);
+            background: rgba(180, 35, 24, 0.08);
         }
         :root[data-theme="dark"] .reaction-picker button.reaction-action {
             border-color: rgba(233, 237, 239, 0.24);
@@ -565,6 +567,13 @@ if ($isGroupConversation) {
         }
         .message-row.mine .message {
             background: var(--mine);
+        }
+        .message-row[data-message-id],
+        .message-row[data-message-id] .message,
+        .message-row[data-message-id] .message-text {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
         }
         .message-reply-reference {
             display: block;
@@ -2903,13 +2912,14 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const replyButton = actionOptions.reply !== false
         ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"></path><path d="M4 9h9a7 7 0 0 1 7 7v1"></path></svg></button>'
         : '';
+    const copyButton = '<button type="button" class="reaction-action" data-action="copy" aria-label="Copy message" title="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
     const editButton = actionOptions.edit
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
     const deleteButton = actionOptions.delete
         ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
-    picker.innerHTML = reactionButtons + removeButton + replyButton + editButton + deleteButton;
+    picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -2927,6 +2937,10 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
             setReplyTargetByMessage(message);
         }
         hideReactionPicker();
+    });
+    picker.querySelector('button[data-action="copy"]')?.addEventListener('click', async () => {
+        hideReactionPicker();
+        await copyMessageById(messageId);
     });
     picker.querySelector('button[data-action="edit"]')?.addEventListener('click', async () => {
         hideReactionPicker();
@@ -2951,6 +2965,44 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         picker.style.left = `${left}px`;
         picker.style.top = `${top}px`;
     });
+}
+
+async function copyMessageById(messageId) {
+    const targetMessageId = Number(messageId || 0);
+    if (!targetMessageId) {
+        showError('Unable to copy this message.');
+        return;
+    }
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === targetMessageId);
+    if (!message) {
+        showError('Unable to copy this message.');
+        return;
+    }
+
+    const copyText = replySnippetFromMessage(message);
+    if (copyText === '') {
+        showError('Nothing to copy from this message.');
+        return;
+    }
+
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(copyText);
+        } else {
+            const fallbackInput = document.createElement('textarea');
+            fallbackInput.value = copyText;
+            fallbackInput.setAttribute('readonly', 'readonly');
+            fallbackInput.style.position = 'fixed';
+            fallbackInput.style.left = '-9999px';
+            document.body.appendChild(fallbackInput);
+            fallbackInput.select();
+            document.execCommand('copy');
+            fallbackInput.remove();
+        }
+        showHint('Message copied.');
+    } catch (error) {
+        showError('Unable to copy message right now.');
+    }
 }
 
 function reactionUserDisplayName(userId, message) {
