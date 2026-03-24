@@ -253,6 +253,33 @@ function surfRewriteHtml(string $html, string $baseUrl): string
     $helperScript = <<<'HTML'
 <script>
 (function () {
+  function toProxyUrl(value) {
+    try {
+      var parsed = new URL(String(value), window.location.href);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return null;
+      }
+      return 'surf_proxy.php?url=' + encodeURIComponent(parsed.toString());
+    } catch (error) {
+      return null;
+    }
+  }
+
+  document.addEventListener('click', function (event) {
+    var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+    if (!anchor) {
+      return;
+    }
+
+    var proxiedHref = toProxyUrl(anchor.getAttribute('href'));
+    if (!proxiedHref) {
+      return;
+    }
+
+    event.preventDefault();
+    window.location.assign(proxiedHref);
+  }, true);
+
   document.addEventListener('submit', function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) {
@@ -275,8 +302,21 @@ function surfRewriteHtml(string $html, string $baseUrl): string
     data.forEach(function (value, key) {
       url.searchParams.append(key, String(value));
     });
-    window.location.assign('surf_proxy.php?url=' + encodeURIComponent(url.toString()));
+    var proxiedTarget = toProxyUrl(url.toString());
+    if (!proxiedTarget) {
+      return;
+    }
+    window.location.assign(proxiedTarget);
   }, true);
+
+  var originalWindowOpen = window.open;
+  window.open = function (url, target, features) {
+    var proxiedHref = toProxyUrl(url);
+    if (proxiedHref) {
+      return originalWindowOpen.call(window, proxiedHref, target, features);
+    }
+    return originalWindowOpen.call(window, url, target, features);
+  };
 })();
 </script>
 HTML;
