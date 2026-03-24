@@ -2775,9 +2775,13 @@ async function deleteMessageById(messageId) {
             return;
         }
 
-        if (typeof payload?.payload?.signature === 'string' && payload.payload.signature !== '') {
-            conversationSignature = payload.payload.signature;
-        } else if (typeof payload?.signature === 'string' && payload.signature !== '') {
+        if (payload?.payload && typeof payload.payload === 'object') {
+            applyConversationPayload(payload.payload);
+            syncReadStateSoon();
+            return;
+        }
+
+        if (typeof payload?.signature === 'string' && payload.signature !== '') {
             conversationSignature = payload.signature;
         }
 
