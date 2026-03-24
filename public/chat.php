@@ -627,6 +627,9 @@ if ($isGroupConversation) {
             background: rgba(255, 255, 255, 0.88);
             border-left: 3px solid #0f766e;
         }
+        .reply-preview[hidden] {
+            display: none;
+        }
         .reply-preview-copy {
             min-width: 0;
             display: flex;
