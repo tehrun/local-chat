@@ -421,6 +421,9 @@ if ($isGroupConversation) {
             align-self: flex-start;
             position: relative;
         }
+        .message-row.has-reactions {
+            margin-bottom: 8px;
+        }
         .message-row.mine {
             align-self: flex-end;
         }
@@ -2701,6 +2704,9 @@ function renderMessages(messages) {
             const rowClasses = ['message-row'];
             if (isMine) {
                 rowClasses.push('mine');
+            }
+            if (reactions !== '') {
+                rowClasses.push('has-reactions');
             }
             if (!isGroupConversation && message.audio_path) {
                 rowClasses.push('private-audio');
