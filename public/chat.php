@@ -430,9 +430,6 @@ if ($isGroupConversation) {
         .message-row.private-audio .message {
             width: 100%;
         }
-        .message-row.reaction-target .message {
-            outline: 2px solid rgba(37, 211, 102, 0.45);
-        }
         .message {
             background: var(--theirs);
             border-radius: 18px;
@@ -454,6 +451,8 @@ if ($isGroupConversation) {
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.12);
             font-size: 13px;
             line-height: 1;
+            color: #111b21;
+            cursor: pointer;
         }
         .message-row.mine .message-reactions {
             right: 10px;
@@ -1360,6 +1359,7 @@ if ($isGroupConversation) {
 <script>
 
 const currentUserId = <?= (int) $user['id'] ?>;
+const currentUsername = <?= jsonScriptValue((string) $user['username']) ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
 const groupId = <?= (int) $groupId ?>;
 const isGroupConversation = <?= $isGroupConversation ? 'true' : 'false' ?>;
@@ -1382,7 +1382,6 @@ const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
-const REACTION_HOLD_MS = 420;
 const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
@@ -1450,8 +1449,6 @@ let typingActive = false;
 let isSending = false;
 let activeUploadCount = 0;
 let pendingTextQueue = [];
-let reactionHoldTimer = null;
-let reactionHoldTarget = null;
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
 let textSendInFlight = false;
@@ -2494,15 +2491,42 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
     });
 }
 
-function clearReactionHoldState() {
-    if (reactionHoldTimer !== null) {
-        window.clearTimeout(reactionHoldTimer);
-        reactionHoldTimer = null;
+function reactionUserDisplayName(userId, message) {
+    if (Number(userId) === currentUserId) {
+        return `${currentUsername} (You)`;
     }
-    if (reactionHoldTarget instanceof HTMLElement) {
-        reactionHoldTarget.classList.remove('reaction-target');
+    if (!isGroupConversation) {
+        return conversationDisplayName;
     }
-    reactionHoldTarget = null;
+    if (Number(message?.sender_id || 0) === Number(userId) && message?.sender_name) {
+        return String(message.sender_name);
+    }
+    const memberName = Array.isArray(groupState?.members)
+        ? String((groupState.members.find((member) => Number(member?.user_id || 0) === Number(userId))?.username) || '')
+        : '';
+    return memberName || `User #${Number(userId)}`;
+}
+
+function showReactionDetails(messageId) {
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+    if (!message || !Array.isArray(message.reactions) || message.reactions.length === 0) {
+        return;
+    }
+
+    const lines = message.reactions.map((reaction) => {
+        const userId = Number(reaction?.user_id || 0);
+        const emoji = String(reaction?.emoji || '').trim();
+        if (!userId || !emoji) {
+            return '';
+        }
+        return `${emoji}  ${reactionUserDisplayName(userId, message)}`;
+    }).filter(Boolean);
+
+    if (lines.length === 0) {
+        return;
+    }
+
+    window.alert(`Reactions\n\n${lines.join('\n')}`);
 }
 
 function upsertMessage(message) {
@@ -2688,35 +2712,29 @@ function renderMessages(messages) {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
             };
-            const startHold = (event) => {
+            const openReactionPickerFromTap = (event) => {
                 if (!(event.target instanceof HTMLElement)) {
                     return;
                 }
                 if (event.target.closest('a, button, audio, input, textarea, label')) {
                     return;
                 }
+                if (event.target.closest('.message-reactions')) {
+                    return;
+                }
                 if (!canReactToRow()) {
                     return;
                 }
 
-                clearReactionHoldState();
                 const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
                 if (!messageId) {
                     return;
                 }
-                reactionHoldTarget = rowEl;
-                rowEl.classList.add('reaction-target');
-                reactionHoldTimer = window.setTimeout(() => {
-                    const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                    showReactionPicker(rowEl, messageId, existingEmoji);
-                    clearReactionHoldState();
-                }, REACTION_HOLD_MS);
+                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                showReactionPicker(rowEl, messageId, existingEmoji);
             };
 
-            rowEl.addEventListener('pointerdown', startHold);
-            rowEl.addEventListener('pointerup', clearReactionHoldState);
-            rowEl.addEventListener('pointercancel', clearReactionHoldState);
-            rowEl.addEventListener('pointerleave', clearReactionHoldState);
+            rowEl.addEventListener('click', openReactionPickerFromTap);
             rowEl.addEventListener('contextmenu', (event) => {
                 if (!canReactToRow()) {
                     return;
@@ -2728,7 +2746,15 @@ function renderMessages(messages) {
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                 showReactionPicker(rowEl, messageId, existingEmoji);
-                clearReactionHoldState();
+            });
+            rowEl.querySelector('.message-reactions')?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                showReactionDetails(messageId);
             });
         });
     }
