@@ -17,6 +17,7 @@ define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
 define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
 define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
+define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
 
@@ -229,6 +230,15 @@ function applySecurityHeaders(): void
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');
     header('Cross-Origin-Resource-Policy: same-origin');
+    header('Cross-Origin-Opener-Policy: same-origin');
+    header('Permissions-Policy: geolocation=(), camera=(), payment=(), usb=(), autoplay=(self)');
+    header('X-Permitted-Cross-Domain-Policies: none');
+    header('X-Download-Options: noopen');
+    if ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+    ) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
     header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
 }
 
@@ -384,6 +394,120 @@ function envValue(string $key, string $default = ''): string
     $value = getenv($key);
 
     return $value === false ? $default : $value;
+}
+
+function messageEncryptionKey(): string
+{
+    static $key = null;
+
+    if (is_string($key)) {
+        return $key;
+    }
+
+    $configured = trim((string) envValue('CHAT_MESSAGE_ENCRYPTION_KEY', ''));
+    if ($configured !== '') {
+        $decoded = base64_decode($configured, true);
+        if (is_string($decoded) && strlen($decoded) >= 32) {
+            $key = substr($decoded, 0, 32);
+            return $key;
+        }
+
+        if (strlen($configured) >= 32) {
+            $key = substr($configured, 0, 32);
+            return $key;
+        }
+    }
+
+    if (is_file(MESSAGE_ENCRYPTION_KEY_PATH)) {
+        $stored = trim((string) file_get_contents(MESSAGE_ENCRYPTION_KEY_PATH));
+        $decoded = base64_decode($stored, true);
+        if (is_string($decoded) && strlen($decoded) >= 32) {
+            $key = substr($decoded, 0, 32);
+            return $key;
+        }
+    }
+
+    $generated = random_bytes(32);
+    file_put_contents(MESSAGE_ENCRYPTION_KEY_PATH, base64_encode($generated), LOCK_EX);
+    @chmod(MESSAGE_ENCRYPTION_KEY_PATH, 0600);
+    $key = $generated;
+
+    return $key;
+}
+
+function encryptStoredMessageText(string $plaintext): string
+{
+    if ($plaintext === '') {
+        return '';
+    }
+
+    $key = messageEncryptionKey();
+
+    if (function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_encrypt')) {
+        $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
+        $ciphertext = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($plaintext, '', $nonce, $key);
+
+        return 'enc::xchacha20:' . base64_encode($nonce . $ciphertext);
+    }
+
+    $nonce = random_bytes(12);
+    $tag = '';
+    $ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $nonce, $tag);
+    if (!is_string($ciphertext) || strlen($tag) !== 16) {
+        return $plaintext;
+    }
+
+    return 'enc::aes256gcm:' . base64_encode($nonce . $tag . $ciphertext);
+}
+
+function decryptStoredMessageText(?string $ciphertext): ?string
+{
+    if (!is_string($ciphertext) || $ciphertext === '') {
+        return $ciphertext;
+    }
+
+    if (!str_starts_with($ciphertext, 'enc::')) {
+        return $ciphertext;
+    }
+
+    $parts = explode(':', $ciphertext, 4);
+    if (count($parts) !== 4) {
+        return '[encrypted message]';
+    }
+
+    $algorithm = $parts[2];
+    $payload = base64_decode($parts[3], true);
+    if (!is_string($payload)) {
+        return '[encrypted message]';
+    }
+
+    $key = messageEncryptionKey();
+
+    if ($algorithm === 'xchacha20' && function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_decrypt')) {
+        $nonceLength = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
+        if (strlen($payload) <= $nonceLength) {
+            return '[encrypted message]';
+        }
+        $nonce = substr($payload, 0, $nonceLength);
+        $encrypted = substr($payload, $nonceLength);
+        $plaintext = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt($encrypted, '', $nonce, $key);
+
+        return is_string($plaintext) ? $plaintext : '[encrypted message]';
+    }
+
+    if ($algorithm === 'aes256gcm') {
+        if (strlen($payload) <= 28) {
+            return '[encrypted message]';
+        }
+        $nonce = substr($payload, 0, 12);
+        $tag = substr($payload, 12, 16);
+        $encrypted = substr($payload, 28);
+        $plaintext = openssl_decrypt($encrypted, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $nonce, $tag);
+
+        return is_string($plaintext) ? $plaintext : '[encrypted message]';
+    }
+
+    return '[encrypted message]';
 }
 
 function dbDriver(): string
@@ -2038,7 +2162,7 @@ function formatChatListTime(?string $timestamp): string
 
 function chatListPreview(array $user): string
 {
-    $body = trim((string) ($user['last_message_body'] ?? ''));
+    $body = trim((string) decryptStoredMessageText($user['last_message_body'] ?? ''));
 
     if ($body !== '') {
         return $body;
@@ -2280,19 +2404,87 @@ function authChallengePrompt(): string
     return sprintf('%d %s %d', $challenge['left'], $challenge['operator'], $challenge['right']);
 }
 
+function authRateLimitState(string $scope): array
+{
+    $state = $_SESSION['auth_rate_limits'][$scope] ?? null;
+    if (!is_array($state)) {
+        $state = [
+            'attempts' => 0,
+            'blocked_until' => 0,
+        ];
+    }
+
+    return [
+        'attempts' => max(0, (int) ($state['attempts'] ?? 0)),
+        'blocked_until' => max(0, (int) ($state['blocked_until'] ?? 0)),
+    ];
+}
+
+function enforceAuthRateLimit(string $scope): ?string
+{
+    $state = authRateLimitState($scope);
+    $now = time();
+    if ($state['blocked_until'] > $now) {
+        $seconds = $state['blocked_until'] - $now;
+
+        return 'Too many attempts. Please wait ' . $seconds . ' seconds and try again.';
+    }
+
+    return null;
+}
+
+function recordAuthAttempt(string $scope, bool $success): void
+{
+    $state = authRateLimitState($scope);
+
+    if ($success) {
+        $_SESSION['auth_rate_limits'][$scope] = [
+            'attempts' => 0,
+            'blocked_until' => 0,
+        ];
+        return;
+    }
+
+    $attempts = $state['attempts'] + 1;
+    $blockedUntil = 0;
+    if ($attempts >= 5) {
+        $cooldown = min(300, (int) pow(2, min(8, $attempts - 5)));
+        $blockedUntil = time() + $cooldown;
+    }
+
+    $_SESSION['auth_rate_limits'][$scope] = [
+        'attempts' => $attempts,
+        'blocked_until' => $blockedUntil,
+    ];
+}
+
 function registerUser(string $username, string $password, string $confirmPassword, string $challengeAnswer): ?string
 {
+    $rateLimitError = enforceAuthRateLimit('register');
+    if ($rateLimitError !== null) {
+        return $rateLimitError;
+    }
+
     $username = trim($username);
 
     if ($username === '' || strlen($username) < 3) {
         return 'Username must be at least 3 characters.';
     }
 
-    if (strlen($password) < 6) {
-        return 'Password must be at least 6 characters.';
+    if (strlen($password) < 12) {
+        return 'Password must be at least 12 characters.';
+    }
+
+    if (
+        !preg_match('/[A-Z]/', $password)
+        || !preg_match('/[a-z]/', $password)
+        || !preg_match('/\d/', $password)
+    ) {
+        return 'Password must include upper-case, lower-case, and a number.';
     }
 
     if (!hash_equals($password, $confirmPassword)) {
+        recordAuthAttempt('register', false);
         refreshAuthChallenge();
 
         return 'Passwords do not match.';
@@ -2302,12 +2494,14 @@ function registerUser(string $username, string $password, string $confirmPasswor
     $normalizedAnswer = trim($challengeAnswer);
 
     if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        recordAuthAttempt('register', false);
         refreshAuthChallenge();
 
         return 'Incorrect verification answer. Please solve the new math question.';
     }
 
     if (findUserByUsername($username) !== null) {
+        recordAuthAttempt('register', false);
         return 'That username is already taken.';
     }
 
@@ -2318,6 +2512,7 @@ function registerUser(string $username, string $password, string $confirmPasswor
         'created_at' => gmdate('c'),
     ]);
 
+    recordAuthAttempt('register', true);
     refreshAuthChallenge();
 
     return null;
@@ -2325,10 +2520,16 @@ function registerUser(string $username, string $password, string $confirmPasswor
 
 function loginUser(string $username, string $password, string $challengeAnswer): ?string
 {
+    $rateLimitError = enforceAuthRateLimit('login');
+    if ($rateLimitError !== null) {
+        return $rateLimitError;
+    }
+
     $challenge = ensureAuthChallenge();
     $normalizedAnswer = trim($challengeAnswer);
 
     if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        recordAuthAttempt('login', false);
         refreshAuthChallenge();
 
         return 'Incorrect verification answer. Please solve the new math question.';
@@ -2337,14 +2538,28 @@ function loginUser(string $username, string $password, string $challengeAnswer):
     $user = findUserByUsername($username);
 
     if ($user === null || !password_verify($password, $user['password_hash'])) {
+        recordAuthAttempt('login', false);
         refreshAuthChallenge();
 
         return 'Invalid username or password.';
     }
 
+    if (password_needs_rehash((string) $user['password_hash'], PASSWORD_DEFAULT)) {
+        $rehashStmt = db()->prepare(
+            'UPDATE users
+             SET password_hash = :password_hash
+             WHERE id = :id'
+        );
+        $rehashStmt->execute([
+            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+            'id' => (int) $user['id'],
+        ]);
+    }
+
     session_regenerate_id(true);
     $_SESSION['user_id'] = $user['id'];
     csrfToken();
+    recordAuthAttempt('login', true);
     refreshAuthChallenge();
 
     return null;
@@ -2550,7 +2765,7 @@ function formatMessage(array $message): array
             'id' => $replyMessageId,
             'sender_id' => $replySenderId,
             'sender_name' => (string) ($message['reply_sender_name'] ?? ''),
-            'body' => $message['reply_body'] ?? null,
+            'body' => decryptStoredMessageText($message['reply_body'] ?? null),
             'audio_path' => $message['reply_audio_path'] ?? null,
             'image_path' => $message['reply_image_path'] ?? null,
             'file_path' => $message['reply_file_path'] ?? null,
@@ -2564,7 +2779,7 @@ function formatMessage(array $message): array
         'sender_id' => (int) $message['sender_id'],
         'recipient_id' => (int) $message['recipient_id'],
         'sender_name' => $message['sender_name'],
-        'body' => $message['body'],
+        'body' => decryptStoredMessageText($message['body'] ?? null),
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'] ?? null,
         'file_path' => $message['file_path'] ?? null,
@@ -2764,7 +2979,7 @@ function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $re
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
-        'body' => $body,
+        'body' => encryptStoredMessageText($body),
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -2971,7 +3186,7 @@ function editPrivateMessage(int $currentUserId, int $otherUserId, int $messageId
            AND recipient_id = :other_user_id'
     );
     $stmt->execute([
-        'body' => $trimmedBody,
+        'body' => encryptStoredMessageText($trimmedBody),
         'message_id' => $messageId,
         'current_user_id' => $currentUserId,
         'other_user_id' => $otherUserId,
@@ -3076,7 +3291,7 @@ function editGroupMessage(int $groupId, int $currentUserId, int $messageId, stri
            AND sender_id = :current_user_id'
     );
     $stmt->execute([
-        'body' => $trimmedBody,
+        'body' => encryptStoredMessageText($trimmedBody),
         'message_id' => $messageId,
         'group_id' => $groupId,
         'current_user_id' => $currentUserId,
@@ -3937,7 +4152,7 @@ function formatGroupMessage(array $message): array
             'id' => $replyMessageId,
             'sender_id' => $replySenderId,
             'sender_name' => (string) ($message['reply_sender_name'] ?? ''),
-            'body' => $message['reply_body'] ?? null,
+            'body' => decryptStoredMessageText($message['reply_body'] ?? null),
             'audio_path' => $message['reply_audio_path'] ?? null,
             'image_path' => $message['reply_image_path'] ?? null,
             'file_path' => null,
@@ -3951,7 +4166,7 @@ function formatGroupMessage(array $message): array
         'group_id' => (int) $message['group_id'],
         'sender_id' => (int) $message['sender_id'],
         'sender_name' => (string) $message['sender_name'],
-        'body' => $message['body'],
+        'body' => decryptStoredMessageText($message['body'] ?? null),
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'],
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
@@ -4144,7 +4359,7 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
-        'body' => $trimmedBody,
+        'body' => encryptStoredMessageText($trimmedBody),
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => $createdAt,
     ]);
@@ -4353,8 +4568,8 @@ function groupChats(int $currentUserId): array
             'last_message_body' => $group['last_message_body'],
             'unseen_count' => (int) ($group['unseen_count'] ?? 0),
             'chat_list_time' => formatChatListTime($group['last_message_at'] ?? null),
-            'chat_list_preview' => trim((string) ($group['last_message_body'] ?? '')) !== ''
-                ? (string) $group['last_message_body']
+            'chat_list_preview' => trim((string) decryptStoredMessageText($group['last_message_body'] ?? '')) !== ''
+                ? (string) decryptStoredMessageText($group['last_message_body'] ?? '')
                 : 'Group created',
             'member_count' => count(groupMembers($groupId)),
             'url' => 'chat.php?group=' . $groupId,

@@ -12,6 +12,7 @@ A lightweight PHP private chat app using SQLite by default, with optional MySQL 
 - browser notifications and alert sounds for new messages and friend requests after the first user interaction
 - background Web Push notifications for new messages, including when the installed app is closed (when the browser/platform supports Web Push)
 - automatic 7-day retention for chat history, with uploaded photos, files, and voice notes expiring after 24 hours
+- encrypted message bodies at rest using XChaCha20-Poly1305 (with AES-256-GCM fallback)
 
 ## Requirements
 
@@ -32,6 +33,7 @@ For background Web Push notifications, serve the app over HTTPS (or a secure loc
 
 - `CHAT_WEB_PUSH_VAPID_PRIVATE_KEY_PEM` — PEM-encoded EC private key on the `prime256v1` curve
 - `CHAT_WEB_PUSH_SUBJECT` — contact value for VAPID claims, such as `mailto:admin@example.com`
+- `CHAT_MESSAGE_ENCRYPTION_KEY` — optional 32-byte key (raw or base64). If omitted, the app generates `storage/message-encryption.key` automatically.
 
 ## Storage
 
