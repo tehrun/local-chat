@@ -510,6 +510,9 @@ if ($isGroupConversation) {
             color: var(--danger);
         }
         .reaction-picker button.reaction-action {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
             color: var(--muted);
             border: 1px solid rgba(15, 118, 110, 0.3);
         }
@@ -524,8 +527,8 @@ if ($isGroupConversation) {
             border-color: rgba(249, 112, 102, 0.42);
         }
         .reaction-picker button.reaction-action svg {
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
             stroke: currentColor;
             stroke-width: 2;
             fill: none;
@@ -3087,10 +3090,6 @@ function closeImageLightbox() {
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
-    hideReactionPicker();
-    hideReactionDetailsPanel();
-    hideMessageActionMenu();
-    clearLongPressTimer();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -3111,6 +3110,11 @@ function renderMessages(messages) {
     if (signature === renderedSignature) {
         return;
     }
+
+    hideReactionPicker();
+    hideReactionDetailsPanel();
+    hideMessageActionMenu();
+    clearLongPressTimer();
 
     renderedSignature = signature;
 
