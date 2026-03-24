@@ -494,6 +494,42 @@ if ($isGroupConversation) {
             font-size: 14px;
             color: var(--danger);
         }
+        .reaction-details-panel {
+            position: fixed;
+            z-index: 31;
+            min-width: 180px;
+            max-width: min(280px, calc(100vw - 16px));
+            border-radius: 14px;
+            padding: 8px;
+            background: var(--menu-surface);
+            box-shadow: 0 18px 36px rgba(17, 27, 33, 0.22);
+            border: 1px solid rgba(17, 27, 33, 0.08);
+        }
+        .reaction-details-panel[hidden] {
+            display: none;
+        }
+        .reaction-details-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            color: var(--text);
+        }
+        .reaction-details-item + .reaction-details-item {
+            margin-top: 2px;
+        }
+        .reaction-details-item-emoji {
+            font-size: 18px;
+            line-height: 1;
+        }
+        .reaction-details-item-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .message-row.mine .message {
             background: var(--mine);
         }
@@ -1451,6 +1487,7 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
+let reactionDetailsEl = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2424,17 +2461,25 @@ function ensureReactionPicker() {
     document.body.appendChild(picker);
 
     document.addEventListener('pointerdown', (event) => {
-        if (!(event.target instanceof Node) || !reactionPickerEl || reactionPickerEl.hidden) {
+        if (!(event.target instanceof Node)) {
             return;
         }
-        if (reactionPickerEl.contains(event.target)) {
-            return;
+        if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
+            hideReactionPicker();
         }
-        hideReactionPicker();
+        if (reactionDetailsEl && !reactionDetailsEl.hidden && !reactionDetailsEl.contains(event.target)) {
+            hideReactionDetailsPanel();
+        }
     });
 
-    window.addEventListener('scroll', () => hideReactionPicker(), true);
-    window.addEventListener('resize', () => hideReactionPicker());
+    window.addEventListener('scroll', () => {
+        hideReactionPicker();
+        hideReactionDetailsPanel();
+    }, true);
+    window.addEventListener('resize', () => {
+        hideReactionPicker();
+        hideReactionDetailsPanel();
+    });
 
     reactionPickerEl = picker;
     return picker;
@@ -2449,11 +2494,36 @@ function hideReactionPicker() {
     reactionPickerMessageId = 0;
 }
 
+function ensureReactionDetailsPanel() {
+    if (reactionDetailsEl) {
+        return reactionDetailsEl;
+    }
+
+    const panel = document.createElement('div');
+    panel.className = 'reaction-details-panel';
+    panel.hidden = true;
+    panel.setAttribute('role', 'menu');
+    panel.setAttribute('aria-label', 'Reaction details');
+    document.body.appendChild(panel);
+    reactionDetailsEl = panel;
+
+    return panel;
+}
+
+function hideReactionDetailsPanel() {
+    if (!reactionDetailsEl) {
+        return;
+    }
+    reactionDetailsEl.hidden = true;
+    reactionDetailsEl.innerHTML = '';
+}
+
 function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
     if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
 
+    hideReactionDetailsPanel();
     const picker = ensureReactionPicker();
     const options = [...POPULAR_REACTIONS];
     if (existingEmoji && !options.includes(existingEmoji)) {
@@ -2507,7 +2577,7 @@ function reactionUserDisplayName(userId, message) {
     return memberName || `User #${Number(userId)}`;
 }
 
-function showReactionDetails(messageId) {
+function showReactionDetails(anchorEl, messageId) {
     const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
     if (!message || !Array.isArray(message.reactions) || message.reactions.length === 0) {
         return;
@@ -2526,7 +2596,30 @@ function showReactionDetails(messageId) {
         return;
     }
 
-    window.alert(`Reactions\n\n${lines.join('\n')}`);
+    hideReactionPicker();
+    const panel = ensureReactionDetailsPanel();
+    panel.innerHTML = lines.map((line) => {
+        const separatorIndex = line.indexOf('  ');
+        const emoji = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : '';
+        const name = separatorIndex >= 0 ? line.slice(separatorIndex + 2).trim() : line;
+        return `<div class="reaction-details-item"><span class="reaction-details-item-emoji">${escapeHtml(emoji)}</span><span class="reaction-details-item-name">${escapeHtml(name)}</span></div>`;
+    }).join('');
+    panel.hidden = false;
+
+    if (!(anchorEl instanceof HTMLElement)) {
+        return;
+    }
+    const anchorRect = anchorEl.getBoundingClientRect();
+    requestAnimationFrame(() => {
+        const panelRect = panel.getBoundingClientRect();
+        const minLeft = 8;
+        const maxLeft = window.innerWidth - panelRect.width - 8;
+        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (panelRect.width / 2);
+        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
+        const top = Math.max(8, anchorRect.top - panelRect.height - 8);
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+    });
 }
 
 function upsertMessage(message) {
@@ -2614,6 +2707,7 @@ function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
     hideReactionPicker();
+    hideReactionDetailsPanel();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -2754,7 +2848,7 @@ function renderMessages(messages) {
                 if (!messageId) {
                     return;
                 }
-                showReactionDetails(messageId);
+                showReactionDetails(event.currentTarget, messageId);
             });
         });
     }
