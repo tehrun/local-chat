@@ -494,42 +494,6 @@ if ($isGroupConversation) {
             font-size: 14px;
             color: var(--danger);
         }
-        .reaction-details-panel {
-            position: fixed;
-            z-index: 31;
-            min-width: 180px;
-            max-width: min(280px, calc(100vw - 16px));
-            border-radius: 14px;
-            padding: 8px;
-            background: var(--menu-surface);
-            box-shadow: 0 18px 36px rgba(17, 27, 33, 0.22);
-            border: 1px solid rgba(17, 27, 33, 0.08);
-        }
-        .reaction-details-panel[hidden] {
-            display: none;
-        }
-        .reaction-details-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 10px;
-            border-radius: 10px;
-            font-size: 14px;
-            color: var(--text);
-        }
-        .reaction-details-item + .reaction-details-item {
-            margin-top: 2px;
-        }
-        .reaction-details-item-emoji {
-            font-size: 18px;
-            line-height: 1;
-        }
-        .reaction-details-item-name {
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
         .message-row.mine .message {
             background: var(--mine);
         }
@@ -1331,6 +1295,17 @@ if ($isGroupConversation) {
             </div>
         </div>
 
+        <div id="reaction-members-modal" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="reaction-members-title">
+                <div class="member-picker-header">
+                    <h2 id="reaction-members-title">Reactions</h2>
+                    <button class="member-picker-close" id="reaction-members-close" type="button" aria-label="Close reactions">×</button>
+                </div>
+                <div class="member-picker-list" id="reaction-members-list"></div>
+                <p class="member-picker-empty" id="reaction-members-empty" hidden>No reactions yet.</p>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
@@ -1472,6 +1447,10 @@ const groupMembersModal = document.getElementById('group-members-modal');
 const groupMembersClose = document.getElementById('group-members-close');
 const groupMembersListEl = document.getElementById('group-members-list');
 const groupMembersEmptyEl = document.getElementById('group-members-empty');
+const reactionMembersModal = document.getElementById('reaction-members-modal');
+const reactionMembersClose = document.getElementById('reaction-members-close');
+const reactionMembersListEl = document.getElementById('reaction-members-list');
+const reactionMembersEmptyEl = document.getElementById('reaction-members-empty');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1487,8 +1466,6 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
-let reactionDetailsEl = null;
-let reactionDismissBound = false;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2462,7 +2439,6 @@ function ensureReactionPicker() {
     document.body.appendChild(picker);
 
     reactionPickerEl = picker;
-    bindReactionDismissHandlers();
     return picker;
 }
 
@@ -2475,57 +2451,19 @@ function hideReactionPicker() {
     reactionPickerMessageId = 0;
 }
 
-function ensureReactionDetailsPanel() {
-    if (reactionDetailsEl) {
-        return reactionDetailsEl;
-    }
-
-    const panel = document.createElement('div');
-    panel.className = 'reaction-details-panel';
-    panel.hidden = true;
-    panel.setAttribute('role', 'menu');
-    panel.setAttribute('aria-label', 'Reaction details');
-    document.body.appendChild(panel);
-    reactionDetailsEl = panel;
-    bindReactionDismissHandlers();
-
-    return panel;
-}
-
-function bindReactionDismissHandlers() {
-    if (reactionDismissBound) {
-        return;
-    }
-    reactionDismissBound = true;
-
-    document.addEventListener('pointerdown', (event) => {
-        if (!(event.target instanceof Node)) {
-            return;
-        }
-        if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
-            hideReactionPicker();
-        }
-        if (reactionDetailsEl && !reactionDetailsEl.hidden && !reactionDetailsEl.contains(event.target)) {
-            hideReactionDetailsPanel();
-        }
-    });
-
-    window.addEventListener('scroll', () => {
-        hideReactionPicker();
-        hideReactionDetailsPanel();
-    }, true);
-    window.addEventListener('resize', () => {
-        hideReactionPicker();
-        hideReactionDetailsPanel();
-    });
-}
-
 function hideReactionDetailsPanel() {
-    if (!reactionDetailsEl) {
+    if (!reactionMembersModal) {
         return;
     }
-    reactionDetailsEl.hidden = true;
-    reactionDetailsEl.innerHTML = '';
+    reactionMembersModal.hidden = true;
+    reactionMembersModal.setAttribute('aria-hidden', 'true');
+    if (reactionMembersListEl) {
+        reactionMembersListEl.innerHTML = '';
+    }
+    if (reactionMembersEmptyEl) {
+        reactionMembersEmptyEl.hidden = true;
+    }
+    document.body.style.overflow = '';
 }
 
 function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
@@ -2587,9 +2525,9 @@ function reactionUserDisplayName(userId, message) {
     return memberName || `User #${Number(userId)}`;
 }
 
-function showReactionDetails(anchorEl, messageId) {
+function showReactionDetails(messageId) {
     const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
-    if (!message || !Array.isArray(message.reactions) || message.reactions.length === 0) {
+    if (!reactionMembersModal || !reactionMembersListEl || !reactionMembersEmptyEl || !message || !Array.isArray(message.reactions) || message.reactions.length === 0) {
         return;
     }
 
@@ -2607,29 +2545,17 @@ function showReactionDetails(anchorEl, messageId) {
     }
 
     hideReactionPicker();
-    const panel = ensureReactionDetailsPanel();
-    panel.innerHTML = lines.map((line) => {
+    reactionMembersListEl.innerHTML = lines.map((line) => {
         const separatorIndex = line.indexOf('  ');
         const emoji = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : '';
         const name = separatorIndex >= 0 ? line.slice(separatorIndex + 2).trim() : line;
-        return `<div class="reaction-details-item"><span class="reaction-details-item-emoji">${escapeHtml(emoji)}</span><span class="reaction-details-item-name">${escapeHtml(name)}</span></div>`;
+        return `<div class="member-picker-item"><div class="member-picker-copy"><strong>${escapeHtml(name)}</strong><span>Reacted with ${escapeHtml(emoji)}</span></div></div>`;
     }).join('');
-    panel.hidden = false;
-
-    if (!(anchorEl instanceof HTMLElement)) {
-        return;
-    }
-    const anchorRect = anchorEl.getBoundingClientRect();
-    requestAnimationFrame(() => {
-        const panelRect = panel.getBoundingClientRect();
-        const minLeft = 8;
-        const maxLeft = window.innerWidth - panelRect.width - 8;
-        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (panelRect.width / 2);
-        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
-        const top = Math.max(8, anchorRect.top - panelRect.height - 8);
-        panel.style.left = `${left}px`;
-        panel.style.top = `${top}px`;
-    });
+    reactionMembersEmptyEl.hidden = lines.length > 0;
+    reactionMembersModal.hidden = false;
+    reactionMembersModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    reactionMembersClose?.focus();
 }
 
 function upsertMessage(message) {
@@ -2858,7 +2784,7 @@ function renderMessages(messages) {
                 if (!messageId) {
                     return;
                 }
-                showReactionDetails(event.currentTarget, messageId);
+                showReactionDetails(messageId);
             });
         });
     }
@@ -3908,6 +3834,12 @@ groupMembersModal?.addEventListener('click', (event) => {
         setGroupMembersOpen(false);
     }
 });
+reactionMembersClose?.addEventListener('click', () => hideReactionDetailsPanel());
+reactionMembersModal?.addEventListener('click', (event) => {
+    if (event.target === reactionMembersModal) {
+        hideReactionDetailsPanel();
+    }
+});
 
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
@@ -4081,6 +4013,10 @@ document.addEventListener('keydown', (event) => {
         setGroupMembersOpen(false);
         return;
     }
+    if (event.key === 'Escape' && reactionMembersModal && !reactionMembersModal.hidden) {
+        hideReactionDetailsPanel();
+        return;
+    }
     if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
         setMemberPickerOpen(false);
         return;
@@ -4104,6 +4040,14 @@ document.addEventListener('click', (event) => {
     }
 
     setHeaderMenuOpen(false);
+});
+document.addEventListener('pointerdown', (event) => {
+    if (!(event.target instanceof Node)) {
+        return;
+    }
+    if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
+        hideReactionPicker();
+    }
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
 
