@@ -514,19 +514,11 @@ if ($isGroupConversation) {
             height: 34px;
             border-radius: 4px;
             color: var(--muted);
-            border: 1px solid rgba(15, 118, 110, 0.3);
-            background: rgba(15, 118, 110, 0.08);
+            border: none;
+            background: transparent;
         }
         .reaction-picker button.reaction-action.danger {
             color: var(--danger);
-            border-color: rgba(180, 35, 24, 0.35);
-            background: rgba(180, 35, 24, 0.08);
-        }
-        :root[data-theme="dark"] .reaction-picker button.reaction-action {
-            border-color: rgba(233, 237, 239, 0.24);
-        }
-        :root[data-theme="dark"] .reaction-picker button.reaction-action.danger {
-            border-color: rgba(249, 112, 102, 0.42);
         }
         .reaction-picker button.reaction-action svg {
             width: 18px;
