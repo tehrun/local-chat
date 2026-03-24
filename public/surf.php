@@ -77,8 +77,14 @@ function surfServiceRequest(array $request): array
 
     $socket = @stream_socket_client(sprintf('tcp://%s:%d', $host, $port), $errno, $errstr, 2.5);
     if (!is_resource($socket)) {
+        surfTryAutoStartBrowserService();
+        $socket = @stream_socket_client(sprintf('tcp://%s:%d', $host, $port), $errno, $errstr, 2.5);
+    }
+
+    if (!is_resource($socket)) {
         return [
-            'error' => 'Surf browser service is unavailable. Start scripts/surf_browser.mjs first.',
+            'error' => 'Surf browser service is unavailable.',
+            'hint' => 'Run: node scripts/surf_browser.mjs',
             'details' => $errstr !== '' ? $errstr : ('socket error #' . $errno),
         ];
     }
@@ -99,6 +105,36 @@ function surfServiceRequest(array $request): array
     }
 
     return is_array($decoded) ? $decoded : ['error' => 'Surf browser service returned an invalid response shape.'];
+}
+
+function surfTryAutoStartBrowserService(): void
+{
+    static $attempted = false;
+    if ($attempted) {
+        return;
+    }
+    $attempted = true;
+
+    $autoStart = strtolower(trim(envValue('CHAT_SURF_BROWSER_AUTOSTART', '1')));
+    if (in_array($autoStart, ['0', 'false', 'off', 'no'], true)) {
+        return;
+    }
+
+    $nodeBin = trim(envValue('CHAT_SURF_NODE_BIN', 'node'));
+    $script = BASE_PATH . '/scripts/surf_browser.mjs';
+    if (!is_file($script) || !is_executable($script)) {
+        return;
+    }
+
+    $command = sprintf(
+        '%s %s > %s 2>&1 &',
+        escapeshellcmd($nodeBin),
+        escapeshellarg($script),
+        escapeshellarg(STORAGE_PATH . '/surf_browser.log')
+    );
+
+    @exec($command);
+    usleep(250000);
 }
 
 ?>
