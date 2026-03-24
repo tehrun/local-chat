@@ -486,6 +486,21 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_messages_pending_delivery
          ON messages (recipient_id, sender_id, delivered_at, read_at, created_at, id)'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            emoji TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_message_reactions_updated
+         ON message_reactions (message_id, updated_at)'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS sessions (
@@ -727,6 +742,19 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('read_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            emoji VARCHAR(64) NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            INDEX idx_message_reactions_updated (message_id, updated_at),
+            CONSTRAINT fk_message_reactions_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_message_reactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS typing_status (
@@ -2308,6 +2336,79 @@ function messageHasExpiredAttachment(array $message): bool
     return !empty($message['attachment_expired']) || !empty($message['last_message_attachment_expired']);
 }
 
+function normalizeReactionEmoji(string $emoji): string
+{
+    $emoji = trim($emoji);
+
+    if ($emoji === '') {
+        return '';
+    }
+
+    return mb_substr($emoji, 0, 16, 'UTF-8');
+}
+
+function messageReactionsForMessageIds(array $messageIds): array
+{
+    $messageIds = array_values(array_unique(array_filter(array_map('intval', $messageIds), static fn (int $id): bool => $id > 0)));
+    if ($messageIds === []) {
+        return [];
+    }
+
+    $params = [];
+    $placeholders = [];
+    foreach ($messageIds as $index => $messageId) {
+        $key = ':message_id_' . $index;
+        $params[$key] = $messageId;
+        $placeholders[] = $key;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT message_id, user_id, emoji
+         FROM message_reactions
+         WHERE message_id IN (' . implode(', ', $placeholders) . ')
+         ORDER BY updated_at ASC, user_id ASC'
+    );
+    foreach ($params as $name => $value) {
+        $stmt->bindValue($name, $value, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+
+    $rows = $stmt->fetchAll() ?: [];
+    $reactionMap = [];
+    foreach ($rows as $row) {
+        $messageId = (int) ($row['message_id'] ?? 0);
+        if ($messageId <= 0) {
+            continue;
+        }
+        $reactionMap[$messageId] ??= [];
+        $reactionMap[$messageId][] = [
+            'user_id' => (int) ($row['user_id'] ?? 0),
+            'emoji' => (string) ($row['emoji'] ?? ''),
+        ];
+    }
+
+    return $reactionMap;
+}
+
+function attachReactionsToMessages(array $messages): array
+{
+    if ($messages === []) {
+        return [];
+    }
+
+    $reactionMap = messageReactionsForMessageIds(array_map(
+        static fn (array $message): int => (int) ($message['id'] ?? 0),
+        $messages
+    ));
+
+    return array_map(static function (array $message) use ($reactionMap): array {
+        $messageId = (int) ($message['id'] ?? 0);
+        $message['reactions'] = $reactionMap[$messageId] ?? [];
+
+        return $message;
+    }, $messages);
+}
+
 function formatMessage(array $message): array
 {
     return [
@@ -2323,6 +2424,7 @@ function formatMessage(array $message): array
         'attachment_expired' => messageHasExpiredAttachment($message),
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
+        'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
     ];
@@ -2341,7 +2443,14 @@ function findMessageById(int $messageId): ?array
 
     $message = $stmt->fetch();
 
-    return $message === false ? null : formatMessage($message);
+    if ($message === false) {
+        return null;
+    }
+
+    $formatted = formatMessage($message);
+    $withReactions = attachReactionsToMessages([$formatted]);
+
+    return $withReactions[0] ?? $formatted;
 }
 
 function conversationMessages(int $userId, int $otherUserId): array
@@ -2434,7 +2543,7 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
         $messages = array_reverse($messages);
     }
 
-    return array_map(static fn (array $message): array => formatMessage($message), $messages);
+    return attachReactionsToMessages(array_map(static fn (array $message): array => formatMessage($message), $messages));
 }
 
 function sendTextMessage(int $senderId, int $recipientId, string $body): array|string|null
@@ -2465,6 +2574,71 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): array|s
     triggerPushNotificationsForMessage($recipientId);
 
     return findMessageById((int) db()->lastInsertId());
+}
+
+function reactToPrivateMessage(int $currentUserId, int $otherUserId, int $messageId, string $emoji): array|string
+{
+    $messageId = max(0, $messageId);
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id
+         FROM messages
+         WHERE id = :message_id
+           AND ((sender_id = :current_user_id AND recipient_id = :other_user_id)
+             OR (sender_id = :other_user_id AND recipient_id = :current_user_id))
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'current_user_id' => $currentUserId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    if (!$stmt->fetchColumn()) {
+        return 'Message not found.';
+    }
+
+    $emoji = normalizeReactionEmoji($emoji);
+    if ($emoji === '') {
+        $deleteStmt = db()->prepare(
+            'DELETE FROM message_reactions
+             WHERE message_id = :message_id
+               AND user_id = :user_id'
+        );
+        $deleteStmt->execute([
+            'message_id' => $messageId,
+            'user_id' => $currentUserId,
+        ]);
+
+        return ['message_id' => $messageId];
+    }
+
+    $params = [
+        'message_id' => $messageId,
+        'user_id' => $currentUserId,
+        'emoji' => $emoji,
+        'updated_at' => gmdate('c'),
+    ];
+    if (dbDriver() === 'mysql') {
+        $upsertStmt = db()->prepare(
+            'INSERT INTO message_reactions (message_id, user_id, emoji, updated_at)
+             VALUES (:message_id, :user_id, :emoji, :updated_at)
+             ON DUPLICATE KEY UPDATE emoji = VALUES(emoji), updated_at = VALUES(updated_at)'
+        );
+    } else {
+        $upsertStmt = db()->prepare(
+            'INSERT INTO message_reactions (message_id, user_id, emoji, updated_at)
+             VALUES (:message_id, :user_id, :emoji, :updated_at)
+             ON CONFLICT(message_id, user_id)
+             DO UPDATE SET emoji = excluded.emoji, updated_at = excluded.updated_at'
+        );
+    }
+    $upsertStmt->execute($params);
+
+    return ['message_id' => $messageId];
 }
 
 function detectUploadedAudioExtension(array $file, ?string $mime): ?string
@@ -2852,6 +3026,18 @@ function conversationStateSignature(int $userId, int $otherUserId): string
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
     $messageState = $stmt->fetch() ?: [];
+    $reactionSql = 'SELECT COUNT(*) AS total_reactions,
+                           MAX(mr.updated_at) AS latest_reaction_updated_at
+                    FROM message_reactions mr
+                    JOIN messages m ON m.id = mr.message_id
+                    WHERE ((m.sender_id = :user_id AND m.recipient_id = :other_user_id)
+                       OR (m.sender_id = :other_user_id AND m.recipient_id = :user_id))';
+    if ($clearedAt !== null) {
+        $reactionSql .= ' AND m.created_at > :cleared_at';
+    }
+    $reactionStmt = db()->prepare($reactionSql);
+    $reactionStmt->execute($params);
+    $reactionState = $reactionStmt->fetch() ?: [];
 
     $friendship = friendshipRecord($userId, $otherUserId);
     $otherUser = findUserById($otherUserId);
@@ -2863,6 +3049,10 @@ function conversationStateSignature(int $userId, int $otherUserId): string
             'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
             'latest_delivered_at' => $messageState['latest_message_delivered_at'] ?? null,
             'latest_read_at' => $messageState['latest_message_read_at'] ?? null,
+        ],
+        'reactions' => [
+            'total' => (int) ($reactionState['total_reactions'] ?? 0),
+            'latest_updated_at' => $reactionState['latest_reaction_updated_at'] ?? null,
         ],
         'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
         'friendship' => $friendship === null ? null : [

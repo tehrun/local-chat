@@ -419,6 +419,7 @@ if ($isGroupConversation) {
         .message-row {
             display: flex;
             align-self: flex-start;
+            position: relative;
         }
         .message-row.mine {
             align-self: flex-end;
@@ -429,12 +430,35 @@ if ($isGroupConversation) {
         .message-row.private-audio .message {
             width: 100%;
         }
+        .message-row.reaction-target .message {
+            outline: 2px solid rgba(37, 211, 102, 0.45);
+        }
         .message {
             background: var(--theirs);
             border-radius: 18px;
             padding: 10px 12px;
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
             min-width: 0;
+        }
+        .message-reactions {
+            position: absolute;
+            bottom: -10px;
+            left: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            border-radius: 999px;
+            padding: 2px 6px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(17, 27, 33, 0.14);
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.12);
+            font-size: 13px;
+            line-height: 1;
+        }
+        .message-row.mine .message-reactions {
+            right: 10px;
+            left: auto;
+            background: rgba(220, 248, 198, 0.95);
         }
         .message-row.mine .message {
             background: var(--mine);
@@ -1323,6 +1347,7 @@ const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
+const REACTION_HOLD_MS = 420;
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -1389,6 +1414,8 @@ let typingActive = false;
 let isSending = false;
 let activeUploadCount = 0;
 let pendingTextQueue = [];
+let reactionHoldTimer = null;
+let reactionHoldTarget = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2279,6 +2306,87 @@ function formatHumanTimestamp(value) {
     return `${dateLabel} ${timeLabel}`;
 }
 
+function renderMessageReactions(message) {
+    if (isGroupConversation || !Array.isArray(message.reactions) || message.reactions.length === 0) {
+        return '';
+    }
+
+    const uniqueByUser = new Map();
+    message.reactions.forEach((reaction) => {
+        const userId = Number(reaction?.user_id || 0);
+        const emoji = String(reaction?.emoji || '').trim();
+        if (!userId || emoji === '') {
+            return;
+        }
+        uniqueByUser.set(String(userId), emoji);
+    });
+
+    if (uniqueByUser.size === 0) {
+        return '';
+    }
+
+    const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
+    const emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+
+    return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
+}
+
+async function setMessageReaction(messageId, emoji) {
+    if (isGroupConversation || !Number(messageId)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'react',
+                message_id: String(Number(messageId)),
+                emoji: String(emoji || ''),
+                csrf_token: csrfToken,
+            }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Unable to save reaction.');
+            return;
+        }
+
+        if (typeof payload.signature === 'string' && payload.signature !== '') {
+            conversationSignature = payload.signature;
+        }
+        await refreshConversation();
+    } catch (error) {
+        showError('Unable to save reaction right now.');
+    }
+}
+
+function promptForMessageReaction(messageId, existingEmoji = '') {
+    if (isGroupConversation) {
+        return;
+    }
+
+    const nextEmoji = window.prompt('Add emoji reaction (leave empty to remove):', existingEmoji);
+    if (nextEmoji === null) {
+        return;
+    }
+
+    setMessageReaction(messageId, nextEmoji.trim());
+}
+
+function clearReactionHoldState() {
+    if (reactionHoldTimer !== null) {
+        window.clearTimeout(reactionHoldTimer);
+        reactionHoldTimer = null;
+    }
+    if (reactionHoldTarget instanceof HTMLElement) {
+        reactionHoldTarget.classList.remove('reaction-target');
+    }
+    reactionHoldTarget = null;
+}
+
 function upsertMessage(message) {
     const messages = window.__messagesState || [];
     const nextMessages = messages.filter((item) => item.id !== message.id);
@@ -2376,6 +2484,7 @@ function renderMessages(messages) {
         message.file_path || '',
         message.file_name || '',
         Boolean(message.attachment_expired),
+        (Array.isArray(message.reactions) ? message.reactions : []).map((reaction) => `${Number(reaction?.user_id || 0)}:${String(reaction?.emoji || '')}`).join('|'),
     ]));
     if (signature === renderedSignature) {
         return;
@@ -2411,6 +2520,10 @@ function renderMessages(messages) {
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
+            const reactions = renderMessageReactions(message);
+            const myReaction = Array.isArray(message.reactions)
+                ? String((message.reactions.find((reaction) => Number(reaction?.user_id) === currentUserId)?.emoji) || '')
+                : '';
 
             const rowClasses = ['message-row'];
             if (isMine) {
@@ -2421,7 +2534,7 @@ function renderMessages(messages) {
             }
 
             return `
-                <article class="${rowClasses.join(' ')}">
+                <article class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
                         ${body}
@@ -2431,6 +2544,7 @@ function renderMessages(messages) {
                         ${expiredAttachment}
                         <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
                     </div>
+                    ${reactions}
                 </article>`;
         }).join('');
 
@@ -2449,6 +2563,47 @@ function renderMessages(messages) {
                 }
             }, { once: true });
         });
+
+        if (!isGroupConversation) {
+            messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
+                const startHold = (event) => {
+                    if (!(event.target instanceof HTMLElement)) {
+                        return;
+                    }
+                    if (event.target.closest('a, button, audio, input, textarea, label')) {
+                        return;
+                    }
+
+                    clearReactionHoldState();
+                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                    if (!messageId) {
+                        return;
+                    }
+                    reactionHoldTarget = rowEl;
+                    rowEl.classList.add('reaction-target');
+                    reactionHoldTimer = window.setTimeout(() => {
+                        const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                        promptForMessageReaction(messageId, existingEmoji);
+                        clearReactionHoldState();
+                    }, REACTION_HOLD_MS);
+                };
+
+                rowEl.addEventListener('pointerdown', startHold);
+                rowEl.addEventListener('pointerup', clearReactionHoldState);
+                rowEl.addEventListener('pointercancel', clearReactionHoldState);
+                rowEl.addEventListener('pointerleave', clearReactionHoldState);
+                rowEl.addEventListener('contextmenu', (event) => {
+                    event.preventDefault();
+                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                    if (!messageId) {
+                        return;
+                    }
+                    const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                    promptForMessageReaction(messageId, existingEmoji);
+                    clearReactionHoldState();
+                });
+            });
+        }
     }
 
     if (shouldPinToBottom) {

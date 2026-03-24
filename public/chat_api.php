@@ -175,6 +175,25 @@ if ($action === 'revoke_friendship') {
     ]);
 }
 
+if ($action === 'react') {
+    $result = reactToPrivateMessage(
+        (int) $user['id'],
+        $otherUserId,
+        (int) ($_POST['message_id'] ?? 0),
+        (string) ($_POST['emoji'] ?? '')
+    );
+
+    if (is_string($result)) {
+        jsonResponse(['error' => $result], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'message_id' => (int) ($result['message_id'] ?? 0),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
 $canChat = canUsersChat((int) $user['id'], $otherUserId);
 
 if (!$canChat) {
