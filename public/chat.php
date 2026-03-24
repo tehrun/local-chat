@@ -419,6 +419,10 @@ if ($isGroupConversation) {
         .message-row {
             display: flex;
             align-self: flex-start;
+            position: relative;
+        }
+        .message-row.has-reactions {
+            margin-bottom: 8px;
         }
         .message-row.mine {
             align-self: flex-end;
@@ -435,6 +439,63 @@ if ($isGroupConversation) {
             padding: 10px 12px;
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.06);
             min-width: 0;
+        }
+        .message-reactions {
+            position: absolute;
+            bottom: -10px;
+            left: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            border-radius: 999px;
+            padding: 2px 6px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(17, 27, 33, 0.14);
+            box-shadow: 0 2px 6px rgba(17, 27, 33, 0.12);
+            font-size: 13px;
+            line-height: 1;
+            color: #111b21;
+            cursor: pointer;
+        }
+        .message-row.mine .message-reactions {
+            right: 10px;
+            left: auto;
+            background: rgba(220, 248, 198, 0.95);
+        }
+        .reaction-picker {
+            position: fixed;
+            z-index: 30;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 14px 30px rgba(17, 27, 33, 0.2);
+            border: 1px solid rgba(17, 27, 33, 0.12);
+        }
+        .reaction-picker[hidden] {
+            display: none;
+        }
+        .reaction-picker button {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 50%;
+            background: transparent;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .reaction-picker button.is-active {
+            background: rgba(37, 211, 102, 0.22);
+        }
+        .reaction-picker button.reaction-remove {
+            font-size: 14px;
+            color: var(--danger);
         }
         .message-row.mine .message {
             background: var(--mine);
@@ -1028,6 +1089,40 @@ if ($isGroupConversation) {
             text-transform: capitalize;
             flex-shrink: 0;
         }
+        :root[data-theme="dark"] .message-reactions {
+            background: rgba(17, 27, 33, 0.95);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .message-row.mine .message-reactions {
+            background: rgba(20, 77, 55, 0.95);
+        }
+        :root[data-theme="dark"] .reaction-picker {
+            background: rgba(32, 44, 51, 0.98);
+            border-color: rgba(255, 255, 255, 0.16);
+        }
+        :root[data-theme="dark"] .member-picker-panel {
+            background: #111b21;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-close {
+            background: #23323a;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-search input {
+            background: #0f171d;
+            border-color: #2c3a42;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-item,
+        :root[data-theme="dark"] .member-picker-empty {
+            background: #182229;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-role-chip {
+            background: rgba(37, 211, 102, 0.2);
+            color: #8af5b8;
+        }
 
         @media (min-width: 721px) {
             .app {
@@ -1237,6 +1332,17 @@ if ($isGroupConversation) {
             </div>
         </div>
 
+        <div id="reaction-members-modal" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="reaction-members-title">
+                <div class="member-picker-header">
+                    <h2 id="reaction-members-title">Reactions</h2>
+                    <button class="member-picker-close" id="reaction-members-close" type="button" aria-label="Close reactions">×</button>
+                </div>
+                <div class="member-picker-list" id="reaction-members-list"></div>
+                <p class="member-picker-empty" id="reaction-members-empty" hidden>No reactions yet.</p>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
@@ -1301,6 +1407,7 @@ if ($isGroupConversation) {
 <script>
 
 const currentUserId = <?= (int) $user['id'] ?>;
+const currentUsername = <?= jsonScriptValue((string) $user['username']) ?>;
 const conversationUserId = <?= (int) $otherUserId ?>;
 const groupId = <?= (int) $groupId ?>;
 const isGroupConversation = <?= $isGroupConversation ? 'true' : 'false' ?>;
@@ -1323,6 +1430,7 @@ const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
+const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -1376,6 +1484,10 @@ const groupMembersModal = document.getElementById('group-members-modal');
 const groupMembersClose = document.getElementById('group-members-close');
 const groupMembersListEl = document.getElementById('group-members-list');
 const groupMembersEmptyEl = document.getElementById('group-members-empty');
+const reactionMembersModal = document.getElementById('reaction-members-modal');
+const reactionMembersClose = document.getElementById('reaction-members-close');
+const reactionMembersListEl = document.getElementById('reaction-members-list');
+const reactionMembersEmptyEl = document.getElementById('reaction-members-empty');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1389,6 +1501,8 @@ let typingActive = false;
 let isSending = false;
 let activeUploadCount = 0;
 let pendingTextQueue = [];
+let reactionPickerEl = null;
+let reactionPickerMessageId = 0;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2279,6 +2393,208 @@ function formatHumanTimestamp(value) {
     return `${dateLabel} ${timeLabel}`;
 }
 
+function renderMessageReactions(message) {
+    if (!Array.isArray(message.reactions) || message.reactions.length === 0) {
+        return '';
+    }
+
+    const uniqueByUser = new Map();
+    message.reactions.forEach((reaction) => {
+        const userId = Number(reaction?.user_id || 0);
+        const emoji = String(reaction?.emoji || '').trim();
+        if (!userId || emoji === '') {
+            return;
+        }
+        uniqueByUser.set(String(userId), emoji);
+    });
+
+    if (uniqueByUser.size === 0) {
+        return '';
+    }
+
+    let emojiLabel = '';
+    if (isGroupConversation) {
+        const grouped = new Map();
+        Array.from(uniqueByUser.values()).forEach((emoji) => {
+            grouped.set(emoji, (grouped.get(emoji) || 0) + 1);
+        });
+        emojiLabel = Array.from(grouped.entries())
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 3)
+            .map(([emoji, total]) => `${escapeHtml(emoji)} ${total > 1 ? total : ''}`.trim())
+            .join(' ');
+    } else {
+        const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
+        emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+    }
+
+    return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
+}
+
+async function setMessageReaction(messageId, emoji) {
+    if (!Number(messageId)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'react',
+                message_id: String(Number(messageId)),
+                emoji: String(emoji || ''),
+                csrf_token: csrfToken,
+            }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Unable to save reaction.');
+            return;
+        }
+
+        if (typeof payload.signature === 'string' && payload.signature !== '') {
+            conversationSignature = payload.signature;
+        }
+        await refreshConversation();
+    } catch (error) {
+        showError('Unable to save reaction right now.');
+    }
+}
+
+function ensureReactionPicker() {
+    if (reactionPickerEl) {
+        return reactionPickerEl;
+    }
+
+    const picker = document.createElement('div');
+    picker.className = 'reaction-picker';
+    picker.hidden = true;
+    picker.setAttribute('role', 'menu');
+    picker.setAttribute('aria-label', 'Choose a reaction');
+    document.body.appendChild(picker);
+
+    reactionPickerEl = picker;
+    return picker;
+}
+
+function hideReactionPicker() {
+    if (!reactionPickerEl) {
+        return;
+    }
+    reactionPickerEl.hidden = true;
+    reactionPickerEl.innerHTML = '';
+    reactionPickerMessageId = 0;
+}
+
+function hideReactionDetailsPanel() {
+    if (!reactionMembersModal) {
+        return;
+    }
+    reactionMembersModal.hidden = true;
+    reactionMembersModal.setAttribute('aria-hidden', 'true');
+    if (reactionMembersListEl) {
+        reactionMembersListEl.innerHTML = '';
+    }
+    if (reactionMembersEmptyEl) {
+        reactionMembersEmptyEl.hidden = true;
+    }
+    document.body.style.overflow = '';
+}
+
+function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
+    if (!(anchorEl instanceof HTMLElement) || !messageId) {
+        return;
+    }
+
+    hideReactionDetailsPanel();
+    const picker = ensureReactionPicker();
+    const options = [...POPULAR_REACTIONS];
+    if (existingEmoji && !options.includes(existingEmoji)) {
+        options.unshift(existingEmoji);
+    }
+
+    picker.innerHTML = options.map((emoji) => `
+        <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
+    `).join('') + (existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '');
+
+    picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
+        buttonEl.addEventListener('click', () => {
+            const emoji = String(buttonEl.getAttribute('data-emoji') || '');
+            if (!reactionPickerMessageId) {
+                return;
+            }
+            setMessageReaction(reactionPickerMessageId, emoji);
+            hideReactionPicker();
+        });
+    });
+
+    const anchorRect = anchorEl.getBoundingClientRect();
+    picker.hidden = false;
+    reactionPickerMessageId = messageId;
+
+    requestAnimationFrame(() => {
+        const pickerRect = picker.getBoundingClientRect();
+        const minLeft = 8;
+        const maxLeft = window.innerWidth - pickerRect.width - 8;
+        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (pickerRect.width / 2);
+        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
+        const top = Math.max(8, anchorRect.top - pickerRect.height - 8);
+        picker.style.left = `${left}px`;
+        picker.style.top = `${top}px`;
+    });
+}
+
+function reactionUserDisplayName(userId, message) {
+    if (Number(userId) === currentUserId) {
+        return `${currentUsername} (You)`;
+    }
+    if (!isGroupConversation) {
+        return conversationDisplayName;
+    }
+    if (Number(message?.sender_id || 0) === Number(userId) && message?.sender_name) {
+        return String(message.sender_name);
+    }
+    const memberName = Array.isArray(groupState?.members)
+        ? String((groupState.members.find((member) => Number(member?.user_id || 0) === Number(userId))?.username) || '')
+        : '';
+    return memberName || `User #${Number(userId)}`;
+}
+
+function showReactionDetails(messageId) {
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+    if (!reactionMembersModal || !reactionMembersListEl || !reactionMembersEmptyEl || !message || !Array.isArray(message.reactions) || message.reactions.length === 0) {
+        return;
+    }
+
+    const lines = message.reactions.map((reaction) => {
+        const userId = Number(reaction?.user_id || 0);
+        const emoji = String(reaction?.emoji || '').trim();
+        if (!userId || !emoji) {
+            return '';
+        }
+        return `${emoji}  ${reactionUserDisplayName(userId, message)}`;
+    }).filter(Boolean);
+
+    if (lines.length === 0) {
+        return;
+    }
+
+    hideReactionPicker();
+    reactionMembersListEl.innerHTML = lines.map((line) => {
+        const separatorIndex = line.indexOf('  ');
+        const emoji = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : '';
+        const name = separatorIndex >= 0 ? line.slice(separatorIndex + 2).trim() : line;
+        return `<div class="member-picker-item"><div class="member-picker-copy"><strong>${escapeHtml(name)}</strong><span>Reacted with ${escapeHtml(emoji)}</span></div></div>`;
+    }).join('');
+    reactionMembersEmptyEl.hidden = lines.length > 0;
+    reactionMembersModal.hidden = false;
+    reactionMembersModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    reactionMembersClose?.focus();
+}
+
 function upsertMessage(message) {
     const messages = window.__messagesState || [];
     const nextMessages = messages.filter((item) => item.id !== message.id);
@@ -2363,6 +2679,8 @@ function closeImageLightbox() {
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
+    hideReactionPicker();
+    hideReactionDetailsPanel();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -2376,6 +2694,7 @@ function renderMessages(messages) {
         message.file_path || '',
         message.file_name || '',
         Boolean(message.attachment_expired),
+        (Array.isArray(message.reactions) ? message.reactions : []).map((reaction) => `${Number(reaction?.user_id || 0)}:${String(reaction?.emoji || '')}`).join('|'),
     ]));
     if (signature === renderedSignature) {
         return;
@@ -2411,17 +2730,24 @@ function renderMessages(messages) {
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
+            const reactions = renderMessageReactions(message);
+            const myReaction = Array.isArray(message.reactions)
+                ? String((message.reactions.find((reaction) => Number(reaction?.user_id) === currentUserId)?.emoji) || '')
+                : '';
 
             const rowClasses = ['message-row'];
             if (isMine) {
                 rowClasses.push('mine');
+            }
+            if (reactions !== '') {
+                rowClasses.push('has-reactions');
             }
             if (!isGroupConversation && message.audio_path) {
                 rowClasses.push('private-audio');
             }
 
             return `
-                <article class="${rowClasses.join(' ')}">
+                <article class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
                         ${body}
@@ -2431,6 +2757,7 @@ function renderMessages(messages) {
                         ${expiredAttachment}
                         <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
                     </div>
+                    ${reactions}
                 </article>`;
         }).join('');
 
@@ -2448,6 +2775,57 @@ function renderMessages(messages) {
                     scrollMessagesToEnd();
                 }
             }, { once: true });
+        });
+
+        messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
+            const canReactToRow = () => {
+                const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
+                return senderId > 0 && senderId !== currentUserId;
+            };
+            const openReactionPickerFromTap = (event) => {
+                if (!(event.target instanceof HTMLElement)) {
+                    return;
+                }
+                if (event.target.closest('a, button, audio, input, textarea, label')) {
+                    return;
+                }
+                if (event.target.closest('.message-reactions')) {
+                    return;
+                }
+                if (!canReactToRow()) {
+                    return;
+                }
+
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                showReactionPicker(rowEl, messageId, existingEmoji);
+            };
+
+            rowEl.addEventListener('click', openReactionPickerFromTap);
+            rowEl.addEventListener('contextmenu', (event) => {
+                if (!canReactToRow()) {
+                    return;
+                }
+                event.preventDefault();
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
+                showReactionPicker(rowEl, messageId, existingEmoji);
+            });
+            rowEl.querySelector('.message-reactions')?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return;
+                }
+                showReactionDetails(messageId);
+            });
         });
     }
 
@@ -3496,6 +3874,12 @@ groupMembersModal?.addEventListener('click', (event) => {
         setGroupMembersOpen(false);
     }
 });
+reactionMembersClose?.addEventListener('click', () => hideReactionDetailsPanel());
+reactionMembersModal?.addEventListener('click', (event) => {
+    if (event.target === reactionMembersModal) {
+        hideReactionDetailsPanel();
+    }
+});
 
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
@@ -3669,6 +4053,10 @@ document.addEventListener('keydown', (event) => {
         setGroupMembersOpen(false);
         return;
     }
+    if (event.key === 'Escape' && reactionMembersModal && !reactionMembersModal.hidden) {
+        hideReactionDetailsPanel();
+        return;
+    }
     if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
         setMemberPickerOpen(false);
         return;
@@ -3692,6 +4080,14 @@ document.addEventListener('click', (event) => {
     }
 
     setHeaderMenuOpen(false);
+});
+document.addEventListener('pointerdown', (event) => {
+    if (!(event.target instanceof Node)) {
+        return;
+    }
+    if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
+        hideReactionPicker();
+    }
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
 
