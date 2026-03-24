@@ -156,12 +156,21 @@ function surfFetchRemoteUrl(string $targetUrl): ?array
         CURLOPT_HEADER => true,
         CURLOPT_ENCODING => '',
         CURLOPT_USERAGENT => 'LocalChatSurfProxy/1.0',
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
     ]);
 
     $raw = curl_exec($ch);
     if (!is_string($raw)) {
+        $errorMessage = curl_error($ch);
         curl_close($ch);
-        return null;
+        return [
+            'status' => 502,
+            'content_type' => 'text/plain; charset=UTF-8',
+            'forward_headers' => [],
+            'body' => 'Proxy fetch failed' . ($errorMessage !== '' ? ': ' . $errorMessage : '.'),
+            'is_html' => false,
+            'final_url' => $targetUrl,
+        ];
     }
 
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -227,11 +236,56 @@ function surfRewriteHtml(string $html, string $baseUrl): string
             return $match[0];
         }
 
+        if (strtolower($attribute) === 'action') {
+            return sprintf(
+                'action=%1$s%2$s%1$s data-surf-target=%1$s%3$s%1$s',
+                $quote,
+                htmlspecialchars('surf_proxy.php', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($absolute, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            );
+        }
+
         $proxied = 'surf_proxy.php?url=' . rawurlencode($absolute);
         return sprintf('%s=%s%s%s', $attribute, $quote, htmlspecialchars($proxied, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $quote);
     }, $html);
 
-    return is_string($rewritten) ? $rewritten : $html;
+    $htmlOut = is_string($rewritten) ? $rewritten : $html;
+    $helperScript = <<<'HTML'
+<script>
+(function () {
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+
+    var target = form.getAttribute('data-surf-target') || form.getAttribute('action') || '';
+    if (!target) {
+      return;
+    }
+
+    var method = String(form.method || 'GET').toUpperCase();
+    if (method !== 'GET') {
+      return;
+    }
+
+    event.preventDefault();
+    var url = new URL(target, window.location.href);
+    var data = new FormData(form);
+    data.forEach(function (value, key) {
+      url.searchParams.append(key, String(value));
+    });
+    window.location.assign('surf_proxy.php?url=' + encodeURIComponent(url.toString()));
+  }, true);
+})();
+</script>
+HTML;
+
+    if (stripos($htmlOut, '</body>') !== false) {
+        return str_ireplace('</body>', $helperScript . '</body>', $htmlOut);
+    }
+
+    return $htmlOut . $helperScript;
 }
 
 function surfAbsolutizeUrl(string $base, string $value): ?string
