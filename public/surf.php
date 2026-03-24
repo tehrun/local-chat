@@ -11,8 +11,12 @@ const SURF_ACTIONS = ['create_session', 'navigate', 'status', 'click', 'type', '
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     requireCsrfToken();
 
-    $action = is_string($_POST['action'] ?? null) ? trim((string) $_POST['action']) : '';
-    if ($action === '' || !in_array($action, SURF_ACTIONS, true)) {
+    $action = is_string($_POST['action'] ?? null) ? trim((string) $_POST['action']) : 'navigate';
+    if ($action === '') {
+        $action = 'navigate';
+    }
+
+    if (!in_array($action, SURF_ACTIONS, true)) {
         jsonResponse(['error' => 'Unsupported action.'], 400);
     }
 
@@ -26,7 +30,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'session_id' => is_string($_POST['session_id'] ?? null) ? trim((string) $_POST['session_id']) : '',
     ];
 
+    if ($action === 'navigate' && $payload['session_id'] === '') {
+        $createResponse = surfRunBrowserAction('create_session', $payload);
+        if (isset($createResponse['error'])) {
+            jsonResponse($createResponse, 502);
+        }
+
+        $payload['session_id'] = is_string($createResponse['session_id'] ?? null) ? $createResponse['session_id'] : '';
+        if ($payload['session_id'] === '') {
+            jsonResponse(['error' => 'Surf browser service did not return a session id.'], 502);
+        }
+    }
+
     $result = surfRunBrowserAction($action, $payload);
+
+    if (!isset($result['error']) && $action === 'navigate' && is_string($payload['session_id']) && $payload['session_id'] !== '') {
+        $snapshotResponse = surfRunBrowserAction('snapshot', ['session_id' => $payload['session_id']]);
+        if (!isset($snapshotResponse['error']) && is_string($snapshotResponse['image_base64'] ?? null)) {
+            $result['image_base64'] = $snapshotResponse['image_base64'];
+        }
+    }
+
     jsonResponse($result, isset($result['error']) ? 502 : 200);
 }
 
@@ -86,45 +110,79 @@ function surfServiceRequest(array $request): array
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title>Surf Mode</title>
     <style>
-        body { font-family: system-ui, sans-serif; margin: 24px; }
-        form { display: grid; gap: 8px; max-width: 760px; }
-        input, button { padding: 8px; font-size: 14px; }
-        .hint { color: #555; font-size: 13px; }
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; background: #f2f4f8; }
+        .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+        .address { flex: 1; border: 1px solid #c8d0da; border-radius: 999px; padding: 10px 14px; font-size: 14px; }
+        .go { border: none; border-radius: 999px; padding: 10px 16px; font-weight: 700; background: #0072ff; color: #fff; cursor: pointer; }
+        .meta { margin: 0 0 10px; font-size: 13px; color: #445; }
+        .card { background: #fff; border-radius: 12px; box-shadow: 0 8px 22px rgba(0,0,0,.08); overflow: hidden; }
+        .preview { display: block; width: 100%; height: auto; }
+        .error { color: #b00020; }
     </style>
 </head>
 <body>
-<h1>Surf Mode</h1>
-<p class="hint">Authenticated browser automation. Actions are proxied to a long-lived local browser service.</p>
-<p class="hint">Signed in as <strong><?= e((string) $user['username']) ?></strong>.</p>
-<form id="surf-form" method="post">
-    <input name="action" placeholder="action (navigate/click/type/key/scroll/status/snapshot/create_session)" required>
-    <input name="session_id" placeholder="session_id (optional for create_session)">
-    <input name="url" placeholder="url">
-    <input name="selector" placeholder="selector">
-    <input name="text" placeholder="text">
-    <input name="key" placeholder="key (Enter, Escape, etc.)">
-    <input name="direction" placeholder="scroll direction (up/down)" value="down">
-    <input name="amount" placeholder="scroll amount" value="640" type="number">
+<form id="surf-bar" class="toolbar" method="post" autocomplete="off">
+    <input id="address" class="address" name="url" type="url" placeholder="Enter URL" value="https://www.google.com" required>
+    <input id="session_id" type="hidden" name="session_id" value="">
+    <input type="hidden" name="action" value="navigate">
     <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
-    <button type="submit">Run</button>
+    <button class="go" type="submit">Go</button>
 </form>
-<pre id="out" style="white-space: pre-wrap; margin-top: 16px;"></pre>
+<p id="meta" class="meta">Signed in as <strong><?= e((string) $user['username']) ?></strong>.</p>
+<div class="card">
+    <img id="preview" class="preview" alt="Surf preview" hidden>
+</div>
 <script>
-const form = document.getElementById('surf-form');
-const out = document.getElementById('out');
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
+const form = document.getElementById('surf-bar');
+const addressInput = document.getElementById('address');
+const sessionInput = document.getElementById('session_id');
+const meta = document.getElementById('meta');
+const preview = document.getElementById('preview');
+
+async function navigate(url) {
     const body = new URLSearchParams(new FormData(form));
+    body.set('url', url);
+
     const res = await fetch('surf.php', {
         method: 'POST',
-        headers: { 'Accept': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content },
+        headers: {
+            Accept: 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+        },
         body,
     });
+
     const payload = await res.json().catch(() => ({ error: 'Non-JSON response from surf.php' }));
-    out.textContent = JSON.stringify(payload, null, 2);
+
     if (payload.session_id) {
-        form.querySelector('[name="session_id"]').value = payload.session_id;
+        sessionInput.value = String(payload.session_id);
     }
+
+    if (payload.error) {
+        meta.classList.add('error');
+        meta.textContent = payload.error;
+        return;
+    }
+
+    meta.classList.remove('error');
+    const title = payload.title ? String(payload.title) : '';
+    const currentUrl = payload.url ? String(payload.url) : url;
+    addressInput.value = currentUrl;
+    meta.textContent = title ? `${title} — ${currentUrl}` : currentUrl;
+
+    if (payload.image_base64) {
+        preview.src = `data:image/png;base64,${payload.image_base64}`;
+        preview.hidden = false;
+    }
+}
+
+form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await navigate(addressInput.value.trim());
+});
+
+window.addEventListener('load', async () => {
+    await navigate(addressInput.value.trim() || 'https://www.google.com');
 });
 </script>
 </body>
