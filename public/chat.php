@@ -1119,6 +1119,10 @@ if ($isGroupConversation) {
             background: #182229;
             color: #e9edef;
         }
+        :root[data-theme="dark"] .member-role-chip {
+            background: rgba(37, 211, 102, 0.2);
+            color: #8af5b8;
+        }
 
         @media (min-width: 721px) {
             .app {
