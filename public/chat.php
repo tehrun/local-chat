@@ -59,6 +59,15 @@ if ($isGroupConversation) {
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
     <style>
+        * {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
         :root {
             color-scheme: light;
             --bg: #efeae2;

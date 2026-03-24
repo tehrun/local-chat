@@ -77,6 +77,15 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title>Local Chat</title>
     <style>
+        * {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
         :root {
             color-scheme: light;
             --bg: #efeae2;
