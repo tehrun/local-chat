@@ -517,6 +517,34 @@ if ($isGroupConversation) {
             color: #0f766e;
             border: 1px solid rgba(15, 118, 110, 0.3);
         }
+        .message-action-menu {
+            position: fixed;
+            z-index: 32;
+            min-width: 170px;
+            border-radius: 14px;
+            border: 1px solid rgba(17, 27, 33, 0.14);
+            background: var(--menu-surface);
+            box-shadow: 0 16px 30px rgba(17, 27, 33, 0.24);
+            padding: 6px;
+        }
+        .message-action-menu[hidden] {
+            display: none;
+        }
+        .message-action-menu button {
+            width: 100%;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 14px;
+            color: var(--danger);
+            cursor: pointer;
+        }
+        .message-action-menu button:hover,
+        .message-action-menu button:focus-visible {
+            background: var(--menu-hover);
+        }
         .message-row.mine .message {
             background: var(--mine);
         }
@@ -1597,6 +1625,10 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
+let messageActionMenuEl = null;
+let messageActionMessageId = 0;
+let longPressTimer = null;
+let longPressHandled = false;
 let replyTarget = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
@@ -2668,6 +2700,100 @@ function hideReactionPicker() {
     reactionPickerMessageId = 0;
 }
 
+function ensureMessageActionMenu() {
+    if (messageActionMenuEl) {
+        return messageActionMenuEl;
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'message-action-menu';
+    menu.hidden = true;
+    menu.innerHTML = '<button type="button" data-action="delete-message">Delete message</button>';
+    menu.querySelector('button[data-action="delete-message"]')?.addEventListener('click', async () => {
+        if (!messageActionMessageId) {
+            return;
+        }
+        await deleteMessageById(messageActionMessageId);
+        hideMessageActionMenu();
+    });
+    document.body.appendChild(menu);
+    messageActionMenuEl = menu;
+    return menu;
+}
+
+function hideMessageActionMenu() {
+    if (!messageActionMenuEl) {
+        return;
+    }
+    messageActionMenuEl.hidden = true;
+    messageActionMessageId = 0;
+}
+
+function showMessageActionMenu(anchorEl, messageId) {
+    if (!(anchorEl instanceof HTMLElement) || !messageId) {
+        return;
+    }
+
+    hideReactionPicker();
+    hideReactionDetailsPanel();
+    const menu = ensureMessageActionMenu();
+    menu.hidden = false;
+    messageActionMessageId = messageId;
+
+    const anchorRect = anchorEl.getBoundingClientRect();
+    requestAnimationFrame(() => {
+        const menuRect = menu.getBoundingClientRect();
+        const minLeft = 8;
+        const maxLeft = window.innerWidth - menuRect.width - 8;
+        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (menuRect.width / 2);
+        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
+        const maxTop = window.innerHeight - menuRect.height - 8;
+        const top = Math.max(8, Math.min(maxTop, anchorRect.bottom + 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    });
+}
+
+async function deleteMessageById(messageId) {
+    if (!Number(messageId)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'delete_message',
+                message_id: String(Number(messageId)),
+                csrf_token: csrfToken,
+            }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Could not delete this message right now.');
+            return;
+        }
+
+        if (typeof payload?.payload?.signature === 'string' && payload.payload.signature !== '') {
+            conversationSignature = payload.payload.signature;
+        } else if (typeof payload?.signature === 'string' && payload.signature !== '') {
+            conversationSignature = payload.signature;
+        }
+
+        await refreshConversation();
+    } catch (error) {
+        showError('Could not delete this message right now.');
+    }
+}
+
+function clearLongPressTimer() {
+    if (longPressTimer !== null) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+}
+
 function hideReactionDetailsPanel() {
     if (!reactionMembersModal) {
         return;
@@ -2870,6 +2996,8 @@ function renderMessages(messages) {
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
     hideReactionPicker();
     hideReactionDetailsPanel();
+    hideMessageActionMenu();
+    clearLongPressTimer();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -2975,6 +3103,7 @@ function renderMessages(messages) {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
             };
+            const isOwnMessage = () => Number(rowEl.getAttribute('data-sender-id') || 0) === currentUserId;
             const openReactionPickerFromTap = (event) => {
                 if (!(event.target instanceof HTMLElement)) {
                     return;
@@ -2998,11 +3127,42 @@ function renderMessages(messages) {
                 showReactionPicker(rowEl, messageId, existingEmoji, canReact);
             };
 
-            rowEl.addEventListener('click', openReactionPickerFromTap);
+            rowEl.addEventListener('click', (event) => {
+                if (longPressHandled) {
+                    longPressHandled = false;
+                    event.preventDefault();
+                    return;
+                }
+                hideMessageActionMenu();
+                openReactionPickerFromTap(event);
+            });
+
+            rowEl.addEventListener('pointerdown', (event) => {
+                if (event.pointerType === 'mouse' || !isOwnMessage()) {
+                    return;
+                }
+                clearLongPressTimer();
+                longPressHandled = false;
+                longPressTimer = window.setTimeout(() => {
+                    const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                    if (!messageId) {
+                        return;
+                    }
+                    longPressHandled = true;
+                    showMessageActionMenu(rowEl, messageId);
+                }, 480);
+            });
+            rowEl.addEventListener('pointerup', clearLongPressTimer);
+            rowEl.addEventListener('pointercancel', clearLongPressTimer);
+            rowEl.addEventListener('pointerleave', clearLongPressTimer);
             rowEl.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
                 if (!messageId) {
+                    return;
+                }
+                if (isOwnMessage()) {
+                    showMessageActionMenu(rowEl, messageId);
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
@@ -4303,6 +4463,10 @@ document.addEventListener('keydown', (event) => {
     }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
+        return;
+    }
+    if (event.key === 'Escape' && messageActionMenuEl && !messageActionMenuEl.hidden) {
+        hideMessageActionMenu();
     }
 }, { passive: true });
 document.addEventListener('click', (event) => {
@@ -4323,6 +4487,9 @@ document.addEventListener('pointerdown', (event) => {
     }
     if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
         hideReactionPicker();
+    }
+    if (messageActionMenuEl && !messageActionMenuEl.hidden && !messageActionMenuEl.contains(event.target)) {
+        hideMessageActionMenu();
     }
 });
 document.addEventListener('click', markUserInteraction, { passive: true });
@@ -4372,6 +4539,12 @@ window.addEventListener('beforeunload', () => {
         const data = new URLSearchParams({ action: 'typing', typing: 'false', csrf_token: csrfToken });
         navigator.sendBeacon(conversationApiUrl(), data);
     }
+});
+
+window.addEventListener('resize', () => {
+    hideReactionPicker();
+    hideMessageActionMenu();
+    clearLongPressTimer();
 });
 
 autoResizeComposer();
