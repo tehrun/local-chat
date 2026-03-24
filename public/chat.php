@@ -510,13 +510,27 @@ if ($isGroupConversation) {
             color: var(--danger);
         }
         .reaction-picker button.reaction-action {
-            font-size: 15px;
-            color: #0f766e;
+            color: var(--muted);
             border: 1px solid rgba(15, 118, 110, 0.3);
         }
         .reaction-picker button.reaction-action.danger {
             color: var(--danger);
             border-color: rgba(180, 35, 24, 0.35);
+        }
+        :root[data-theme="dark"] .reaction-picker button.reaction-action {
+            border-color: rgba(233, 237, 239, 0.24);
+        }
+        :root[data-theme="dark"] .reaction-picker button.reaction-action.danger {
+            border-color: rgba(249, 112, 102, 0.42);
+        }
+        .reaction-picker button.reaction-action svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         .message-action-menu {
             position: fixed;
@@ -2883,9 +2897,15 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
     `).join('');
     const removeButton = allowReactions && existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '';
-    const replyButton = actionOptions.reply !== false ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply">↩</button>' : '';
-    const editButton = actionOptions.edit ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit">✎</button>' : '';
-    const deleteButton = actionOptions.delete ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete">🗑</button>' : '';
+    const replyButton = actionOptions.reply !== false
+        ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"></path><path d="M4 9h9a7 7 0 0 1 7 7v1"></path></svg></button>'
+        : '';
+    const editButton = actionOptions.edit
+        ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
+        : '';
+    const deleteButton = actionOptions.delete
+        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
+        : '';
     picker.innerHTML = reactionButtons + removeButton + replyButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
@@ -3199,7 +3219,7 @@ function renderMessages(messages) {
                 }
                 const existingEmoji = canReact ? String(rowEl.getAttribute('data-my-reaction') || '') : '';
                 showReactionPicker(rowEl, messageId, existingEmoji, canReact, {
-                    reply: true,
+                    reply: !ownMessage,
                     edit: ownMessage,
                     delete: ownMessage,
                 });
@@ -3228,7 +3248,7 @@ function renderMessages(messages) {
                     }
                     longPressHandled = true;
                     showReactionPicker(rowEl, messageId, '', false, {
-                        reply: true,
+                        reply: false,
                         edit: true,
                         delete: true,
                     });
@@ -3245,7 +3265,7 @@ function renderMessages(messages) {
                 }
                 if (isOwnMessage()) {
                     showReactionPicker(rowEl, messageId, '', false, {
-                        reply: true,
+                        reply: false,
                         edit: true,
                         delete: true,
                     });
