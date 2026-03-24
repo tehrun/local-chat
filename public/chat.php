@@ -59,6 +59,15 @@ if ($isGroupConversation) {
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
     <style>
+        * {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
         :root {
             color-scheme: light;
             --bg: #efeae2;
@@ -427,6 +436,9 @@ if ($isGroupConversation) {
         .message-row.mine {
             align-self: flex-end;
         }
+        .message-row.reply-target-highlight .message {
+            box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.35), 0 2px 6px rgba(17, 27, 33, 0.08);
+        }
         .message-row.private-audio {
             width: min(88%, 460px);
         }
@@ -497,8 +509,40 @@ if ($isGroupConversation) {
             font-size: 14px;
             color: var(--danger);
         }
+        .reaction-picker button.reaction-reply {
+            width: auto;
+            border-radius: 16px;
+            font-size: 12px;
+            padding: 0 10px;
+            color: #0f766e;
+            border: 1px solid rgba(15, 118, 110, 0.3);
+        }
         .message-row.mine .message {
             background: var(--mine);
+        }
+        .message-reply-reference {
+            display: block;
+            border-left: 3px solid rgba(15, 118, 110, 0.55);
+            background: rgba(15, 118, 110, 0.08);
+            border-radius: 8px;
+            padding: 6px 8px;
+            margin: 0 0 8px;
+            text-decoration: none;
+            color: inherit;
+        }
+        .message-reply-reference strong {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 2px;
+            color: #0f766e;
+        }
+        .message-reply-reference span {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .message-sender {
             margin: 0 0 4px;
@@ -580,6 +624,47 @@ if ($isGroupConversation) {
         }
         .status-row:empty {
             padding-bottom: 0;
+        }
+        .reply-preview {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 0 4px 10px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.88);
+            border-left: 3px solid #0f766e;
+        }
+        .reply-preview[hidden] {
+            display: none;
+        }
+        .reply-preview-copy {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .reply-preview-copy strong {
+            font-size: 12px;
+            color: #0f766e;
+        }
+        .reply-preview-copy span {
+            font-size: 12px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .reply-preview-cancel {
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
         }
         .typing-pill,
         .recording-pill,
@@ -1349,11 +1434,16 @@ if ($isGroupConversation) {
                 <div class="conversation-actions" aria-hidden="false">
                     <button id="scroll-to-end-button" class="scroll-to-end-button" type="button" aria-label="Scroll to latest message" title="Scroll to latest message">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M12 5v11"></path>
-                            <path d="m7.5 12 4.5 4.5 4.5-4.5"></path>
-                            <path d="M6 19h12"></path>
+                            <path d="m7 10 5 5 5-5"></path>
                         </svg>
                     </button>
+                </div>
+                <div id="reply-preview" class="reply-preview" hidden>
+                    <div class="reply-preview-copy">
+                        <strong id="reply-preview-author">Replying</strong>
+                        <span id="reply-preview-text"></span>
+                    </div>
+                    <button id="reply-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel reply">×</button>
                 </div>
                 <div class="composer">
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
@@ -1488,6 +1578,10 @@ const reactionMembersModal = document.getElementById('reaction-members-modal');
 const reactionMembersClose = document.getElementById('reaction-members-close');
 const reactionMembersListEl = document.getElementById('reaction-members-list');
 const reactionMembersEmptyEl = document.getElementById('reaction-members-empty');
+const replyPreviewEl = document.getElementById('reply-preview');
+const replyPreviewAuthorEl = document.getElementById('reply-preview-author');
+const replyPreviewTextEl = document.getElementById('reply-preview-text');
+const replyPreviewCancelEl = document.getElementById('reply-preview-cancel');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1503,6 +1597,7 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
+let replyTarget = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -1525,6 +1620,7 @@ let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers :
 let groupState = initialGroup;
 let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
 let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
+updateReplyPreviewUi();
 
 function setHeaderMenuOpen(isOpen) {
     if (!headerMenuButton || !headerMenuPanel) {
@@ -2204,6 +2300,62 @@ function updateComposerClearance() {
     document.documentElement.style.setProperty('--composer-clearance', '6px');
 }
 
+function replySnippetFromMessage(message) {
+    if (!message) {
+        return '';
+    }
+    const body = String(message.body || '').trim();
+    if (body !== '') {
+        return body;
+    }
+    if (message.image_path) {
+        return '📷 Photo';
+    }
+    if (message.file_path) {
+        return `📎 ${String(message.file_name || 'File')}`;
+    }
+    if (message.audio_path) {
+        return '🎤 Voice note';
+    }
+    return 'Message';
+}
+
+function updateReplyPreviewUi() {
+    if (!replyPreviewEl || !replyPreviewAuthorEl || !replyPreviewTextEl) {
+        return;
+    }
+    if (!replyTarget) {
+        replyPreviewEl.hidden = true;
+        replyPreviewAuthorEl.textContent = 'Replying';
+        replyPreviewTextEl.textContent = '';
+        return;
+    }
+    replyPreviewEl.hidden = false;
+    replyPreviewAuthorEl.textContent = `Replying to ${replyTarget.sender_name || 'message'}`;
+    replyPreviewTextEl.textContent = replyTarget.preview || 'Message';
+}
+
+function setReplyTargetByMessage(message) {
+    const messageId = Number(message?.id || 0);
+    if (!messageId) {
+        replyTarget = null;
+        updateReplyPreviewUi();
+        return;
+    }
+    replyTarget = {
+        id: messageId,
+        sender_name: Number(message?.sender_id || 0) === currentUserId ? 'You' : String(message?.sender_name || 'message'),
+        preview: replySnippetFromMessage(message),
+    };
+    updateReplyPreviewUi();
+    keepComposerFocused(true);
+}
+
+function clearReplyTarget() {
+    replyTarget = null;
+    updateReplyPreviewUi();
+}
+
 function renderStatus() {
     let html = '';
 
@@ -2259,7 +2411,7 @@ function setTypingVisible(value) {
     renderStatus();
 }
 
-function createPendingMessage(body, type) {
+function createPendingMessage(body, type, nextReplyTarget = null) {
     localMessageCounter += 1;
     const now = new Date();
     return {
@@ -2275,6 +2427,18 @@ function createPendingMessage(body, type) {
         read_at: null,
         created_at: now.toISOString(),
         created_at_label: `${now.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+        reply_to_message_id: nextReplyTarget && Number(nextReplyTarget.id) > 0 ? Number(nextReplyTarget.id) : null,
+        reply_reference: nextReplyTarget ? {
+            id: Number(nextReplyTarget.id),
+            sender_id: null,
+            sender_name: String(nextReplyTarget.sender_name || ''),
+            body: String(nextReplyTarget.preview || ''),
+            audio_path: null,
+            image_path: null,
+            file_path: null,
+            file_name: null,
+            created_at: null,
+        } : null,
         pending: true,
     };
 }
@@ -2431,6 +2595,22 @@ function renderMessageReactions(message) {
     return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
 }
 
+function renderReplyReference(message) {
+    const replyRef = message?.reply_reference;
+    const replyId = Number(replyRef?.id || message?.reply_to_message_id || 0);
+    if (!replyRef || !replyId) {
+        return '';
+    }
+    const replyName = Number(replyRef?.sender_id || 0) === currentUserId
+        ? 'You'
+        : String(replyRef?.sender_name || 'Message');
+    const preview = replySnippetFromMessage(replyRef);
+    return `<a href="#message-${replyId}" class="message-reply-reference" data-reply-target-id="${replyId}" aria-label="Jump to referenced message">
+        <strong>${escapeHtml(replyName)}</strong>
+        <span>${escapeHtml(preview)}</span>
+    </a>`;
+}
+
 async function setMessageReaction(messageId, emoji) {
     if (!Number(messageId)) {
         return;
@@ -2503,21 +2683,23 @@ function hideReactionDetailsPanel() {
     document.body.style.overflow = '';
 }
 
-function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
+function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true) {
     if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
 
     hideReactionDetailsPanel();
     const picker = ensureReactionPicker();
-    const options = [...POPULAR_REACTIONS];
-    if (existingEmoji && !options.includes(existingEmoji)) {
+    const options = allowReactions ? [...POPULAR_REACTIONS] : [];
+    if (allowReactions && existingEmoji && !options.includes(existingEmoji)) {
         options.unshift(existingEmoji);
     }
-
-    picker.innerHTML = options.map((emoji) => `
+    const reactionButtons = options.map((emoji) => `
         <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
-    `).join('') + (existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '');
+    `).join('');
+    const removeButton = allowReactions && existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '';
+    const replyButton = '<button type="button" class="reaction-reply" data-action="reply" aria-label="Reply to message">Reply</button>';
+    picker.innerHTML = reactionButtons + removeButton + replyButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -2528,6 +2710,13 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
             setMessageReaction(reactionPickerMessageId, emoji);
             hideReactionPicker();
         });
+    });
+    picker.querySelector('button[data-action="reply"]')?.addEventListener('click', () => {
+        const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+        if (message) {
+            setReplyTargetByMessage(message);
+        }
+        hideReactionPicker();
     });
 
     const anchorRect = anchorEl.getBoundingClientRect();
@@ -2693,6 +2882,8 @@ function renderMessages(messages) {
         message.image_path || '',
         message.file_path || '',
         message.file_name || '',
+        Number(message.reply_to_message_id || message.reply_reference?.id || 0),
+        String(message.reply_reference?.body || ''),
         Boolean(message.attachment_expired),
         (Array.isArray(message.reactions) ? message.reactions : []).map((reaction) => `${Number(reaction?.user_id || 0)}:${String(reaction?.emoji || '')}`).join('|'),
     ]));
@@ -2726,6 +2917,7 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
+            const replyReference = renderReplyReference(message);
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
@@ -2747,9 +2939,10 @@ function renderMessages(messages) {
             }
 
             return `
-                <article class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
+                <article id="message-${Number(message.id)}" class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
+                        ${replyReference}
                         ${body}
                         ${image}
                         ${audio}
@@ -2792,7 +2985,8 @@ function renderMessages(messages) {
                 if (event.target.closest('.message-reactions')) {
                     return;
                 }
-                if (!canReactToRow()) {
+                const canReact = canReactToRow();
+                if (!canReact) {
                     return;
                 }
 
@@ -2801,21 +2995,36 @@ function renderMessages(messages) {
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                showReactionPicker(rowEl, messageId, existingEmoji);
+                showReactionPicker(rowEl, messageId, existingEmoji, canReact);
             };
 
             rowEl.addEventListener('click', openReactionPickerFromTap);
             rowEl.addEventListener('contextmenu', (event) => {
-                if (!canReactToRow()) {
-                    return;
-                }
                 event.preventDefault();
                 const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
                 if (!messageId) {
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                showReactionPicker(rowEl, messageId, existingEmoji);
+                showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow());
+            });
+            rowEl.querySelectorAll('[data-reply-target-id]').forEach((referenceEl) => {
+                referenceEl.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const targetId = Number(referenceEl.getAttribute('data-reply-target-id') || 0);
+                    if (!targetId) {
+                        return;
+                    }
+                    const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
+                    if (targetRow instanceof HTMLElement) {
+                        targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        targetRow.classList.add('reply-target-highlight');
+                        window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
+                    } else {
+                        window.location.hash = `message-${targetId}`;
+                    }
+                });
             });
             rowEl.querySelector('.message-reactions')?.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -3230,7 +3439,12 @@ async function flushPendingTextQueue() {
             const response = await fetch(conversationApiUrl(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
-                body: new URLSearchParams({ action: 'send_text', body: nextMessage.body, csrf_token: csrfToken }),
+                body: new URLSearchParams({
+                    action: 'send_text',
+                    body: nextMessage.body,
+                    reply_to_message_id: String(Number(nextMessage.replyToMessageId || 0)),
+                    csrf_token: csrfToken,
+                }),
             });
             const payload = await response.json();
 
@@ -3275,15 +3489,18 @@ function sendTextMessage() {
     }
 
     const shouldPinToBottom = isNearBottom();
-    const pendingMessage = createPendingMessage(body, 'text');
+    const activeReplyTarget = replyTarget ? { ...replyTarget } : null;
+    const pendingMessage = createPendingMessage(body, 'text', activeReplyTarget);
     pendingTextQueue.push({
         body,
         pendingId: pendingMessage.id,
+        replyToMessageId: activeReplyTarget ? Number(activeReplyTarget.id) : 0,
         shouldPinToBottom,
     });
     upsertMessage(pendingMessage);
     shouldAutoScroll = shouldPinToBottom;
     bodyEl.value = '';
+    clearReplyTarget();
     autoResizeComposer();
     updateComposerClearance();
     updateKeyboardOffset();
@@ -3349,8 +3566,12 @@ async function uploadVoiceBlob(blob, filename) {
 
     try {
         const formData = new FormData();
+        const replyToMessageId = Number(replyTarget?.id || 0);
         formData.append('action', 'send_voice');
         formData.append('csrf_token', csrfToken);
+        if (replyToMessageId > 0) {
+            formData.append('reply_to_message_id', String(replyToMessageId));
+        }
         formData.append('voice_note', blob, filename);
 
         const response = await fetch(conversationApiUrl(), {
@@ -3367,6 +3588,7 @@ async function uploadVoiceBlob(blob, filename) {
 
         applyConversationPayload(payload);
         scrollMessagesToEnd();
+        clearReplyTarget();
         showHint('Voice note sent.');
         return true;
     } catch (error) {
@@ -3405,8 +3627,12 @@ async function uploadImageFile(file) {
 
     try {
         const formData = new FormData();
+        const replyToMessageId = Number(replyTarget?.id || 0);
         formData.append('action', 'send_image');
         formData.append('csrf_token', csrfToken);
+        if (replyToMessageId > 0) {
+            formData.append('reply_to_message_id', String(replyToMessageId));
+        }
         formData.append('image_file', file, file.name || 'photo.jpg');
 
         const response = await fetch(conversationApiUrl(), {
@@ -3423,6 +3649,7 @@ async function uploadImageFile(file) {
 
         applyConversationPayload(payload);
         scrollMessagesToEnd();
+        clearReplyTarget();
         showHint('Image sent.');
         return true;
     } catch (error) {
@@ -3470,8 +3697,12 @@ async function uploadSharedFile(file) {
 
     try {
         const formData = new FormData();
+        const replyToMessageId = Number(replyTarget?.id || 0);
         formData.append('action', 'send_file');
         formData.append('csrf_token', csrfToken);
+        if (replyToMessageId > 0) {
+            formData.append('reply_to_message_id', String(replyToMessageId));
+        }
         formData.append('shared_file', file, file.name || 'shared-file');
 
         const response = await fetch(conversationApiUrl(), {
@@ -3488,6 +3719,7 @@ async function uploadSharedFile(file) {
 
         applyConversationPayload(payload);
         scrollMessagesToEnd();
+        clearReplyTarget();
         showHint('File sent.');
         return true;
     } catch (error) {
@@ -3773,6 +4005,10 @@ messagesEl.addEventListener('scroll', () => {
 scrollToEndButton?.addEventListener('click', () => {
     scrollMessagesToEnd('smooth');
     syncReadStateSoon();
+});
+replyPreviewCancelEl?.addEventListener('click', () => {
+    clearReplyTarget();
+    keepComposerFocused(true);
 });
 
 headerMenuButton?.addEventListener('click', (event) => {

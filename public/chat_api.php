@@ -56,7 +56,12 @@ if ($isGroupConversation) {
     }
 
     if ($action === 'send_text') {
-        $message = sendGroupTextMessage($groupId, (int) $user['id'], (string) ($_POST['body'] ?? ''));
+        $message = sendGroupTextMessage(
+            $groupId,
+            (int) $user['id'],
+            (string) ($_POST['body'] ?? ''),
+            (int) ($_POST['reply_to_message_id'] ?? 0)
+        );
         if (is_string($message)) {
             jsonResponse(['error' => $message], 422);
         }
@@ -241,7 +246,12 @@ if ($action === 'read') {
 }
 
 if ($action === 'send_text') {
-    $message = sendTextMessage((int) $user['id'], $otherUserId, $_POST['body'] ?? '');
+    $message = sendTextMessage(
+        (int) $user['id'],
+        $otherUserId,
+        $_POST['body'] ?? '',
+        (int) ($_POST['reply_to_message_id'] ?? 0)
+    );
 
     if (is_string($message)) {
         jsonResponse(['error' => $message], 422);
@@ -256,7 +266,12 @@ if ($action === 'send_text') {
 }
 
 if ($action === 'send_voice') {
-    $message = sendVoiceMessage((int) $user['id'], $otherUserId, $_FILES['voice_note'] ?? []);
+    $message = sendVoiceMessage(
+        (int) $user['id'],
+        $otherUserId,
+        $_FILES['voice_note'] ?? [],
+        (int) ($_POST['reply_to_message_id'] ?? 0)
+    );
 
     if (is_string($message)) {
         jsonResponse(['error' => $message], 422);
@@ -272,7 +287,12 @@ if ($action === 'send_voice') {
 
 
 if ($action === 'send_file') {
-    $message = sendFileMessage((int) $user['id'], $otherUserId, $_FILES['shared_file'] ?? []);
+    $message = sendFileMessage(
+        (int) $user['id'],
+        $otherUserId,
+        $_FILES['shared_file'] ?? [],
+        (int) ($_POST['reply_to_message_id'] ?? 0)
+    );
 
     if (is_string($message)) {
         jsonResponse(['error' => $message], 422);
@@ -287,7 +307,12 @@ if ($action === 'send_file') {
 }
 
 if ($action === 'send_image') {
-    $message = sendImageMessage((int) $user['id'], $otherUserId, $_FILES['image_file'] ?? []);
+    $message = sendImageMessage(
+        (int) $user['id'],
+        $otherUserId,
+        $_FILES['image_file'] ?? [],
+        (int) ($_POST['reply_to_message_id'] ?? 0)
+    );
 
     if (is_string($message)) {
         jsonResponse(['error' => $message], 422);

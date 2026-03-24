@@ -14,6 +14,15 @@ $user = requireAuth();
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Surf Mode</title>
     <style>
+        * {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
         body { font-family: system-ui, sans-serif; margin: 0; background: #f5f7fb; }
         .app { max-width: 860px; margin: 24px auto; padding: 0 16px; }
         .card { background: #fff; border-radius: 14px; box-shadow: 0 10px 24px rgba(0,0,0,.08); padding: 16px; }
