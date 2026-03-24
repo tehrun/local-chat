@@ -75,17 +75,31 @@ function surfServiceRequest(array $request): array
         return ['error' => 'Surf browser service address is invalid.'];
     }
 
+    $autoStartInfo = null;
     $socket = @stream_socket_client(sprintf('tcp://%s:%d', $host, $port), $errno, $errstr, 2.5);
     if (!is_resource($socket)) {
-        surfTryAutoStartBrowserService();
+        $autoStartInfo = surfTryAutoStartBrowserService();
         $socket = @stream_socket_client(sprintf('tcp://%s:%d', $host, $port), $errno, $errstr, 2.5);
     }
 
     if (!is_resource($socket)) {
-        return [
+        $response = [
             'error' => 'Surf browser service is unavailable.',
             'hint' => 'Run: node scripts/surf_browser.mjs',
             'details' => $errstr !== '' ? $errstr : ('socket error #' . $errno),
+        ];
+
+        if (is_array($autoStartInfo) && $autoStartInfo !== []) {
+            $response['autostart'] = $autoStartInfo;
+        }
+
+        $recentLog = surfReadRecentBrowserLog();
+        if ($recentLog !== null) {
+            $response['log_tail'] = $recentLog;
+        }
+
+        return [
+            ...$response,
         ];
     }
 
@@ -107,23 +121,25 @@ function surfServiceRequest(array $request): array
     return is_array($decoded) ? $decoded : ['error' => 'Surf browser service returned an invalid response shape.'];
 }
 
-function surfTryAutoStartBrowserService(): void
+function surfTryAutoStartBrowserService(): array
 {
     static $attempted = false;
+    $result = [];
+
     if ($attempted) {
-        return;
+        return ['status' => 'skipped', 'reason' => 'already_attempted'];
     }
     $attempted = true;
 
     $autoStart = strtolower(trim(envValue('CHAT_SURF_BROWSER_AUTOSTART', '1')));
     if (in_array($autoStart, ['0', 'false', 'off', 'no'], true)) {
-        return;
+        return ['status' => 'disabled', 'reason' => 'CHAT_SURF_BROWSER_AUTOSTART'];
     }
 
     $nodeBin = trim(envValue('CHAT_SURF_NODE_BIN', 'node'));
     $script = BASE_PATH . '/scripts/surf_browser.mjs';
-    if (!is_file($script) || !is_executable($script)) {
-        return;
+    if (!is_file($script)) {
+        return ['status' => 'failed', 'reason' => 'missing_script', 'script' => $script];
     }
 
     $command = sprintf(
@@ -133,8 +149,38 @@ function surfTryAutoStartBrowserService(): void
         escapeshellarg(STORAGE_PATH . '/surf_browser.log')
     );
 
-    @exec($command);
+    $output = [];
+    $exitCode = 0;
+    @exec($command, $output, $exitCode);
     usleep(250000);
+
+    $result['status'] = $exitCode === 0 ? 'started' : 'failed';
+    $result['exit_code'] = $exitCode;
+    $result['node'] = $nodeBin;
+    $result['script'] = $script;
+
+    return $result;
+}
+
+function surfReadRecentBrowserLog(): ?string
+{
+    $path = STORAGE_PATH . '/surf_browser.log';
+    if (!is_file($path) || !is_readable($path)) {
+        return null;
+    }
+
+    $contents = @file_get_contents($path);
+    if (!is_string($contents) || trim($contents) === '') {
+        return null;
+    }
+
+    $lines = preg_split('/\r\n|\r|\n/', trim($contents));
+    if (!is_array($lines) || $lines === []) {
+        return null;
+    }
+
+    $tail = array_slice($lines, -8);
+    return implode("\n", $tail);
 }
 
 ?>
