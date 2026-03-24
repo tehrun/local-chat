@@ -245,6 +245,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: flex;
             align-items: center;
             gap: 10px;
+            min-height: 48px;
             font-size: 14px;
             font-weight: 700;
             text-align: left;
@@ -289,8 +290,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             color: var(--muted);
             font-weight: 400;
         }
-        .header-menu form {
+        .header-menu form,
+        .header-menu-form {
             margin: 0;
+            width: 100%;
+        }
+        .header-menu-form .header-menu-item {
+            width: 100%;
         }
         .theme-switch {
             appearance: none;
@@ -832,7 +838,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     <span>Open browser automation</span>
                                 </span>
                             </a>
-                            <form method="post">
+                            <form method="post" class="header-menu-form">
                                 <input type="hidden" name="action" value="logout">
                                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
                                 <button class="header-menu-item danger" type="submit" role="menuitem">
@@ -841,7 +847,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                         <path d="m16 17 5-5-5-5"></path>
                                         <path d="M21 12H9"></path>
                                     </svg>
-                                    <span>Log out</span>
+                                    <span class="header-menu-copy">
+                                        <strong>Log out</strong>
+                                    </span>
                                 </button>
                             </form>
                         </div>
