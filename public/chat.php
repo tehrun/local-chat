@@ -1089,6 +1089,36 @@ if ($isGroupConversation) {
             text-transform: capitalize;
             flex-shrink: 0;
         }
+        :root[data-theme="dark"] .message-reactions {
+            background: rgba(17, 27, 33, 0.95);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .message-row.mine .message-reactions {
+            background: rgba(20, 77, 55, 0.95);
+        }
+        :root[data-theme="dark"] .reaction-picker {
+            background: rgba(32, 44, 51, 0.98);
+            border-color: rgba(255, 255, 255, 0.16);
+        }
+        :root[data-theme="dark"] .member-picker-panel {
+            background: #111b21;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-close {
+            background: #23323a;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-search input {
+            background: #0f171d;
+            border-color: #2c3a42;
+            color: #e9edef;
+        }
+        :root[data-theme="dark"] .member-picker-item,
+        :root[data-theme="dark"] .member-picker-empty {
+            background: #182229;
+            color: #e9edef;
+        }
 
         @media (min-width: 721px) {
             .app {
