@@ -510,8 +510,8 @@ if ($isGroupConversation) {
             color: var(--danger);
         }
         .reaction-picker button.reaction-action {
-            width: 36px;
-            height: 36px;
+            width: 42px;
+            height: 34px;
             border-radius: 8px;
             color: var(--muted);
             border: 1px solid rgba(15, 118, 110, 0.3);
@@ -3202,31 +3202,11 @@ function renderMessages(messages) {
             };
             const isOwnMessage = () => Number(rowEl.getAttribute('data-sender-id') || 0) === currentUserId;
             const openReactionPickerFromTap = (event) => {
-                if (!(event.target instanceof HTMLElement)) {
+                if (event.target instanceof HTMLElement && event.target.closest('a, button, audio, input, textarea, label, .message-reactions')) {
                     return;
                 }
-                if (event.target.closest('a, button, audio, input, textarea, label')) {
-                    return;
-                }
-                if (event.target.closest('.message-reactions')) {
-                    return;
-                }
-                const canReact = canReactToRow();
-                const ownMessage = isOwnMessage();
-                if (!canReact && !ownMessage) {
-                    return;
-                }
-
-                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
-                if (!messageId) {
-                    return;
-                }
-                const existingEmoji = canReact ? String(rowEl.getAttribute('data-my-reaction') || '') : '';
-                showReactionPicker(rowEl, messageId, existingEmoji, canReact, {
-                    reply: !ownMessage,
-                    edit: ownMessage,
-                    delete: ownMessage,
-                });
+                hideReactionPicker();
+                hideMessageActionMenu();
             };
 
             rowEl.addEventListener('click', (event) => {
@@ -3240,7 +3220,7 @@ function renderMessages(messages) {
             });
 
             rowEl.addEventListener('pointerdown', (event) => {
-                if (event.pointerType === 'mouse' || !isOwnMessage()) {
+                if (event.pointerType === 'mouse') {
                     return;
                 }
                 clearLongPressTimer();
@@ -3250,11 +3230,24 @@ function renderMessages(messages) {
                     if (!messageId) {
                         return;
                     }
+                    if (isOwnMessage()) {
+                        showReactionPicker(rowEl, messageId, '', false, {
+                            reply: false,
+                            edit: true,
+                            delete: true,
+                        });
+                        longPressHandled = true;
+                        return;
+                    }
+                    if (!canReactToRow()) {
+                        return;
+                    }
+                    const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                     longPressHandled = true;
-                    showReactionPicker(rowEl, messageId, '', false, {
-                        reply: false,
-                        edit: true,
-                        delete: true,
+                    showReactionPicker(rowEl, messageId, existingEmoji, true, {
+                        reply: true,
+                        edit: false,
+                        delete: false,
                     });
                 }, 480);
             });
