@@ -418,6 +418,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             file_path TEXT,
             file_name TEXT,
             attachment_expired INTEGER NOT NULL DEFAULT 0,
+            reply_to_message_id INTEGER,
             delivered_at TEXT,
             read_at TEXT,
             created_at TEXT NOT NULL,
@@ -445,6 +446,10 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('attachment_expired', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired INTEGER NOT NULL DEFAULT 0');
+    }
+
+    if (!in_array('reply_to_message_id', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN reply_to_message_id INTEGER');
     }
 
     if (!in_array('delivered_at', $columns, true)) {
@@ -624,11 +629,20 @@ function initializeSqliteDatabase(PDO $pdo): void
             body TEXT,
             audio_path TEXT,
             image_path TEXT,
+            reply_to_message_id INTEGER,
             created_at TEXT NOT NULL,
             FOREIGN KEY(group_id) REFERENCES groups(id),
             FOREIGN KEY(sender_id) REFERENCES users(id)
         )'
     );
+
+    $groupMessageColumns = array_map(
+        static fn (array $column): string => (string) $column['name'],
+        $pdo->query('PRAGMA table_info(group_messages)')->fetchAll()
+    );
+    if (!in_array('reply_to_message_id', $groupMessageColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN reply_to_message_id INTEGER');
+    }
 
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_group_messages_timeline
@@ -722,6 +736,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             file_path VARCHAR(255) NULL,
             file_name VARCHAR(255) NULL,
             attachment_expired TINYINT(1) NOT NULL DEFAULT 0,
+            reply_to_message_id BIGINT UNSIGNED NULL,
             delivered_at DATETIME NULL,
             read_at DATETIME NULL,
             created_at DATETIME NOT NULL,
@@ -750,8 +765,12 @@ function initializeMysqlDatabase(PDO $pdo): void
         $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired TINYINT(1) NOT NULL DEFAULT 0 AFTER file_name');
     }
 
+    if (!in_array('reply_to_message_id', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER attachment_expired');
+    }
+
     if (!in_array('delivered_at', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER attachment_expired');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN delivered_at DATETIME NULL AFTER reply_to_message_id');
     }
 
     if (!in_array('read_at', $columns, true)) {
@@ -885,12 +904,18 @@ function initializeMysqlDatabase(PDO $pdo): void
             body LONGTEXT NULL,
             audio_path VARCHAR(255) NULL,
             image_path VARCHAR(255) NULL,
+            reply_to_message_id BIGINT UNSIGNED NULL,
             created_at DATETIME NOT NULL,
             INDEX idx_group_messages_timeline (group_id, created_at, id),
             CONSTRAINT fk_group_messages_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
             CONSTRAINT fk_group_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $groupColumns = mysqlTableColumns($pdo, 'group_messages');
+    if (!in_array('reply_to_message_id', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER image_path');
+    }
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_reactions (
             message_id BIGINT UNSIGNED NOT NULL,
@@ -2500,6 +2525,23 @@ function attachReactionsToGroupMessages(array $messages): array
 
 function formatMessage(array $message): array
 {
+    $replyMessageId = (int) ($message['reply_message_id'] ?? $message['reply_to_message_id'] ?? 0);
+    $replySenderId = (int) ($message['reply_sender_id'] ?? 0);
+    $replyReference = null;
+    if ($replyMessageId > 0) {
+        $replyReference = [
+            'id' => $replyMessageId,
+            'sender_id' => $replySenderId,
+            'sender_name' => (string) ($message['reply_sender_name'] ?? ''),
+            'body' => $message['reply_body'] ?? null,
+            'audio_path' => $message['reply_audio_path'] ?? null,
+            'image_path' => $message['reply_image_path'] ?? null,
+            'file_path' => $message['reply_file_path'] ?? null,
+            'file_name' => $message['reply_file_name'] ?? null,
+            'created_at' => $message['reply_created_at'] ?? null,
+        ];
+    }
+
     return [
         'id' => (int) $message['id'],
         'sender_id' => (int) $message['sender_id'],
@@ -2511,6 +2553,8 @@ function formatMessage(array $message): array
         'file_path' => $message['file_path'] ?? null,
         'file_name' => $message['file_name'] ?? null,
         'attachment_expired' => messageHasExpiredAttachment($message),
+        'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
+        'reply_reference' => $replyReference,
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
@@ -2522,9 +2566,20 @@ function formatMessage(array $message): array
 function findMessageById(int $messageId): ?array
 {
     $stmt = db()->prepare(
-        'SELECT m.*, u.username AS sender_name
+        'SELECT m.*, u.username AS sender_name,
+                rm.id AS reply_message_id,
+                rm.sender_id AS reply_sender_id,
+                ru.username AS reply_sender_name,
+                rm.body AS reply_body,
+                rm.audio_path AS reply_audio_path,
+                rm.image_path AS reply_image_path,
+                rm.file_path AS reply_file_path,
+                rm.file_name AS reply_file_name,
+                rm.created_at AS reply_created_at
          FROM messages m
          JOIN users u ON u.id = m.sender_id
+         LEFT JOIN messages rm ON rm.id = m.reply_to_message_id
+         LEFT JOIN users ru ON ru.id = rm.sender_id
          WHERE m.id = :id
          LIMIT 1'
     );
@@ -2588,11 +2643,22 @@ function conversationMessagesWithoutMaintenance(int $userId, int $otherUserId): 
 function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
 {
     $clearedAt = conversationClearedAt($userId, $otherUserId);
-    $sql = 'SELECT m.*, u.username AS sender_name
+    $sql = 'SELECT m.*, u.username AS sender_name,
+                   rm.id AS reply_message_id,
+                   rm.sender_id AS reply_sender_id,
+                   ru.username AS reply_sender_name,
+                   rm.body AS reply_body,
+                   rm.audio_path AS reply_audio_path,
+                   rm.image_path AS reply_image_path,
+                   rm.file_path AS reply_file_path,
+                   rm.file_name AS reply_file_name,
+                   rm.created_at AS reply_created_at
             FROM messages m
             JOIN users u ON u.id = m.sender_id
-            WHERE ((sender_id = :user_id AND recipient_id = :other_id)
-               OR (sender_id = :other_id AND recipient_id = :user_id))';
+            LEFT JOIN messages rm ON rm.id = m.reply_to_message_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            WHERE ((m.sender_id = :user_id AND m.recipient_id = :other_id)
+               OR (m.sender_id = :other_id AND m.recipient_id = :user_id))';
 
     $params = [
         'user_id' => $userId,
@@ -2635,7 +2701,31 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
     return attachReactionsToMessages(array_map(static fn (array $message): array => formatMessage($message), $messages));
 }
 
-function sendTextMessage(int $senderId, int $recipientId, string $body): array|string|null
+function normalizePrivateReplyTargetId(int $senderId, int $recipientId, ?int $replyToMessageId): ?int
+{
+    $messageId = (int) ($replyToMessageId ?? 0);
+    if ($messageId <= 0) {
+        return null;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id
+         FROM messages
+         WHERE id = :message_id
+           AND ((sender_id = :sender_id AND recipient_id = :recipient_id)
+             OR (sender_id = :recipient_id AND recipient_id = :sender_id))
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'sender_id' => $senderId,
+        'recipient_id' => $recipientId,
+    ]);
+
+    return $stmt->fetchColumn() ? $messageId : null;
+}
+
+function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
 
@@ -2648,14 +2738,17 @@ function sendTextMessage(int $senderId, int $recipientId, string $body): array|s
         return 'Message cannot be empty.';
     }
 
+    $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
+
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, created_at)
-         VALUES (:sender_id, :recipient_id, :body, NULL, 0, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, :body, NULL, 0, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'body' => $body,
+        'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
 
@@ -2876,7 +2969,7 @@ function detectUploadedImageExtension(array $file, ?string $mime): ?string
     return null;
 }
 
-function sendImageMessage(int $senderId, int $recipientId, array $file): array|string|null
+function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
 
@@ -2909,14 +3002,17 @@ function sendImageMessage(int $senderId, int $recipientId, array $file): array|s
 
     $relativePath = 'storage/tmp/' . $filename;
 
+    $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
+
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, attachment_expired, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, 0, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, attachment_expired, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, 0, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'image_path' => $relativePath,
+        'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
 
@@ -2926,7 +3022,7 @@ function sendImageMessage(int $senderId, int $recipientId, array $file): array|s
     return findMessageById((int) db()->lastInsertId());
 }
 
-function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|string|null
+function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
 
@@ -2959,14 +3055,17 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
 
     $relativePath = 'storage/uploads/' . $filename;
 
+    $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
+
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, :audio_path, 0, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, :audio_path, 0, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'audio_path' => $relativePath,
+        'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
 
@@ -2976,7 +3075,7 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file): array|s
     return findMessageById((int) db()->lastInsertId());
 }
 
-function sendFileMessage(int $senderId, int $recipientId, array $file): array|string|null
+function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
 
@@ -3014,15 +3113,18 @@ function sendFileMessage(int $senderId, int $recipientId, array $file): array|st
 
     $relativePath = 'storage/uploads/' . $filename;
 
+    $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
+
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, attachment_expired, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, 0, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, attachment_expired, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, 0, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'file_path' => $relativePath,
         'file_name' => mb_substr($sanitizedName, 0, 255),
+        'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
 
@@ -3600,6 +3702,23 @@ function clearGroupConversationForUser(int $groupId, int $userId): void
 
 function formatGroupMessage(array $message): array
 {
+    $replyMessageId = (int) ($message['reply_message_id'] ?? $message['reply_to_message_id'] ?? 0);
+    $replySenderId = (int) ($message['reply_sender_id'] ?? 0);
+    $replyReference = null;
+    if ($replyMessageId > 0) {
+        $replyReference = [
+            'id' => $replyMessageId,
+            'sender_id' => $replySenderId,
+            'sender_name' => (string) ($message['reply_sender_name'] ?? ''),
+            'body' => $message['reply_body'] ?? null,
+            'audio_path' => $message['reply_audio_path'] ?? null,
+            'image_path' => $message['reply_image_path'] ?? null,
+            'file_path' => null,
+            'file_name' => null,
+            'created_at' => $message['reply_created_at'] ?? null,
+        ];
+    }
+
     return [
         'id' => (int) $message['id'],
         'group_id' => (int) $message['group_id'],
@@ -3608,6 +3727,8 @@ function formatGroupMessage(array $message): array
         'body' => $message['body'],
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'],
+        'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
+        'reply_reference' => $replyReference,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime((string) $message['created_at'])) . ' UTC',
@@ -3620,9 +3741,18 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
     $params = [
         'group_id' => $groupId,
     ];
-    $sql = 'SELECT gm.*, u.username AS sender_name
+    $sql = 'SELECT gm.*, u.username AS sender_name,
+                   rgm.id AS reply_message_id,
+                   rgm.sender_id AS reply_sender_id,
+                   ru.username AS reply_sender_name,
+                   rgm.body AS reply_body,
+                   rgm.audio_path AS reply_audio_path,
+                   rgm.image_path AS reply_image_path,
+                   rgm.created_at AS reply_created_at
             FROM group_messages gm
             JOIN users u ON u.id = gm.sender_id
+            LEFT JOIN group_messages rgm ON rgm.id = gm.reply_to_message_id
+            LEFT JOIN users ru ON ru.id = rgm.sender_id
             WHERE gm.group_id = :group_id';
 
     if ($clearedAt !== null) {
@@ -3746,7 +3876,28 @@ function clearGroupTypingStatus(int $groupId, int $userId): void
     ]);
 }
 
-function sendGroupTextMessage(int $groupId, int $userId, string $body): array|string
+function normalizeGroupReplyTargetId(int $groupId, ?int $replyToMessageId): ?int
+{
+    $messageId = (int) ($replyToMessageId ?? 0);
+    if ($messageId <= 0) {
+        return null;
+    }
+    $stmt = db()->prepare(
+        'SELECT id
+         FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+
+    return $stmt->fetchColumn() ? $messageId : null;
+}
+
+function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $replyToMessageId = null): array|string
 {
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
@@ -3757,15 +3908,17 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body): array|st
         return 'Message cannot be empty.';
     }
 
+    $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, created_at)
-         VALUES (:group_id, :sender_id, :body, NULL, NULL, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, :body, NULL, NULL, :reply_to_message_id, :created_at)'
     );
     $createdAt = gmdate('c');
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
         'body' => $trimmedBody,
+        'reply_to_message_id' => $replyToMessageId,
         'created_at' => $createdAt,
     ]);
 
@@ -3773,9 +3926,18 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body): array|st
 
     $messageId = (int) db()->lastInsertId();
     $message = db()->prepare(
-        'SELECT gm.*, u.username AS sender_name
+        'SELECT gm.*, u.username AS sender_name,
+                rgm.id AS reply_message_id,
+                rgm.sender_id AS reply_sender_id,
+                ru.username AS reply_sender_name,
+                rgm.body AS reply_body,
+                rgm.audio_path AS reply_audio_path,
+                rgm.image_path AS reply_image_path,
+                rgm.created_at AS reply_created_at
          FROM group_messages gm
          JOIN users u ON u.id = gm.sender_id
+         LEFT JOIN group_messages rgm ON rgm.id = gm.reply_to_message_id
+         LEFT JOIN users ru ON ru.id = rgm.sender_id
          WHERE gm.id = :id'
     );
     $message->execute(['id' => $messageId]);
