@@ -243,6 +243,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .header-menu-item {
             cursor: pointer;
             transition: background 0.15s ease, color 0.15s ease;
+            text-decoration: none;
         }
         .header-menu-item:hover,
         .header-menu-item:focus-visible,
@@ -811,6 +812,17 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </span>
                                 <input id="theme-toggle" class="theme-switch" type="checkbox" aria-label="Toggle dark mode">
                             </label>
+                            <a class="header-menu-item" href="surf.php" role="menuitem">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M2 12h20"></path>
+                                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"></path>
+                                </svg>
+                                <span class="header-menu-copy">
+                                    <strong>Surf mode</strong>
+                                    <span>Open browser automation</span>
+                                </span>
+                            </a>
                             <form method="post">
                                 <input type="hidden" name="action" value="logout">
                                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
