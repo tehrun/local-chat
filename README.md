@@ -69,4 +69,4 @@ If `CHAT_DB_DRIVER` is omitted, the app continues using SQLite at `storage/db/ch
 
 ## cPanel deployment
 
-To host the project from a subdirectory such as `https://towerco.land/chat`, upload the repository so the repository root is served from that `/chat` folder. The root now includes wrapper entry points (`index.php`, `chat.php`, API endpoints, `manifest.json`, `sw.js`, and `icons/`) that forward to the existing `public/` implementation while keeping URLs relative to the current directory.
+To host the project from a subdirectory such as `https://example.com/chat`, upload the repository so the repository root is served from that `/chat` folder. The root now includes wrapper entry points (`index.php`, `chat.php`, API endpoints, `manifest.json`, `sw.js`, and `icons/`) that forward to the existing `public/` implementation while keeping URLs relative to the current directory.
