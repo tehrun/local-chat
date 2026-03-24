@@ -109,7 +109,10 @@ if ($isGroupConversation) {
             --composer-wrap-start: rgba(11, 20, 26, 0);
             --composer-wrap-end: rgba(11, 20, 26, 1);
         }
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             margin: 0;
             min-height: 100vh;
