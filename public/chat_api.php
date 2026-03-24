@@ -104,6 +104,25 @@ if ($isGroupConversation) {
         ]);
     }
 
+    if ($action === 'edit_message') {
+        $error = editGroupMessage(
+            $groupId,
+            (int) $user['id'],
+            (int) ($_POST['message_id'] ?? 0),
+            (string) ($_POST['body'] ?? '')
+        );
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
     if ($action === 'delete_conversation') {
         clearGroupConversationForUser($groupId, (int) $user['id']);
         jsonResponse([
@@ -184,6 +203,27 @@ if ($action === 'signature') {
 
 if ($action === 'delete_message') {
     $error = deletePrivateMessage((int) $user['id'], $otherUserId, (int) ($_POST['message_id'] ?? 0));
+
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
+    ]);
+}
+
+if ($action === 'edit_message') {
+    $error = editPrivateMessage(
+        (int) $user['id'],
+        $otherUserId,
+        (int) ($_POST['message_id'] ?? 0),
+        (string) ($_POST['body'] ?? '')
+    );
 
     if ($error !== null) {
         jsonResponse(['error' => $error], 422);

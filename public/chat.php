@@ -509,13 +509,14 @@ if ($isGroupConversation) {
             font-size: 14px;
             color: var(--danger);
         }
-        .reaction-picker button.reaction-reply {
-            width: auto;
-            border-radius: 16px;
-            font-size: 12px;
-            padding: 0 10px;
+        .reaction-picker button.reaction-action {
+            font-size: 15px;
             color: #0f766e;
             border: 1px solid rgba(15, 118, 110, 0.3);
+        }
+        .reaction-picker button.reaction-action.danger {
+            color: var(--danger);
+            border-color: rgba(180, 35, 24, 0.35);
         }
         .message-action-menu {
             position: fixed;
@@ -2792,6 +2793,59 @@ async function deleteMessageById(messageId) {
     }
 }
 
+async function editMessageById(messageId) {
+    const targetMessage = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+    if (!targetMessage) {
+        showError('Message not found.');
+        return;
+    }
+
+    const currentBody = String(targetMessage.body || '');
+    if (currentBody.trim() === '') {
+        showError('Only text messages can be edited.');
+        return;
+    }
+
+    const nextBody = window.prompt('Edit message', currentBody);
+    if (nextBody === null) {
+        return;
+    }
+
+    const trimmedBody = String(nextBody).trim();
+    if (trimmedBody === '') {
+        showError('Message cannot be empty.');
+        return;
+    }
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({
+                action: 'edit_message',
+                message_id: String(Number(messageId)),
+                body: trimmedBody,
+                csrf_token: csrfToken,
+            }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            showError(payload?.error || 'Could not edit this message right now.');
+            return;
+        }
+
+        if (payload?.payload && typeof payload.payload === 'object') {
+            applyConversationPayload(payload.payload);
+            syncReadStateSoon();
+            return;
+        }
+
+        await refreshConversation();
+    } catch (error) {
+        showError('Could not edit this message right now.');
+    }
+}
+
 function clearLongPressTimer() {
     if (longPressTimer !== null) {
         window.clearTimeout(longPressTimer);
@@ -2814,7 +2868,7 @@ function hideReactionDetailsPanel() {
     document.body.style.overflow = '';
 }
 
-function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true) {
+function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true, actionOptions = {}) {
     if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
@@ -2829,8 +2883,10 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
     `).join('');
     const removeButton = allowReactions && existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '';
-    const replyButton = '<button type="button" class="reaction-reply" data-action="reply" aria-label="Reply to message">Reply</button>';
-    picker.innerHTML = reactionButtons + removeButton + replyButton;
+    const replyButton = actionOptions.reply !== false ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply">↩</button>' : '';
+    const editButton = actionOptions.edit ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit">✎</button>' : '';
+    const deleteButton = actionOptions.delete ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete">🗑</button>' : '';
+    picker.innerHTML = reactionButtons + removeButton + replyButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -2848,6 +2904,14 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
             setReplyTargetByMessage(message);
         }
         hideReactionPicker();
+    });
+    picker.querySelector('button[data-action="edit"]')?.addEventListener('click', async () => {
+        hideReactionPicker();
+        await editMessageById(messageId);
+    });
+    picker.querySelector('button[data-action="delete"]')?.addEventListener('click', async () => {
+        hideReactionPicker();
+        await deleteMessageById(messageId);
     });
 
     const anchorRect = anchorEl.getBoundingClientRect();
@@ -3124,7 +3188,8 @@ function renderMessages(messages) {
                     return;
                 }
                 const canReact = canReactToRow();
-                if (!canReact) {
+                const ownMessage = isOwnMessage();
+                if (!canReact && !ownMessage) {
                     return;
                 }
 
@@ -3132,8 +3197,12 @@ function renderMessages(messages) {
                 if (!messageId) {
                     return;
                 }
-                const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                showReactionPicker(rowEl, messageId, existingEmoji, canReact);
+                const existingEmoji = canReact ? String(rowEl.getAttribute('data-my-reaction') || '') : '';
+                showReactionPicker(rowEl, messageId, existingEmoji, canReact, {
+                    reply: true,
+                    edit: ownMessage,
+                    delete: ownMessage,
+                });
             };
 
             rowEl.addEventListener('click', (event) => {
@@ -3158,7 +3227,11 @@ function renderMessages(messages) {
                         return;
                     }
                     longPressHandled = true;
-                    showMessageActionMenu(rowEl, messageId);
+                    showReactionPicker(rowEl, messageId, '', false, {
+                        reply: true,
+                        edit: true,
+                        delete: true,
+                    });
                 }, 480);
             });
             rowEl.addEventListener('pointerup', clearLongPressTimer);
@@ -3171,7 +3244,11 @@ function renderMessages(messages) {
                     return;
                 }
                 if (isOwnMessage()) {
-                    showMessageActionMenu(rowEl, messageId);
+                    showReactionPicker(rowEl, messageId, '', false, {
+                        reply: true,
+                        edit: true,
+                        delete: true,
+                    });
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
