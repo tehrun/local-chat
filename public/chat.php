@@ -460,6 +460,41 @@ if ($isGroupConversation) {
             left: auto;
             background: rgba(220, 248, 198, 0.95);
         }
+        .reaction-picker {
+            position: fixed;
+            z-index: 30;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 14px 30px rgba(17, 27, 33, 0.2);
+            border: 1px solid rgba(17, 27, 33, 0.12);
+        }
+        .reaction-picker[hidden] {
+            display: none;
+        }
+        .reaction-picker button {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 50%;
+            background: transparent;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .reaction-picker button.is-active {
+            background: rgba(37, 211, 102, 0.22);
+        }
+        .reaction-picker button.reaction-remove {
+            font-size: 14px;
+            color: var(--danger);
+        }
         .message-row.mine .message {
             background: var(--mine);
         }
@@ -1348,6 +1383,7 @@ const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
 const REACTION_HOLD_MS = 420;
+const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -1416,6 +1452,8 @@ let activeUploadCount = 0;
 let pendingTextQueue = [];
 let reactionHoldTimer = null;
 let reactionHoldTarget = null;
+let reactionPickerEl = null;
+let reactionPickerMessageId = 0;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2363,17 +2401,84 @@ async function setMessageReaction(messageId, emoji) {
     }
 }
 
-function promptForMessageReaction(messageId, existingEmoji = '') {
-    if (isGroupConversation) {
+function ensureReactionPicker() {
+    if (reactionPickerEl) {
+        return reactionPickerEl;
+    }
+
+    const picker = document.createElement('div');
+    picker.className = 'reaction-picker';
+    picker.hidden = true;
+    picker.setAttribute('role', 'menu');
+    picker.setAttribute('aria-label', 'Choose a reaction');
+    document.body.appendChild(picker);
+
+    document.addEventListener('pointerdown', (event) => {
+        if (!(event.target instanceof Node) || !reactionPickerEl || reactionPickerEl.hidden) {
+            return;
+        }
+        if (reactionPickerEl.contains(event.target)) {
+            return;
+        }
+        hideReactionPicker();
+    });
+
+    window.addEventListener('scroll', () => hideReactionPicker(), true);
+    window.addEventListener('resize', () => hideReactionPicker());
+
+    reactionPickerEl = picker;
+    return picker;
+}
+
+function hideReactionPicker() {
+    if (!reactionPickerEl) {
+        return;
+    }
+    reactionPickerEl.hidden = true;
+    reactionPickerEl.innerHTML = '';
+    reactionPickerMessageId = 0;
+}
+
+function showReactionPicker(anchorEl, messageId, existingEmoji = '') {
+    if (isGroupConversation || !(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
 
-    const nextEmoji = window.prompt('Add emoji reaction (leave empty to remove):', existingEmoji);
-    if (nextEmoji === null) {
-        return;
+    const picker = ensureReactionPicker();
+    const options = [...POPULAR_REACTIONS];
+    if (existingEmoji && !options.includes(existingEmoji)) {
+        options.unshift(existingEmoji);
     }
 
-    setMessageReaction(messageId, nextEmoji.trim());
+    picker.innerHTML = options.map((emoji) => `
+        <button type="button" data-emoji="${escapeHtml(emoji)}" class="${emoji === existingEmoji ? 'is-active' : ''}" aria-label="React ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>
+    `).join('') + (existingEmoji ? '<button type="button" class="reaction-remove" data-emoji="" aria-label="Remove reaction">✕</button>' : '');
+
+    picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
+        buttonEl.addEventListener('click', () => {
+            const emoji = String(buttonEl.getAttribute('data-emoji') || '');
+            if (!reactionPickerMessageId) {
+                return;
+            }
+            setMessageReaction(reactionPickerMessageId, emoji);
+            hideReactionPicker();
+        });
+    });
+
+    const anchorRect = anchorEl.getBoundingClientRect();
+    picker.hidden = false;
+    reactionPickerMessageId = messageId;
+
+    requestAnimationFrame(() => {
+        const pickerRect = picker.getBoundingClientRect();
+        const minLeft = 8;
+        const maxLeft = window.innerWidth - pickerRect.width - 8;
+        const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (pickerRect.width / 2);
+        const left = Math.max(minLeft, Math.min(maxLeft, centeredLeft));
+        const top = Math.max(8, anchorRect.top - pickerRect.height - 8);
+        picker.style.left = `${left}px`;
+        picker.style.top = `${top}px`;
+    });
 }
 
 function clearReactionHoldState() {
@@ -2471,6 +2576,7 @@ function closeImageLightbox() {
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
+    hideReactionPicker();
     window.__messagesState = messages;
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
@@ -2583,7 +2689,7 @@ function renderMessages(messages) {
                     rowEl.classList.add('reaction-target');
                     reactionHoldTimer = window.setTimeout(() => {
                         const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                        promptForMessageReaction(messageId, existingEmoji);
+                        showReactionPicker(rowEl, messageId, existingEmoji);
                         clearReactionHoldState();
                     }, REACTION_HOLD_MS);
                 };
@@ -2599,7 +2705,7 @@ function renderMessages(messages) {
                         return;
                     }
                     const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                    promptForMessageReaction(messageId, existingEmoji);
+                    showReactionPicker(rowEl, messageId, existingEmoji);
                     clearReactionHoldState();
                 });
             });
