@@ -1488,6 +1488,7 @@ let pendingTextQueue = [];
 let reactionPickerEl = null;
 let reactionPickerMessageId = 0;
 let reactionDetailsEl = null;
+let reactionDismissBound = false;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2460,28 +2461,8 @@ function ensureReactionPicker() {
     picker.setAttribute('aria-label', 'Choose a reaction');
     document.body.appendChild(picker);
 
-    document.addEventListener('pointerdown', (event) => {
-        if (!(event.target instanceof Node)) {
-            return;
-        }
-        if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
-            hideReactionPicker();
-        }
-        if (reactionDetailsEl && !reactionDetailsEl.hidden && !reactionDetailsEl.contains(event.target)) {
-            hideReactionDetailsPanel();
-        }
-    });
-
-    window.addEventListener('scroll', () => {
-        hideReactionPicker();
-        hideReactionDetailsPanel();
-    }, true);
-    window.addEventListener('resize', () => {
-        hideReactionPicker();
-        hideReactionDetailsPanel();
-    });
-
     reactionPickerEl = picker;
+    bindReactionDismissHandlers();
     return picker;
 }
 
@@ -2506,8 +2487,37 @@ function ensureReactionDetailsPanel() {
     panel.setAttribute('aria-label', 'Reaction details');
     document.body.appendChild(panel);
     reactionDetailsEl = panel;
+    bindReactionDismissHandlers();
 
     return panel;
+}
+
+function bindReactionDismissHandlers() {
+    if (reactionDismissBound) {
+        return;
+    }
+    reactionDismissBound = true;
+
+    document.addEventListener('pointerdown', (event) => {
+        if (!(event.target instanceof Node)) {
+            return;
+        }
+        if (reactionPickerEl && !reactionPickerEl.hidden && !reactionPickerEl.contains(event.target)) {
+            hideReactionPicker();
+        }
+        if (reactionDetailsEl && !reactionDetailsEl.hidden && !reactionDetailsEl.contains(event.target)) {
+            hideReactionDetailsPanel();
+        }
+    });
+
+    window.addEventListener('scroll', () => {
+        hideReactionPicker();
+        hideReactionDetailsPanel();
+    }, true);
+    window.addEventListener('resize', () => {
+        hideReactionPicker();
+        hideReactionDetailsPanel();
+    });
 }
 
 function hideReactionDetailsPanel() {
