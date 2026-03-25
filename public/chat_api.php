@@ -437,7 +437,10 @@ if ($action === 'end_call') {
 
 if ($action === 'call_offer') {
     $sessionId = (int) ($_POST['session_id'] ?? 0);
-    $offerSdp = trim((string) ($_POST['offer_sdp'] ?? ''));
+    $offerSdpBase64 = trim((string) ($_POST['offer_sdp_b64'] ?? ''));
+    $offerSdp = $offerSdpBase64 !== ''
+        ? (string) base64_decode(strtr($offerSdpBase64, '-_', '+/'), true)
+        : trim((string) ($_POST['offer_sdp'] ?? ''));
     $error = savePrivateCallOffer($sessionId, (int) $user['id'], $offerSdp);
     if ($error !== null) {
         jsonResponse(['error' => $error], 422);
@@ -451,7 +454,10 @@ if ($action === 'call_offer') {
 
 if ($action === 'call_answer') {
     $sessionId = (int) ($_POST['session_id'] ?? 0);
-    $answerSdp = trim((string) ($_POST['answer_sdp'] ?? ''));
+    $answerSdpBase64 = trim((string) ($_POST['answer_sdp_b64'] ?? ''));
+    $answerSdp = $answerSdpBase64 !== ''
+        ? (string) base64_decode(strtr($answerSdpBase64, '-_', '+/'), true)
+        : trim((string) ($_POST['answer_sdp'] ?? ''));
     $error = savePrivateCallAnswer($sessionId, (int) $user['id'], $answerSdp);
     if ($error !== null) {
         jsonResponse(['error' => $error], 422);

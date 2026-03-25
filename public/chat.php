@@ -3578,6 +3578,14 @@ function canUseVoiceCalling() {
     return !isGroupConversation && canChat && Boolean(window.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
 }
 
+function encodeSdpForTransport(sdp) {
+    try {
+        return btoa(unescape(encodeURIComponent(String(sdp || '')))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    } catch (error) {
+        return '';
+    }
+}
+
 function renderCallPanel() {
     if (!callPanel || !callPanelStatus || !callPanelTitle) {
         return;
@@ -3747,7 +3755,7 @@ async function startVoiceCall() {
         const peer = await ensureCallPeer(payload.call.id);
         const offer = await peer.createOffer({ offerToReceiveAudio: true });
         await peer.setLocalDescription(offer);
-        await postCallAction('call_offer', { session_id: payload.call.id, offer_sdp: offer.sdp || '' });
+        await postCallAction('call_offer', { session_id: payload.call.id, offer_sdp_b64: encodeSdpForTransport(offer.sdp || '') });
         showHint('Calling…');
     } catch (error) {
         showError(error instanceof Error ? error.message : 'Could not start call.');
@@ -3773,7 +3781,7 @@ async function acceptVoiceCall() {
         }
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-        await postCallAction('call_answer', { session_id: latestCall.id, answer_sdp: answer.sdp || '' });
+        await postCallAction('call_answer', { session_id: latestCall.id, answer_sdp_b64: encodeSdpForTransport(answer.sdp || '') });
     } catch (error) {
         showError(error instanceof Error ? error.message : 'Could not accept call.');
     }
