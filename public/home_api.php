@@ -127,6 +127,22 @@ if ($requestMethod === 'POST') {
         ]);
     }
 
+    if ($action === 'cancel_friend_request') {
+        $error = cancelFriendRequest($currentUserId, $otherUserId);
+
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
+        ]);
+    }
+
     if ($action === 'revoke_friendship') {
         $error = revokeFriendship($currentUserId, $otherUserId);
 

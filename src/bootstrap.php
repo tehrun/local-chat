@@ -1957,6 +1957,31 @@ function respondToFriendRequest(int $currentUserId, int $otherUserId, string $re
     return null;
 }
 
+function cancelFriendRequest(int $currentUserId, int $otherUserId): ?string
+{
+    $friendship = friendshipRecord($currentUserId, $otherUserId);
+
+    if ($friendship === null || $friendship['status'] !== 'pending' || $friendship['request_direction'] !== 'outgoing') {
+        return 'Friend request not found.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE friend_requests
+         SET status = :status,
+             responded_at = :responded_at
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'status' => 'revoked',
+        'responded_at' => gmdate('c'),
+        'id' => $friendship['id'],
+    ]);
+
+    triggerPushNotificationsForUser($otherUserId);
+
+    return null;
+}
+
 function revokeFriendship(int $currentUserId, int $otherUserId): ?string
 {
     $friendship = friendshipRecord($currentUserId, $otherUserId);
