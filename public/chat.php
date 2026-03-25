@@ -1224,6 +1224,40 @@ if ($isGroupConversation) {
             text-transform: capitalize;
             flex-shrink: 0;
         }
+        .member-picker-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .member-remove-button {
+            width: 34px;
+            height: 34px;
+            border: none;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(226, 62, 87, 0.14);
+            color: #c7364f;
+            cursor: pointer;
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
+        .member-remove-button:hover,
+        .member-remove-button:focus-visible {
+            background: rgba(226, 62, 87, 0.2);
+            transform: translateY(-1px);
+            outline: none;
+        }
+        .member-remove-button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+        .member-remove-button svg {
+            width: 18px;
+            height: 18px;
+        }
         :root[data-theme="dark"] .message-reactions {
             background: rgba(17, 27, 33, 0.95);
             border-color: rgba(255, 255, 255, 0.18);
@@ -1257,6 +1291,14 @@ if ($isGroupConversation) {
         :root[data-theme="dark"] .member-role-chip {
             background: rgba(37, 211, 102, 0.2);
             color: #8af5b8;
+        }
+        :root[data-theme="dark"] .member-remove-button {
+            background: rgba(226, 62, 87, 0.2);
+            color: #ff8ea0;
+        }
+        :root[data-theme="dark"] .member-remove-button:hover,
+        :root[data-theme="dark"] .member-remove-button:focus-visible {
+            background: rgba(226, 62, 87, 0.28);
         }
 
         @media (min-width: 721px) {
@@ -1687,6 +1729,12 @@ let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
 let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers : [];
 let groupState = initialGroup;
+const personMinusIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9.5" cy="7" r="4"></circle>
+        <path d="M22 11h-6"></path>
+    </svg>`;
 let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
 let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
 updateReplyPreviewUi();
@@ -1793,15 +1841,26 @@ function renderGroupMembers() {
         return String(left.username || '').localeCompare(String(right.username || ''));
     });
 
-    groupMembersListEl.innerHTML = members.map((member) => `
+    const canManageMembers = Number(groupState?.creator_user_id || 0) === currentUserId;
+    groupMembersListEl.innerHTML = members.map((member) => {
+        const memberUserId = Number(member.user_id || 0);
+        const isCreator = String(member.role || '') === 'creator';
+        const canRemoveMember = canManageMembers && !isCreator && memberUserId > 0 && memberUserId !== currentUserId;
+        return `
         <div class="member-picker-item">
             <div class="member-picker-copy">
                 <strong>${escapeHtml(member.username || '')}</strong>
                 <span>${escapeHtml(member.presence_label || 'Member')}</span>
             </div>
-            ${String(member.role || '') === 'creator' ? '<span class="member-role-chip">Creator</span>' : ''}
+            <div class="member-picker-actions">
+                ${isCreator ? '<span class="member-role-chip">Creator</span>' : ''}
+                ${canRemoveMember
+                    ? `<button class="member-remove-button" type="button" data-group-remove-user-id="${memberUserId}" aria-label="Remove ${escapeHtml(member.username || 'member')} from group" title="Remove member">${personMinusIcon}</button>`
+                    : ''}
+            </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     groupMembersEmptyEl.hidden = members.length > 0;
 }
@@ -4539,6 +4598,44 @@ memberPickerListEl?.addEventListener('click', async (event) => {
     } catch (error) {
         target.removeAttribute('disabled');
         showError(error.message || 'Could not add that user right now.');
+    }
+});
+
+groupMembersListEl?.addEventListener('click', async (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-group-remove-user-id]') : null;
+    if (!target) {
+        return;
+    }
+
+    const userId = Number(target.getAttribute('data-group-remove-user-id') || 0);
+    const member = Array.isArray(groupState?.members)
+        ? groupState.members.find((entry) => Number(entry?.user_id || 0) === userId)
+        : null;
+    if (!member || userId <= 0) {
+        return;
+    }
+
+    if (!window.confirm(`Remove ${member.username || 'this member'} from the group?`)) {
+        return;
+    }
+
+    target.setAttribute('disabled', 'disabled');
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'remove_group_member', user_id: String(userId), csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not remove that member right now.');
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint(`${member.username || 'Member'} was removed from the group.`);
+    } catch (error) {
+        showError(error.message || 'Could not remove that member right now.');
+        target.removeAttribute('disabled');
     }
 });
 

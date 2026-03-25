@@ -142,6 +142,20 @@ if ($isGroupConversation) {
         jsonResponse(['ok' => true]);
     }
 
+    if ($action === 'remove_group_member') {
+        $error = removeGroupMember($groupId, (int) $user['id'], (int) ($_POST['user_id'] ?? 0));
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
     if ($action === 'delete_group') {
         $error = deleteGroup($groupId, (int) $user['id']);
         if ($error !== null) {
