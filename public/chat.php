@@ -3592,9 +3592,12 @@ function renderCallPanel() {
     const direction = callState.direction === 'outgoing' ? 'Outgoing' : 'Incoming';
     callPanelTitle.textContent = `Voice call · ${direction}`;
     callPanelStatus.textContent = String(callState.status || 'idle');
-    callAcceptButton.hidden = !(callState.direction === 'incoming' && callState.status === 'ringing');
-    callRejectButton.hidden = !(callState.direction === 'incoming' && (callState.status === 'ringing' || callState.status === 'connecting'));
-    callEndButton.hidden = !['outgoing', 'incoming'].includes(callState.direction) || !['connecting', 'active', 'ringing'].includes(String(callState.status || ''));
+    const status = String(callState.status || '');
+    const isIncoming = callState.direction === 'incoming';
+    const isOutgoing = callState.direction === 'outgoing';
+    callAcceptButton.hidden = !(isIncoming && status === 'ringing');
+    callRejectButton.hidden = !(isIncoming && status === 'ringing');
+    callEndButton.hidden = !(isOutgoing && ['ringing', 'connecting', 'active'].includes(status));
     voiceCallButton?.classList.toggle('hidden', !canUseVoiceCalling() || ['ringing', 'connecting', 'active'].includes(String(callState.status || '')));
 }
 
@@ -3692,17 +3695,17 @@ async function syncCallState(call) {
         return;
     }
 
-    const peer = await ensureCallPeer(callState.id).catch(() => null);
+    if (callState.direction === 'outgoing' && callState.answer_sdp) {
+        const peer = await ensureCallPeer(callState.id).catch(() => null);
+        if (!peer) {
+            return;
+        }
+        await peer.setRemoteDescription({ type: 'answer', sdp: String(callState.answer_sdp) }).catch(() => null);
+    }
+
+    const peer = callPeer;
     if (!peer) {
         return;
-    }
-
-    if (callState.offer_sdp && !peer.currentRemoteDescription && callState.direction === 'incoming') {
-        await peer.setRemoteDescription({ type: 'offer', sdp: String(callState.offer_sdp) }).catch(() => null);
-    }
-
-    if (callState.answer_sdp && callState.direction === 'outgoing' && !peer.currentRemoteDescription) {
-        await peer.setRemoteDescription({ type: 'answer', sdp: String(callState.answer_sdp) }).catch(() => null);
     }
 
     const remoteIce = Array.isArray(callState.ice_candidates) ? callState.ice_candidates : [];
@@ -3711,7 +3714,7 @@ async function syncCallState(call) {
         for (const candidateJson of pending) {
             try {
                 const parsed = JSON.parse(candidateJson);
-                await peer.addIceCandidate(parsed);
+                await peer.addIceCandidate(new RTCIceCandidate(parsed));
             } catch (error) {
                 // Ignore invalid candidates.
             }
@@ -3722,6 +3725,12 @@ async function syncCallState(call) {
     if (['ended', 'rejected', 'missed', 'failed'].includes(String(callState.status || ''))) {
         closePeerConnection();
         stopLocalCallMedia();
+        window.setTimeout(() => {
+            callState = null;
+            callIceIndex = 0;
+            renderCallPanel();
+            updateFriendshipUi();
+        }, 1200);
     }
 }
 
@@ -3753,13 +3762,18 @@ async function acceptVoiceCall() {
     }
     try {
         await postCallAction('accept_call', { session_id: callState.id });
-        const peer = await ensureCallPeer(callState.id);
-        if (callState.offer_sdp && !peer.currentRemoteDescription) {
-            await peer.setRemoteDescription({ type: 'offer', sdp: String(callState.offer_sdp) });
+        const statePayload = await postCallAction('call_state');
+        const latestCall = statePayload.call || callState;
+        if (!latestCall || !latestCall.offer_sdp) {
+            throw new Error('Offer not ready yet. Please try again in a moment.');
+        }
+        const peer = await ensureCallPeer(latestCall.id);
+        if (!peer.currentRemoteDescription) {
+            await peer.setRemoteDescription({ type: 'offer', sdp: String(latestCall.offer_sdp) });
         }
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-        await postCallAction('call_answer', { session_id: callState.id, answer_sdp: answer.sdp || '' });
+        await postCallAction('call_answer', { session_id: latestCall.id, answer_sdp: answer.sdp || '' });
     } catch (error) {
         showError(error instanceof Error ? error.message : 'Could not accept call.');
     }
