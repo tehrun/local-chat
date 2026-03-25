@@ -1785,6 +1785,17 @@ function conversationStreamUrl() {
     return isGroupConversation ? `chat_stream.php?group=${groupId}` : `chat_stream.php?user=${conversationUserId}`;
 }
 
+function mediaUrlForMessage(messageId) {
+    const numericMessageId = Number(messageId || 0);
+    if (numericMessageId <= 0) {
+        return 'media.php';
+    }
+    if (isGroupConversation) {
+        return `media.php?message=${numericMessageId}&group=${groupId}`;
+    }
+    return `media.php?message=${numericMessageId}`;
+}
+
 function availableGroupInviteCandidates() {
     const memberIds = new Set(Array.isArray(groupState?.members) ? groupState.members.map((member) => String(member.user_id)) : []);
     const query = String(memberPickerSearchInput?.value || '').trim().toLowerCase();
@@ -3266,14 +3277,15 @@ function renderMessages(messages) {
             const body = message.body
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
+            const mediaUrl = mediaUrlForMessage(message.id);
             const image = message.image_path
-                ? `<button class="message-photo-button" type="button" data-image-src="media.php?message=${Number(message.id)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="media.php?message=${Number(message.id)}" alt="Shared image"></button>`
+                ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<audio controls preload="none" src="media.php?message=${Number(message.id)}"></audio>`
+                ? `<audio controls preload="none" src="${escapeHtml(mediaUrl)}"></audio>`
                 : '';
             const file = message.file_path
-                ? `<a class="message-file" href="media.php?message=${Number(message.id)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
+                ? `<a class="message-file" href="${escapeHtml(mediaUrl)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
                 : '';
             const expiredAttachment = message.attachment_expired
                 ? '<div class="message-text muted" dir="auto">Attachment expired.</div>'

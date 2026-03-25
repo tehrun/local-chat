@@ -73,6 +73,60 @@ if ($isGroupConversation) {
         ]);
     }
 
+    if ($action === 'send_voice') {
+        $message = sendGroupVoiceMessage(
+            $groupId,
+            (int) $user['id'],
+            $_FILES['voice_note'] ?? [],
+            (int) ($_POST['reply_to_message_id'] ?? 0)
+        );
+        if (is_string($message)) {
+            jsonResponse(['error' => $message], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'message' => $message,
+            'typing_members' => groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']),
+            'signature' => groupConversationStateSignature($groupId, (int) $user['id']),
+        ]);
+    }
+
+    if ($action === 'send_image') {
+        $message = sendGroupImageMessage(
+            $groupId,
+            (int) $user['id'],
+            $_FILES['image_file'] ?? [],
+            (int) ($_POST['reply_to_message_id'] ?? 0)
+        );
+        if (is_string($message)) {
+            jsonResponse(['error' => $message], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'message' => $message,
+            'typing_members' => groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']),
+            'signature' => groupConversationStateSignature($groupId, (int) $user['id']),
+        ]);
+    }
+
+    if ($action === 'send_file') {
+        $message = sendGroupFileMessage(
+            $groupId,
+            (int) $user['id'],
+            $_FILES['shared_file'] ?? [],
+            (int) ($_POST['reply_to_message_id'] ?? 0)
+        );
+        if (is_string($message)) {
+            jsonResponse(['error' => $message], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'message' => $message,
+            'typing_members' => groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']),
+            'signature' => groupConversationStateSignature($groupId, (int) $user['id']),
+        ]);
+    }
+
     if ($action === 'react') {
         $result = reactToGroupMessage(
             $groupId,
