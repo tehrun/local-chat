@@ -4073,6 +4073,53 @@ function leaveGroup(int $groupId, int $userId): ?string
     return null;
 }
 
+function removeGroupMember(int $groupId, int $actorUserId, int $targetUserId): ?string
+{
+    if ($targetUserId <= 0) {
+        return 'Member not found.';
+    }
+
+    $group = findGroupById($groupId);
+    if ($group === null) {
+        return 'Group not found.';
+    }
+
+    if ((int) $group['creator_user_id'] !== $actorUserId) {
+        return 'Only the group creator can remove members.';
+    }
+
+    if ($actorUserId === $targetUserId) {
+        return 'The group creator cannot remove themselves.';
+    }
+
+    $membership = activeGroupMembership($groupId, $targetUserId);
+    if ($membership === null) {
+        return 'Member not found.';
+    }
+
+    if ((string) ($membership['role'] ?? '') === 'creator') {
+        return 'The group creator cannot be removed.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE group_members
+         SET status = :status,
+             left_at = :left_at
+         WHERE group_id = :group_id
+           AND user_id = :user_id
+           AND status = :current_status'
+    );
+    $stmt->execute([
+        'status' => 'left',
+        'left_at' => gmdate('c'),
+        'group_id' => $groupId,
+        'user_id' => $targetUserId,
+        'current_status' => 'active',
+    ]);
+
+    return null;
+}
+
 function deleteGroup(int $groupId, int $actorUserId): ?string
 {
     $group = findGroupById($groupId);
