@@ -1141,6 +1141,12 @@ const personPlusIcon = `
         <path d="M19 8v6"></path>
         <path d="M22 11h-6"></path>
     </svg>`;
+const personMinusIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9.5" cy="7" r="4"></circle>
+        <path d="M22 11h-6"></path>
+    </svg>`;
 const acceptIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M20 6 9 17l-5-5"></path>
@@ -1376,7 +1382,7 @@ function friendshipActionMarkup(chatUser) {
     }
 
     if (status === 'pending') {
-        return '<span class="mini-button secondary" aria-disabled="true">Request sent</span>';
+        return `<button class="mini-button danger icon-button" type="button" data-request-action="cancel_friend_request" data-user-id="${userId}" aria-label="Cancel friend request" title="Cancel friend request">${personMinusIcon}</button>`;
     }
 
     return `<button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>`;
