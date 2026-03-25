@@ -23,7 +23,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['username'] ?? '',
             $_POST['password'] ?? '',
             $_POST['confirm_password'] ?? '',
-            $_POST['registration_secret'] ?? '',
             $_POST['verification_answer'] ?? ''
         );
         $authChallengePrompt = authChallengePrompt();
@@ -902,10 +901,6 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <label>
                                     Confirm password
                                     <input type="password" name="confirm_password" minlength="6" required>
-                                </label>
-                                <label>
-                                    Registration secret
-                                    <input type="password" name="registration_secret" autocomplete="off" required>
                                 </label>
                                 <label>
                                     Verification: solve <?= e($authChallengePrompt) ?>

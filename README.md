@@ -34,17 +34,6 @@ For background Web Push notifications, serve the app over HTTPS (or a secure loc
 - `CHAT_WEB_PUSH_VAPID_PRIVATE_KEY_PEM` — PEM-encoded EC private key on the `prime256v1` curve
 - `CHAT_WEB_PUSH_SUBJECT` — contact value for VAPID claims, such as `mailto:admin@example.com`
 - `CHAT_MESSAGE_ENCRYPTION_KEY` — optional 32-byte key (raw or base64). If omitted, the app generates `storage/message-encryption.key` automatically.
-- `CHAT_REGISTRATION_SECRET` — required shared secret for account registration. Registration attempts are denied when this value is unset or empty.
-
-### Registration secret setup and rotation
-
-Set `CHAT_REGISTRATION_SECRET` to a long random value (20+ characters recommended) before exposing registration.
-
-To rotate the secret:
-
-1. Generate a new random secret and update `CHAT_REGISTRATION_SECRET` in your runtime environment.
-2. Restart PHP-FPM / Apache / your PHP process manager so the new value is loaded.
-3. Share the new secret with trusted users through an out-of-band channel.
 
 ## Storage
 
