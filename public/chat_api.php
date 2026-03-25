@@ -267,6 +267,22 @@ if ($action === 'revoke_friendship') {
     ]);
 }
 
+if ($action === 'send_friend_request') {
+    $error = sendFriendRequest((int) $user['id'], $otherUserId);
+
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
+    ]);
+}
+
 if ($action === 'react') {
     $result = reactToPrivateMessage(
         (int) $user['id'],

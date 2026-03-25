@@ -1349,7 +1349,21 @@ if ($isGroupConversation) {
                             <circle cx="9" cy="7" r="4"></circle>
                             <path d="M17 11h4"></path>
                         </svg>
-                        <span>Revoke friendship</span>
+                        <span>Remove friend</span>
+                    </button>
+                    <button
+                        id="add-friend-button"
+                        class="header-menu-item<?= !$isGroupConversation && ($friendship === null || $friendship['status'] !== 'accepted') ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M19 8v6"></path>
+                            <path d="M22 11h-6"></path>
+                        </svg>
+                        <span>Add friend</span>
                     </button>
                     <button
                         id="delete-conversation-button"
@@ -1589,6 +1603,7 @@ const headerMenuButton = document.getElementById('header-menu-button');
 const headerMenuPanel = document.getElementById('header-menu-panel');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
+const addFriendButton = document.getElementById('add-friend-button');
 const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
@@ -1957,6 +1972,11 @@ function updateFriendshipUi() {
     }
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
+    const canSendFriendRequest = Boolean(
+        !isAccepted
+        && (!friendshipState || !['pending', 'accepted'].includes(String(friendshipState.status || '')))
+    );
+    addFriendButton.classList.toggle('hidden', !canSendFriendRequest);
 
     if (isAccepted) {
         if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
@@ -1971,7 +1991,19 @@ function updateFriendshipUi() {
     }
 
     if (!isSending && statusState !== 'recording') {
-        showHint('Friendship revoked. Message history is still visible, but sending is disabled.');
+        const status = String(friendshipState?.status || 'none');
+        const direction = String(friendshipState?.request_direction || '');
+        if (status === 'pending' && direction === 'outgoing') {
+            showHint(`Friend request sent to ${conversationDisplayName}. You can start chatting once it is accepted.`);
+            return;
+        }
+
+        if (status === 'pending' && direction === 'incoming') {
+            showHint(`${conversationDisplayName} sent you a friend request. Accept it from Home to start chatting.`);
+            return;
+        }
+
+        showHint('You are not friends yet. Message history is still visible, but sending is disabled.');
     }
 }
 
@@ -4376,7 +4408,7 @@ revokeFriendshipButton?.addEventListener('click', async () => {
         return;
     }
 
-    const confirmed = window.confirm(`Revoke friendship with ${conversationDisplayName}? Existing messages will stay, but both of you will not be able to send new messages.`);
+    const confirmed = window.confirm(`Remove ${conversationDisplayName} from your friends? Existing messages will stay, but both of you will not be able to send new messages.`);
     if (!confirmed) {
         return;
     }
@@ -4402,6 +4434,41 @@ revokeFriendshipButton?.addEventListener('click', async () => {
         showError('Could not revoke friendship right now. Please try again.');
     } finally {
         revokeFriendshipButton.disabled = false;
+    }
+});
+
+addFriendButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    if (isGroupConversation || isSending) {
+        return;
+    }
+
+    if (friendshipState && ['pending', 'accepted'].includes(String(friendshipState.status || ''))) {
+        return;
+    }
+
+    addFriendButton.disabled = true;
+
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'send_friend_request', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            showError(payload.error || 'Could not send friend request right now.');
+            return;
+        }
+
+        applyConversationPayload(payload.payload || payload);
+        showHint(`Friend request sent to ${conversationDisplayName}.`);
+    } catch (error) {
+        showError('Could not send friend request right now. Please try again.');
+    } finally {
+        addFriendButton.disabled = false;
     }
 });
 
