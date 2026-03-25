@@ -44,6 +44,7 @@ if ($isGroupConversation) {
         ? [['user_id' => (int) $otherUser['id'], 'username' => (string) $otherUser['username']]]
         : [];
     $initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
+    $initialCall = privateCallPayload((int) $user['id'], $otherUserId);
 }
 ?>
 <!DOCTYPE html>
@@ -1337,6 +1338,17 @@ if ($isGroupConversation) {
                     </div>
                 <?php endif; ?>
             </div>
+            <button
+                id="voice-call-button"
+                class="header-icon-button<?= $isGroupConversation ? ' hidden' : '' ?>"
+                type="button"
+                aria-label="Start voice call"
+                title="Start voice call"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.09 4.18 2 2 0 0 1 4.08 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.61 2.63a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.45-1.24a2 2 0 0 1 2.11-.45c.85.28 1.73.49 2.63.61A2 2 0 0 1 22 16.92Z"></path>
+                </svg>
+            </button>
             <div class="header-menu">
                 <button
                     id="header-menu-button"
@@ -1535,6 +1547,17 @@ if ($isGroupConversation) {
         </div>
 
         <div class="composer-wrap">
+            <div id="call-panel" class="reply-preview" hidden>
+                <div class="reply-preview-copy">
+                    <strong id="call-panel-title">Voice call</strong>
+                    <span id="call-panel-status">Idle</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button id="call-accept-button" class="header-menu-item" type="button" hidden>Accept</button>
+                    <button id="call-reject-button" class="header-menu-item danger" type="button" hidden>Reject</button>
+                    <button id="call-end-button" class="header-menu-item danger" type="button" hidden>End</button>
+                </div>
+            </div>
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
                 <div class="conversation-actions" aria-hidden="false">
@@ -1618,6 +1641,7 @@ const initialFriendship = <?= jsonScriptValue($friendship) ?>;
 const initialGroup = <?= jsonScriptValue($group) ?>;
 const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceUpdatedAt = <?= jsonScriptValue($isGroupConversation ? null : ($otherUser['presence_updated_at'] ?? null)) ?>;
+const initialCall = <?= jsonScriptValue($isGroupConversation ? null : $initialCall) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
@@ -1650,6 +1674,13 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
+const voiceCallButton = document.getElementById('voice-call-button');
+const callPanel = document.getElementById('call-panel');
+const callPanelTitle = document.getElementById('call-panel-title');
+const callPanelStatus = document.getElementById('call-panel-status');
+const callAcceptButton = document.getElementById('call-accept-button');
+const callRejectButton = document.getElementById('call-reject-button');
+const callEndButton = document.getElementById('call-end-button');
 const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
 
@@ -1737,6 +1768,11 @@ const personMinusIcon = `
     </svg>`;
 let statusState = initialCanChat && typingMembers.length > 0 ? 'typing' : 'idle';
 let statusMessage = typingMembers.length > 0 ? `${typingMembers.map((member) => member.username).join(', ')} typing…` : '';
+let callState = initialCall && typeof initialCall === 'object' ? initialCall : null;
+let callIceIndex = 0;
+let localMediaStream = null;
+let callPeer = null;
+let pendingCallStart = false;
 updateReplyPreviewUi();
 
 function setHeaderMenuOpen(isOpen) {
@@ -2047,6 +2083,8 @@ function updateFriendshipUi() {
         && (!friendshipState || !['pending', 'accepted'].includes(String(friendshipState.status || '')))
     );
     addFriendButton.classList.toggle('hidden', !canSendFriendRequest);
+    voiceCallButton?.classList.toggle('hidden', !canUseVoiceCalling() || Boolean(callState && ['ringing', 'connecting', 'active'].includes(String(callState.status || ''))));
+    renderCallPanel();
 
     if (isAccepted) {
         if (statusState !== 'typing' && statusState !== 'recording' && !isSending) {
@@ -3536,6 +3574,224 @@ function sendTextMessageFromActionPress(event) {
     scheduleComposerFocusRestore();
 }
 
+function canUseVoiceCalling() {
+    return !isGroupConversation && canChat && Boolean(window.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
+}
+
+function renderCallPanel() {
+    if (!callPanel || !callPanelStatus || !callPanelTitle) {
+        return;
+    }
+
+    if (!callState || !canUseVoiceCalling()) {
+        callPanel.hidden = true;
+        return;
+    }
+
+    callPanel.hidden = false;
+    const direction = callState.direction === 'outgoing' ? 'Outgoing' : 'Incoming';
+    callPanelTitle.textContent = `Voice call · ${direction}`;
+    callPanelStatus.textContent = String(callState.status || 'idle');
+    callAcceptButton.hidden = !(callState.direction === 'incoming' && callState.status === 'ringing');
+    callRejectButton.hidden = !(callState.direction === 'incoming' && (callState.status === 'ringing' || callState.status === 'connecting'));
+    callEndButton.hidden = !['outgoing', 'incoming'].includes(callState.direction) || !['connecting', 'active', 'ringing'].includes(String(callState.status || ''));
+    voiceCallButton?.classList.toggle('hidden', !canUseVoiceCalling() || ['ringing', 'connecting', 'active'].includes(String(callState.status || '')));
+}
+
+async function postCallAction(action, data = {}) {
+    const body = new URLSearchParams({ action, csrf_token: csrfToken });
+    Object.entries(data).forEach(([key, value]) => {
+        body.set(key, String(value));
+    });
+    const response = await fetch(conversationApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+        body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Call request failed.');
+    }
+    if (payload.call) {
+        callState = payload.call;
+        callIceIndex = 0;
+        renderCallPanel();
+    }
+    if (typeof payload.signature === 'string' && payload.signature) {
+        conversationSignature = payload.signature;
+    }
+    return payload;
+}
+
+function closePeerConnection() {
+    if (callPeer) {
+        try {
+            callPeer.onicecandidate = null;
+            callPeer.ontrack = null;
+            callPeer.close();
+        } catch (error) {
+            // Ignore cleanup errors.
+        }
+    }
+    callPeer = null;
+}
+
+function stopLocalCallMedia() {
+    if (localMediaStream) {
+        localMediaStream.getTracks().forEach((track) => {
+            try {
+                track.stop();
+            } catch (error) {
+                // Ignore cleanup errors.
+            }
+        });
+    }
+    localMediaStream = null;
+}
+
+async function ensureCallPeer(sessionId) {
+    if (!callPeer) {
+        callPeer = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        });
+        callPeer.onicecandidate = (event) => {
+            if (!event.candidate || !callState || Number(callState.id || 0) !== Number(sessionId || 0)) {
+                return;
+            }
+            postCallAction('call_ice', {
+                session_id: callState.id,
+                candidate: JSON.stringify(event.candidate.toJSON()),
+            }).catch(() => {
+                // Ignore transient ICE transport errors.
+            });
+        };
+    }
+
+    if (!localMediaStream) {
+        localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localMediaStream.getTracks().forEach((track) => {
+            callPeer.addTrack(track, localMediaStream);
+        });
+    }
+
+    return callPeer;
+}
+
+async function syncCallState(call) {
+    callState = call && typeof call === 'object' ? call : null;
+    if (!callState) {
+        closePeerConnection();
+        stopLocalCallMedia();
+        renderCallPanel();
+        return;
+    }
+
+    renderCallPanel();
+
+    if (!canUseVoiceCalling() || !callState.id) {
+        return;
+    }
+
+    const peer = await ensureCallPeer(callState.id).catch(() => null);
+    if (!peer) {
+        return;
+    }
+
+    if (callState.offer_sdp && !peer.currentRemoteDescription && callState.direction === 'incoming') {
+        await peer.setRemoteDescription({ type: 'offer', sdp: String(callState.offer_sdp) }).catch(() => null);
+    }
+
+    if (callState.answer_sdp && callState.direction === 'outgoing' && !peer.currentRemoteDescription) {
+        await peer.setRemoteDescription({ type: 'answer', sdp: String(callState.answer_sdp) }).catch(() => null);
+    }
+
+    const remoteIce = Array.isArray(callState.ice_candidates) ? callState.ice_candidates : [];
+    if (remoteIce.length > callIceIndex) {
+        const pending = remoteIce.slice(callIceIndex);
+        for (const candidateJson of pending) {
+            try {
+                const parsed = JSON.parse(candidateJson);
+                await peer.addIceCandidate(parsed);
+            } catch (error) {
+                // Ignore invalid candidates.
+            }
+        }
+        callIceIndex = remoteIce.length;
+    }
+
+    if (['ended', 'rejected', 'missed', 'failed'].includes(String(callState.status || ''))) {
+        closePeerConnection();
+        stopLocalCallMedia();
+    }
+}
+
+async function startVoiceCall() {
+    if (!canUseVoiceCalling() || pendingCallStart) {
+        return;
+    }
+    pendingCallStart = true;
+    try {
+        const payload = await postCallAction('start_call');
+        if (!payload.call || !payload.call.id) {
+            return;
+        }
+        const peer = await ensureCallPeer(payload.call.id);
+        const offer = await peer.createOffer({ offerToReceiveAudio: true });
+        await peer.setLocalDescription(offer);
+        await postCallAction('call_offer', { session_id: payload.call.id, offer_sdp: offer.sdp || '' });
+        showHint('Calling…');
+    } catch (error) {
+        showError(error instanceof Error ? error.message : 'Could not start call.');
+    } finally {
+        pendingCallStart = false;
+    }
+}
+
+async function acceptVoiceCall() {
+    if (!callState || !callState.id) {
+        return;
+    }
+    try {
+        await postCallAction('accept_call', { session_id: callState.id });
+        const peer = await ensureCallPeer(callState.id);
+        if (callState.offer_sdp && !peer.currentRemoteDescription) {
+            await peer.setRemoteDescription({ type: 'offer', sdp: String(callState.offer_sdp) });
+        }
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        await postCallAction('call_answer', { session_id: callState.id, answer_sdp: answer.sdp || '' });
+    } catch (error) {
+        showError(error instanceof Error ? error.message : 'Could not accept call.');
+    }
+}
+
+async function rejectVoiceCall() {
+    if (!callState || !callState.id) {
+        return;
+    }
+    try {
+        await postCallAction('reject_call', { session_id: callState.id });
+        closePeerConnection();
+        stopLocalCallMedia();
+    } catch (error) {
+        showError(error instanceof Error ? error.message : 'Could not reject call.');
+    }
+}
+
+async function endVoiceCall() {
+    if (!callState || !callState.id) {
+        return;
+    }
+    try {
+        await postCallAction('end_call', { session_id: callState.id });
+    } catch (error) {
+        showError(error instanceof Error ? error.message : 'Could not end call.');
+    } finally {
+        closePeerConnection();
+        stopLocalCallMedia();
+    }
+}
+
 function applyConversationPayload(payload, options = {}) {
     const { appendHistory = false } = options;
     const composerWasFocused = document.activeElement === bodyEl;
@@ -3582,6 +3838,11 @@ function applyConversationPayload(payload, options = {}) {
     if (Object.prototype.hasOwnProperty.call(payload, 'friendship')) {
         friendshipState = payload.friendship;
         updateFriendshipUi();
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'call')) {
+        syncCallState(payload.call).catch(() => {
+            // Ignore transient call state sync errors.
+        });
     }
     setTypingVisible(isGroupConversation ? (payload.typing_members || []) : (Boolean(payload.typing) && canChat));
 
@@ -4300,6 +4561,21 @@ async function toggleRecording() {
     await startRecording();
 }
 
+voiceCallButton?.addEventListener('click', () => {
+    markUserInteraction();
+    startVoiceCall();
+});
+callAcceptButton?.addEventListener('click', () => {
+    markUserInteraction();
+    acceptVoiceCall();
+});
+callRejectButton?.addEventListener('click', () => {
+    rejectVoiceCall();
+});
+callEndButton?.addEventListener('click', () => {
+    endVoiceCall();
+});
+
 attachmentButton.addEventListener('click', () => {
     markUserInteraction();
     if (!canChat || isSending || (!supportsFileUpload() && !supportsImageUpload())) {
@@ -4886,6 +5162,9 @@ window.addEventListener('load', () => {
 }, { once: true });
 updatePresence(initialPresence, initialPresenceUpdatedAt);
 updateFriendshipUi();
+syncCallState(initialCall).catch(() => {
+    // Ignore initial call sync errors.
+});
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();

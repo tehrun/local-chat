@@ -376,6 +376,107 @@ if (!$canChat) {
     jsonResponse(['error' => 'You can only chat after the friend request is accepted.'], 403);
 }
 
+if ($action === 'start_call') {
+    $call = createPrivateCallSession((int) $user['id'], $otherUserId);
+    if (is_string($call)) {
+        jsonResponse(['error' => $call], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => $call,
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'call_state') {
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'accept_call') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $error = updatePrivateCallStatus($sessionId, (int) $user['id'], 'connecting');
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'reject_call') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $error = updatePrivateCallStatus($sessionId, (int) $user['id'], 'rejected');
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'end_call') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $error = updatePrivateCallStatus($sessionId, (int) $user['id'], 'ended');
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'call_offer') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $offerSdp = trim((string) ($_POST['offer_sdp'] ?? ''));
+    $error = savePrivateCallOffer($sessionId, (int) $user['id'], $offerSdp);
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'call_answer') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $answerSdp = trim((string) ($_POST['answer_sdp'] ?? ''));
+    $error = savePrivateCallAnswer($sessionId, (int) $user['id'], $answerSdp);
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'call_ice') {
+    $sessionId = (int) ($_POST['session_id'] ?? 0);
+    $candidate = trim((string) ($_POST['candidate'] ?? ''));
+    $error = appendPrivateCallIceCandidate($sessionId, (int) $user['id'], $candidate);
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'call' => privateCallPayload((int) $user['id'], $otherUserId),
+        'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
 if ($action === 'typing') {
     $typing = filter_var($_POST['typing'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
 

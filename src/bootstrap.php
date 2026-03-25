@@ -16,6 +16,8 @@ define('PRESENCE_TTL_SECONDS', 90);
 define('PRESENCE_UPDATE_INTERVAL_SECONDS', 30);
 define('PURGE_INTERVAL_SECONDS', 30);
 define('SESSION_TTL_SECONDS', 30 * 24 * 60 * 60);
+define('PRIVATE_CALL_RING_TIMEOUT_SECONDS', 45);
+define('PRIVATE_CALL_STALE_TTL_SECONDS', 5 * 60);
 define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
 define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
@@ -620,6 +622,32 @@ function initializeSqliteDatabase(PDO $pdo): void
             FOREIGN KEY(conversation_user_id) REFERENCES users(id)
         )'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS private_call_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caller_id INTEGER NOT NULL,
+            callee_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            offer_sdp TEXT,
+            answer_sdp TEXT,
+            caller_ice_candidates TEXT,
+            callee_ice_candidates TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(caller_id) REFERENCES users(id),
+            FOREIGN KEY(callee_id) REFERENCES users(id)
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_private_call_pair_updated
+         ON private_call_sessions (caller_id, callee_id, updated_at, id)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_private_call_status_updated
+         ON private_call_sessions (status, updated_at, id)'
+    );
 
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
@@ -957,6 +985,26 @@ function initializeMysqlDatabase(PDO $pdo): void
             PRIMARY KEY (user_id, conversation_user_id),
             CONSTRAINT fk_conversation_clears_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             CONSTRAINT fk_conversation_clears_conversation_user FOREIGN KEY (conversation_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS private_call_sessions (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            caller_id INT UNSIGNED NOT NULL,
+            callee_id INT UNSIGNED NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            offer_sdp LONGTEXT NULL,
+            answer_sdp LONGTEXT NULL,
+            caller_ice_candidates LONGTEXT NULL,
+            callee_ice_candidates LONGTEXT NULL,
+            started_at DATETIME NULL,
+            ended_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            INDEX idx_private_call_pair_updated (caller_id, callee_id, updated_at, id),
+            INDEX idx_private_call_status_updated (status, updated_at, id),
+            CONSTRAINT fk_private_call_caller FOREIGN KEY (caller_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_private_call_callee FOREIGN KEY (callee_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -1626,6 +1674,12 @@ function purgeExpiredMessages(bool $force = false): void
 
     $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
     $deleteTyping->execute(['cutoff' => $typingCutoff]);
+    $deleteStaleCalls = $pdo->prepare(
+        'DELETE FROM private_call_sessions
+         WHERE updated_at < :cutoff
+           AND status IN (\'ended\', \'rejected\', \'missed\', \'failed\')'
+    );
+    $deleteStaleCalls->execute(['cutoff' => gmdate('c', time() - PRIVATE_CALL_STALE_TTL_SECONDS)]);
 
     $lastRunAt = time();
 }
@@ -3681,6 +3735,284 @@ function isUserTypingWithoutMaintenance(int $userId, int $otherUserId): bool
     return (bool) $stmt->fetchColumn();
 }
 
+function encodeCallIceCandidates(array $candidates): string
+{
+    return encodeJson(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_string($candidate) && $candidate !== '')));
+}
+
+function decodeCallIceCandidates(?string $json): array
+{
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    return array_values(array_filter($decoded, static fn (mixed $candidate): bool => is_string($candidate) && $candidate !== ''));
+}
+
+function privateCallRecordToPayload(array $row, int $viewerUserId): array
+{
+    $status = (string) ($row['status'] ?? 'idle');
+    $callerId = (int) ($row['caller_id'] ?? 0);
+    $calleeId = (int) ($row['callee_id'] ?? 0);
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'caller_id' => $callerId,
+        'callee_id' => $calleeId,
+        'status' => $status,
+        'direction' => $viewerUserId === $callerId ? 'outgoing' : 'incoming',
+        'offer_sdp' => isset($row['offer_sdp']) && $row['offer_sdp'] !== null ? (string) $row['offer_sdp'] : null,
+        'answer_sdp' => isset($row['answer_sdp']) && $row['answer_sdp'] !== null ? (string) $row['answer_sdp'] : null,
+        'ice_candidates' => $viewerUserId === $callerId
+            ? decodeCallIceCandidates(isset($row['callee_ice_candidates']) ? (string) $row['callee_ice_candidates'] : null)
+            : decodeCallIceCandidates(isset($row['caller_ice_candidates']) ? (string) $row['caller_ice_candidates'] : null),
+        'started_at' => $row['started_at'] ?? null,
+        'ended_at' => $row['ended_at'] ?? null,
+        'created_at' => $row['created_at'] ?? null,
+        'updated_at' => $row['updated_at'] ?? null,
+    ];
+}
+
+function latestPrivateCallSessionBetweenUsers(int $userId, int $otherUserId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM private_call_sessions
+         WHERE ((caller_id = :user_id AND callee_id = :other_user_id)
+            OR (caller_id = :other_user_id AND callee_id = :user_id))
+         ORDER BY id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+    $row = $stmt->fetch();
+
+    if (!is_array($row) || $row === []) {
+        return null;
+    }
+
+    return $row;
+}
+
+function privateCallPayload(int $userId, int $otherUserId): ?array
+{
+    $record = latestPrivateCallSessionBetweenUsers($userId, $otherUserId);
+    if ($record === null) {
+        return null;
+    }
+
+    if ((string) ($record['status'] ?? '') === 'ringing') {
+        $createdAt = isset($record['created_at']) ? strtotime((string) $record['created_at']) : false;
+        if (is_int($createdAt) && $createdAt > 0 && (time() - $createdAt) > PRIVATE_CALL_RING_TIMEOUT_SECONDS) {
+            db()->prepare(
+                'UPDATE private_call_sessions
+                 SET status = :status, ended_at = COALESCE(ended_at, :ended_at), updated_at = :updated_at
+                 WHERE id = :id'
+            )->execute([
+                'status' => 'missed',
+                'ended_at' => gmdate('c'),
+                'updated_at' => gmdate('c'),
+                'id' => (int) $record['id'],
+            ]);
+            $record = privateCallSessionById((int) $record['id']) ?? $record;
+        }
+    }
+
+    return privateCallRecordToPayload($record, $userId);
+}
+
+function createPrivateCallSession(int $callerId, int $calleeId): array|string
+{
+    if ($callerId <= 0 || $calleeId <= 0 || $callerId === $calleeId) {
+        return 'Invalid call participants.';
+    }
+
+    if (!canAccessConversation($callerId, $calleeId) || !canUsersChat($callerId, $calleeId)) {
+        return 'You can only call users you can chat with.';
+    }
+
+    $latest = latestPrivateCallSessionBetweenUsers($callerId, $calleeId);
+    if (is_array($latest) && in_array((string) ($latest['status'] ?? ''), ['ringing', 'connecting', 'active'], true)) {
+        return 'A call is already active in this conversation.';
+    }
+
+    $now = gmdate('c');
+    $stmt = db()->prepare(
+        'INSERT INTO private_call_sessions (
+            caller_id, callee_id, status, offer_sdp, answer_sdp, caller_ice_candidates, callee_ice_candidates, started_at, ended_at, created_at, updated_at
+         ) VALUES (
+            :caller_id, :callee_id, :status, NULL, NULL, :caller_ice_candidates, :callee_ice_candidates, NULL, NULL, :created_at, :updated_at
+         )'
+    );
+    $stmt->execute([
+        'caller_id' => $callerId,
+        'callee_id' => $calleeId,
+        'status' => 'ringing',
+        'caller_ice_candidates' => encodeCallIceCandidates([]),
+        'callee_ice_candidates' => encodeCallIceCandidates([]),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $created = latestPrivateCallSessionBetweenUsers($callerId, $calleeId);
+    if ($created === null) {
+        return 'Could not start call.';
+    }
+
+    return privateCallRecordToPayload($created, $callerId);
+}
+
+function updatePrivateCallStatus(int $sessionId, int $actorUserId, string $nextStatus): ?string
+{
+    $session = privateCallSessionById($sessionId);
+    if ($session === null) {
+        return 'Call session not found.';
+    }
+
+    if (!in_array($actorUserId, [(int) $session['caller_id'], (int) $session['callee_id']], true)) {
+        return 'You are not part of this call.';
+    }
+
+    $params = [
+        'id' => $sessionId,
+        'status' => $nextStatus,
+        'updated_at' => gmdate('c'),
+    ];
+    $sql = 'UPDATE private_call_sessions SET status = :status, updated_at = :updated_at';
+
+    if ($nextStatus === 'active' && empty($session['started_at'])) {
+        $sql .= ', started_at = :started_at';
+        $params['started_at'] = gmdate('c');
+    }
+
+    if (in_array($nextStatus, ['ended', 'rejected', 'missed', 'failed'], true) && empty($session['ended_at'])) {
+        $sql .= ', ended_at = :ended_at';
+        $params['ended_at'] = gmdate('c');
+    }
+
+    $sql .= ' WHERE id = :id';
+    db()->prepare($sql)->execute($params);
+
+    return null;
+}
+
+function privateCallSessionById(int $sessionId): ?array
+{
+    if ($sessionId <= 0) {
+        return null;
+    }
+
+    $stmt = db()->prepare('SELECT * FROM private_call_sessions WHERE id = :id LIMIT 1');
+    $stmt->execute(['id' => $sessionId]);
+    $row = $stmt->fetch();
+
+    return is_array($row) && $row !== [] ? $row : null;
+}
+
+function savePrivateCallOffer(int $sessionId, int $actorUserId, string $offerSdp): ?string
+{
+    $session = privateCallSessionById($sessionId);
+    if ($session === null) {
+        return 'Call session not found.';
+    }
+    if ($offerSdp === '') {
+        return 'Offer is required.';
+    }
+    if ($actorUserId !== (int) $session['caller_id']) {
+        return 'Only the caller can send an offer.';
+    }
+
+    db()->prepare(
+        'UPDATE private_call_sessions
+         SET offer_sdp = :offer_sdp, status = :status, updated_at = :updated_at
+         WHERE id = :id'
+    )->execute([
+        'offer_sdp' => $offerSdp,
+        'status' => 'connecting',
+        'updated_at' => gmdate('c'),
+        'id' => $sessionId,
+    ]);
+
+    return null;
+}
+
+function savePrivateCallAnswer(int $sessionId, int $actorUserId, string $answerSdp): ?string
+{
+    $session = privateCallSessionById($sessionId);
+    if ($session === null) {
+        return 'Call session not found.';
+    }
+    if ($answerSdp === '') {
+        return 'Answer is required.';
+    }
+    if ($actorUserId !== (int) $session['callee_id']) {
+        return 'Only the callee can send an answer.';
+    }
+
+    db()->prepare(
+        'UPDATE private_call_sessions
+         SET answer_sdp = :answer_sdp, status = :status, started_at = COALESCE(started_at, :started_at), updated_at = :updated_at
+         WHERE id = :id'
+    )->execute([
+        'answer_sdp' => $answerSdp,
+        'status' => 'active',
+        'started_at' => gmdate('c'),
+        'updated_at' => gmdate('c'),
+        'id' => $sessionId,
+    ]);
+
+    return null;
+}
+
+function appendPrivateCallIceCandidate(int $sessionId, int $actorUserId, string $candidate): ?string
+{
+    if ($candidate === '') {
+        return 'ICE candidate is required.';
+    }
+
+    $session = privateCallSessionById($sessionId);
+    if ($session === null) {
+        return 'Call session not found.';
+    }
+
+    $isCaller = $actorUserId === (int) $session['caller_id'];
+    $isCallee = $actorUserId === (int) $session['callee_id'];
+    if (!$isCaller && !$isCallee) {
+        return 'You are not part of this call.';
+    }
+
+    $column = $isCaller ? 'caller_ice_candidates' : 'callee_ice_candidates';
+    $existing = decodeCallIceCandidates(isset($session[$column]) ? (string) $session[$column] : null);
+    $existing[] = $candidate;
+
+    db()->prepare(
+        sprintf(
+            'UPDATE private_call_sessions
+             SET %s = :candidates, updated_at = :updated_at
+             WHERE id = :id',
+            $column
+        )
+    )->execute([
+        'candidates' => encodeCallIceCandidates($existing),
+        'updated_at' => gmdate('c'),
+        'id' => $sessionId,
+    ]);
+
+    return null;
+}
+
 function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
 {
     purgeExpiredMessages();
@@ -3695,6 +4027,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
     $otherUser = findUserById($otherUserId);
     $messages = conversationMessagesPageWithoutMaintenance($userId, $otherUserId, $limit, $beforeMessageId);
     $oldestLoadedId = $messages === [] ? null : (int) ($messages[0]['id'] ?? 0);
+    $call = privateCallPayload($userId, $otherUserId);
 
     return [
         'messages' => $messages,
@@ -3708,6 +4041,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'updated_at' => $otherUser['presence_updated_at'] ?? null,
         ],
+        'call' => $call,
     ];
 }
 
@@ -3778,6 +4112,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
 
     $friendship = friendshipRecord($userId, $otherUserId);
     $otherUser = findUserById($otherUserId);
+    $call = privateCallPayload($userId, $otherUserId);
 
     return md5(encodeJson([
         'messages' => [
@@ -3801,6 +4136,13 @@ function conversationStateSignature(int $userId, int $otherUserId): string
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'updated_at' => $otherUser['presence_updated_at'] ?? null,
+        ],
+        'call' => $call === null ? null : [
+            'id' => (int) ($call['id'] ?? 0),
+            'status' => (string) ($call['status'] ?? ''),
+            'updated_at' => $call['updated_at'] ?? null,
+            'started_at' => $call['started_at'] ?? null,
+            'ended_at' => $call['ended_at'] ?? null,
         ],
     ]));
 }
