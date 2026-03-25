@@ -3309,7 +3309,7 @@ function renderMessages(messages) {
             if (reactions !== '') {
                 rowClasses.push('has-reactions');
             }
-            if (!isGroupConversation && message.audio_path) {
+            if (message.audio_path) {
                 rowClasses.push('private-audio');
             }
 
