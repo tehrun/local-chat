@@ -396,21 +396,6 @@ function envValue(string $key, string $default = ''): string
     return $value === false ? $default : $value;
 }
 
-function registrationSecret(): string
-{
-    return trim((string) envValue('CHAT_REGISTRATION_SECRET', ''));
-}
-
-function validateRegistrationSecret(string $providedSecret): bool
-{
-    $configuredSecret = registrationSecret();
-    if ($configuredSecret === '') {
-        return false;
-    }
-
-    return hash_equals($configuredSecret, trim($providedSecret));
-}
-
 function messageEncryptionKey(): string
 {
     static $key = null;
@@ -2477,7 +2462,6 @@ function registerUser(
     string $username,
     string $password,
     string $confirmPassword,
-    string $registrationSecretInput,
     string $challengeAnswer
 ): ?string
 {
@@ -2509,13 +2493,6 @@ function registerUser(
         refreshAuthChallenge();
 
         return 'Passwords do not match.';
-    }
-
-    if (!validateRegistrationSecret($registrationSecretInput)) {
-        recordAuthAttempt('register', false);
-        refreshAuthChallenge();
-
-        return 'Registration is not authorized.';
     }
 
     $challenge = ensureAuthChallenge();
