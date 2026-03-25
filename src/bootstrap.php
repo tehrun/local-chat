@@ -767,6 +767,8 @@ function initializeSqliteDatabase(PDO $pdo): void
             body TEXT,
             audio_path TEXT,
             image_path TEXT,
+            file_path TEXT,
+            file_name TEXT,
             reply_to_message_id INTEGER,
             created_at TEXT NOT NULL,
             FOREIGN KEY(group_id) REFERENCES groups(id),
@@ -780,6 +782,12 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
     if (!in_array('reply_to_message_id', $groupMessageColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN reply_to_message_id INTEGER');
+    }
+    if (!in_array('file_path', $groupMessageColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_path TEXT');
+    }
+    if (!in_array('file_name', $groupMessageColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name TEXT');
     }
 
     $pdo->exec(
@@ -1042,6 +1050,8 @@ function initializeMysqlDatabase(PDO $pdo): void
             body LONGTEXT NULL,
             audio_path VARCHAR(255) NULL,
             image_path VARCHAR(255) NULL,
+            file_path VARCHAR(255) NULL,
+            file_name VARCHAR(255) NULL,
             reply_to_message_id BIGINT UNSIGNED NULL,
             created_at DATETIME NOT NULL,
             INDEX idx_group_messages_timeline (group_id, created_at, id),
@@ -1053,6 +1063,12 @@ function initializeMysqlDatabase(PDO $pdo): void
     $groupColumns = mysqlTableColumns($pdo, 'group_messages');
     if (!in_array('reply_to_message_id', $groupColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER image_path');
+    }
+    if (!in_array('file_path', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_path VARCHAR(255) NULL AFTER image_path');
+    }
+    if (!in_array('file_name', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
     }
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_reactions (
@@ -3261,7 +3277,7 @@ function deleteGroupMessage(int $groupId, int $currentUserId, int $messageId): ?
     }
 
     $stmt = db()->prepare(
-        'SELECT id, sender_id, audio_path, image_path
+        'SELECT id, sender_id, audio_path, image_path, file_path
          FROM group_messages
          WHERE id = :message_id
            AND group_id = :group_id
@@ -3282,6 +3298,7 @@ function deleteGroupMessage(int $groupId, int $currentUserId, int $messageId): ?
 
     deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
     deleteStorageFileIfExists($messageRow['image_path'] ?? null);
+    deleteStorageFileIfExists($messageRow['file_path'] ?? null);
 
     $reactionStmt = db()->prepare('DELETE FROM group_message_reactions WHERE message_id = :message_id');
     $reactionStmt->execute(['message_id' => $messageId]);
@@ -4187,8 +4204,8 @@ function formatGroupMessage(array $message): array
             'body' => decryptStoredMessageText($message['reply_body'] ?? null),
             'audio_path' => $message['reply_audio_path'] ?? null,
             'image_path' => $message['reply_image_path'] ?? null,
-            'file_path' => null,
-            'file_name' => null,
+            'file_path' => $message['reply_file_path'] ?? null,
+            'file_name' => $message['reply_file_name'] ?? null,
             'created_at' => $message['reply_created_at'] ?? null,
         ];
     }
@@ -4201,6 +4218,8 @@ function formatGroupMessage(array $message): array
         'body' => decryptStoredMessageText($message['body'] ?? null),
         'audio_path' => $message['audio_path'],
         'image_path' => $message['image_path'],
+        'file_path' => $message['file_path'] ?? null,
+        'file_name' => $message['file_name'] ?? null,
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
         'reply_reference' => $replyReference,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
@@ -4222,6 +4241,8 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
                    rgm.body AS reply_body,
                    rgm.audio_path AS reply_audio_path,
                    rgm.image_path AS reply_image_path,
+                   rgm.file_path AS reply_file_path,
+                   rgm.file_name AS reply_file_name,
                    rgm.created_at AS reply_created_at
             FROM group_messages gm
             JOIN users u ON u.id = gm.sender_id
@@ -4384,8 +4405,8 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, reply_to_message_id, created_at)
-         VALUES (:group_id, :sender_id, :body, NULL, NULL, :reply_to_message_id, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, :body, NULL, NULL, NULL, NULL, :reply_to_message_id, :created_at)'
     );
     $createdAt = gmdate('c');
     $stmt->execute([
@@ -4407,6 +4428,8 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
                 rgm.body AS reply_body,
                 rgm.audio_path AS reply_audio_path,
                 rgm.image_path AS reply_image_path,
+                rgm.file_path AS reply_file_path,
+                rgm.file_name AS reply_file_name,
                 rgm.created_at AS reply_created_at
          FROM group_messages gm
          JOIN users u ON u.id = gm.sender_id
@@ -4425,6 +4448,149 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
     $withReactions = attachReactionsToGroupMessages([$formatted]);
 
     return $withReactions[0] ?? $formatted;
+}
+
+function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'Voice upload failed. Please attach an audio file.';
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedAudioExtension($file, $mime);
+    if ($extension === null) {
+        return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a (including browser-recorded webm/ogg notes).';
+    }
+    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
+        return 'Voice note must be 10MB or smaller.';
+    }
+
+    $filename = sprintf('%s_%s.%s', $userId, bin2hex(random_bytes(8)), $extension);
+    $target = UPLOAD_PATH . '/' . $filename;
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return 'Could not save the voice note.';
+    }
+
+    $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
+    $stmt = db()->prepare(
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, :audio_path, NULL, NULL, NULL, :reply_to_message_id, :created_at)'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'sender_id' => $userId,
+        'audio_path' => 'storage/uploads/' . $filename,
+        'reply_to_message_id' => $replyToMessageId,
+        'created_at' => gmdate('c'),
+    ]);
+
+    clearGroupTypingStatus($groupId, $userId);
+
+    $payload = groupConversationPayload($groupId, $userId);
+    $messages = is_array($payload['messages'] ?? null) ? $payload['messages'] : [];
+
+    return $messages !== [] ? $messages[count($messages) - 1] : 'Could not send message right now.';
+}
+
+function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'Image upload failed. Please attach a photo or image file.';
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedImageExtension($file, $mime);
+    if ($extension === null) {
+        return 'Unsupported image type. Use jpg, png, gif, webp, heic, or heif.';
+    }
+    if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
+        return 'Image must be 12MB or smaller.';
+    }
+
+    $filename = sprintf('img_%s_%s.%s', $userId, bin2hex(random_bytes(8)), $extension);
+    $target = TMP_UPLOAD_PATH . '/' . $filename;
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return 'Could not save the image.';
+    }
+
+    $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
+    $stmt = db()->prepare(
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, NULL, :image_path, NULL, NULL, :reply_to_message_id, :created_at)'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'sender_id' => $userId,
+        'image_path' => 'storage/tmp/' . $filename,
+        'reply_to_message_id' => $replyToMessageId,
+        'created_at' => gmdate('c'),
+    ]);
+
+    clearGroupTypingStatus($groupId, $userId);
+
+    $payload = groupConversationPayload($groupId, $userId);
+    $messages = is_array($payload['messages'] ?? null) ? $payload['messages'] : [];
+
+    return $messages !== [] ? $messages[count($messages) - 1] : 'Could not send message right now.';
+}
+
+function sendGroupFileMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'File upload failed. Please choose a file to share.';
+    }
+    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
+        return 'File must be 10MB or smaller.';
+    }
+
+    $originalName = trim((string) ($file['name'] ?? ''));
+    if ($originalName === '') {
+        $originalName = 'shared-file';
+    }
+    $sanitizedName = preg_replace('/[^A-Za-z0-9._-]+/', '-', $originalName);
+    $sanitizedName = trim((string) $sanitizedName, '-.');
+    if ($sanitizedName === '') {
+        $sanitizedName = 'shared-file';
+    }
+    $extension = strtolower((string) pathinfo($sanitizedName, PATHINFO_EXTENSION));
+    $storedExtension = $extension !== '' ? '.' . substr($extension, 0, 20) : '';
+    $filename = sprintf('file_%s_%s%s', $userId, bin2hex(random_bytes(8)), $storedExtension);
+    $target = UPLOAD_PATH . '/' . $filename;
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return 'Could not save the file.';
+    }
+
+    $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
+    $stmt = db()->prepare(
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, NULL, NULL, :file_path, :file_name, :reply_to_message_id, :created_at)'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'sender_id' => $userId,
+        'file_path' => 'storage/uploads/' . $filename,
+        'file_name' => mb_substr($sanitizedName, 0, 255),
+        'reply_to_message_id' => $replyToMessageId,
+        'created_at' => gmdate('c'),
+    ]);
+
+    clearGroupTypingStatus($groupId, $userId);
+
+    $payload = groupConversationPayload($groupId, $userId);
+    $messages = is_array($payload['messages'] ?? null) ? $payload['messages'] : [];
+
+    return $messages !== [] ? $messages[count($messages) - 1] : 'Could not send message right now.';
 }
 
 function markGroupMessagesRead(int $groupId, int $userId): void
