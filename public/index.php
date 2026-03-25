@@ -1382,7 +1382,7 @@ function friendshipActionMarkup(chatUser) {
     }
 
     if (status === 'pending') {
-        return `<button class="mini-button primary icon-button" type="button" data-request-action="cancel_friend_request" data-user-id="${userId}" aria-label="Cancel friend request" title="Cancel friend request">${personMinusIcon}</button>`;
+        return `<button class="mini-button danger icon-button" type="button" data-request-action="cancel_friend_request" data-user-id="${userId}" aria-label="Cancel friend request" title="Cancel friend request">${personMinusIcon}</button>`;
     }
 
     return `<button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>`;
