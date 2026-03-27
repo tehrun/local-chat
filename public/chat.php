@@ -399,13 +399,24 @@ if ($isGroupConversation) {
             font-size: 13px;
             line-height: 1.35;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
         }
-        .pinned-message-item strong {
-            display: block;
+        .pinned-message-item .pinned-preview {
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pinned-message-item .pinned-timestamp {
             font-size: 12px;
             color: var(--muted);
             font-weight: 700;
-            margin-bottom: 2px;
+            white-space: nowrap;
+            margin-left: auto;
         }
         .message-pin-badge {
             font-size: 12px;
@@ -3420,7 +3431,7 @@ function renderMessages(messages) {
                 ${pinnedMessages.map((message) => {
         const preview = replySnippetFromMessage(message) || 'Pinned message';
         const timestamp = formatHumanTimestamp(message.created_at);
-        return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><strong>${escapeHtml(timestamp)}</strong>${escapeHtml(preview)}</button>`;
+        return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><span class="pinned-preview">${escapeHtml(preview)}</span><span class="pinned-timestamp">${escapeHtml(timestamp)}</span></button>`;
     }).join('')}
             </section>`
             : '';
