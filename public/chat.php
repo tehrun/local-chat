@@ -3508,7 +3508,13 @@ function renderMessages(messages) {
                 }
                 const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
                 if (targetRow instanceof HTMLElement) {
-                    targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    const pinnedPanel = messagesEl.querySelector('.pinned-messages');
+                    const pinnedOffset = pinnedPanel instanceof HTMLElement ? pinnedPanel.offsetHeight + 10 : 10;
+                    const containerRect = messagesEl.getBoundingClientRect();
+                    const targetRect = targetRow.getBoundingClientRect();
+                    const targetTop = messagesEl.scrollTop + (targetRect.top - containerRect.top);
+                    const nextTop = Math.max(0, targetTop - pinnedOffset);
+                    messagesEl.scrollTo({ top: nextTop, behavior: 'smooth' });
                     targetRow.classList.add('reply-target-highlight');
                     window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
                 }
