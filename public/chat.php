@@ -544,6 +544,9 @@ if ($isGroupConversation) {
             flex-wrap: wrap;
         }
         .reaction-picker-actions {
+            padding-top: 0;
+        }
+        .reaction-picker-actions.with-reaction-row {
             border-top: 1px solid rgba(17, 27, 33, 0.08);
             padding-top: 4px;
         }
@@ -3137,7 +3140,10 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
     const reactionsRow = reactionButtons + removeButton;
     const actionsRow = replyButton + copyButton + pinButton + editButton + deleteButton;
-    picker.innerHTML = `${reactionsRow !== '' ? `<div class="reaction-picker-row reaction-picker-reactions">${reactionsRow}</div>` : ''}<div class="reaction-picker-row reaction-picker-actions">${actionsRow}</div>`;
+    const actionRowClasses = reactionsRow !== ''
+        ? 'reaction-picker-row reaction-picker-actions with-reaction-row'
+        : 'reaction-picker-row reaction-picker-actions';
+    picker.innerHTML = `${reactionsRow !== '' ? `<div class="reaction-picker-row reaction-picker-reactions">${reactionsRow}</div>` : ''}<div class="${actionRowClasses}">${actionsRow}</div>`;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
