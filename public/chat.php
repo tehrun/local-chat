@@ -501,17 +501,22 @@ if ($isGroupConversation) {
             bottom: -10px;
             left: 10px;
             display: inline-flex;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 2px;
-            border-radius: 999px;
-            padding: 2px 6px;
+            border-radius: 10px;
+            padding: 4px 6px;
             background: rgba(255, 255, 255, 0.95);
             border: 1px solid rgba(17, 27, 33, 0.14);
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.12);
             font-size: 13px;
-            line-height: 1;
+            line-height: 1.1;
             color: #111b21;
             cursor: pointer;
+            max-width: min(76vw, 220px);
+        }
+        .message-reactions-line {
+            white-space: nowrap;
         }
         .message-row.mine .message-reactions {
             right: 10px;
@@ -2825,23 +2830,27 @@ function renderMessageReactions(message) {
         return '';
     }
 
-    let emojiLabel = '';
+    let reactionLines = [];
     if (isGroupConversation) {
         const grouped = new Map();
         Array.from(uniqueByUser.values()).forEach((emoji) => {
             grouped.set(emoji, (grouped.get(emoji) || 0) + 1);
         });
-        emojiLabel = Array.from(grouped.entries())
+        reactionLines = Array.from(grouped.entries())
             .sort((left, right) => right[1] - left[1])
             .slice(0, 3)
-            .map(([emoji, total]) => `${escapeHtml(emoji)} ${total > 1 ? total : ''}`.trim())
-            .join(' ');
+            .map(([emoji, total]) => `${escapeHtml(emoji)}${total > 1 ? ` ${total}` : ''}`);
     } else {
-        const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
-        emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+        reactionLines = Array.from(uniqueByUser.values())
+            .slice(0, 3)
+            .map((emoji) => escapeHtml(emoji));
     }
 
-    return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
+    if (reactionLines.length === 0) {
+        return '';
+    }
+
+    return `<div class="message-reactions" aria-label="Reactions">${reactionLines.map((line) => `<span class="message-reactions-line">${line}</span>`).join('')}</div>`;
 }
 
 function renderReplyReference(message) {
@@ -3107,7 +3116,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
     const deleteButton = actionOptions.delete
-        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
+        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete for me" title="Delete for me"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
     const pinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path></svg>';
     const unpinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path><path d="M4 4l16 16"></path></svg>';
@@ -3538,7 +3547,7 @@ function renderMessages(messages) {
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: false,
-                        delete: false,
+                        delete: true,
                     });
                 }, 480);
             });
@@ -3565,6 +3574,7 @@ function renderMessages(messages) {
                 showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
                     pin: true,
                     pinned: isMessagePinned(messageId),
+                    delete: true,
                 });
             });
             rowEl.querySelectorAll('[data-reply-target-id]').forEach((referenceEl) => {

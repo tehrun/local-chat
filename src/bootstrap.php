@@ -646,6 +646,36 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
 
     $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS message_deletions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            deleted_at TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_message_deletions_user
+         ON message_deletions (user_id, deleted_at)'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_deletions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            deleted_at TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            FOREIGN KEY(message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_message_deletions_user
+         ON group_message_deletions (user_id, deleted_at)'
+    );
+
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             payload TEXT NOT NULL,
@@ -937,6 +967,18 @@ function initializeMysqlDatabase(PDO $pdo): void
     );
 
     $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS message_deletions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            deleted_at DATETIME NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            INDEX idx_message_deletions_user (user_id, deleted_at),
+            CONSTRAINT fk_message_deletions_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_message_deletions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS typing_status (
             user_id INT UNSIGNED NOT NULL,
             conversation_user_id INT UNSIGNED NOT NULL,
@@ -1080,6 +1122,18 @@ function initializeMysqlDatabase(PDO $pdo): void
             INDEX idx_group_message_reactions_updated (message_id, updated_at),
             CONSTRAINT fk_group_message_reactions_message FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
             CONSTRAINT fk_group_message_reactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_deletions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            deleted_at DATETIME NOT NULL,
+            PRIMARY KEY (message_id, user_id),
+            INDEX idx_group_message_deletions_user (user_id, deleted_at),
+            CONSTRAINT fk_group_message_deletions_message FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_message_deletions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -2937,8 +2991,10 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
             JOIN users u ON u.id = m.sender_id
             LEFT JOIN messages rm ON rm.id = m.reply_to_message_id
             LEFT JOIN users ru ON ru.id = rm.sender_id
+            LEFT JOIN message_deletions md ON md.message_id = m.id AND md.user_id = :user_id
             WHERE ((m.sender_id = :user_id AND m.recipient_id = :other_id)
-               OR (m.sender_id = :other_id AND m.recipient_id = :user_id))';
+               OR (m.sender_id = :other_id AND m.recipient_id = :user_id))
+              AND md.message_id IS NULL';
 
     $params = [
         'user_id' => $userId,
@@ -3197,19 +3253,41 @@ function deletePrivateMessage(int $currentUserId, int $otherUserId, int $message
         return 'Message not found.';
     }
 
-    if ((int) ($messageRow['sender_id'] ?? 0) !== $currentUserId) {
-        return 'You can only delete your own messages.';
+    if ((int) ($messageRow['sender_id'] ?? 0) === $currentUserId) {
+        deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
+        deleteStorageFileIfExists($messageRow['image_path'] ?? null);
+        deleteStorageFileIfExists($messageRow['file_path'] ?? null);
+
+        $reactionStmt = db()->prepare('DELETE FROM message_reactions WHERE message_id = :message_id');
+        $reactionStmt->execute(['message_id' => $messageId]);
+
+        $deleteStmt = db()->prepare('DELETE FROM messages WHERE id = :message_id');
+        $deleteStmt->execute(['message_id' => $messageId]);
+
+        return null;
     }
 
-    deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
-    deleteStorageFileIfExists($messageRow['image_path'] ?? null);
-    deleteStorageFileIfExists($messageRow['file_path'] ?? null);
+    $params = [
+        'message_id' => $messageId,
+        'user_id' => $currentUserId,
+        'deleted_at' => gmdate('c'),
+    ];
 
-    $reactionStmt = db()->prepare('DELETE FROM message_reactions WHERE message_id = :message_id');
-    $reactionStmt->execute(['message_id' => $messageId]);
-
-    $deleteStmt = db()->prepare('DELETE FROM messages WHERE id = :message_id');
-    $deleteStmt->execute(['message_id' => $messageId]);
+    if (dbDriver() === 'mysql') {
+        $hideStmt = db()->prepare(
+            'INSERT INTO message_deletions (message_id, user_id, deleted_at)
+             VALUES (:message_id, :user_id, :deleted_at)
+             ON DUPLICATE KEY UPDATE deleted_at = VALUES(deleted_at)'
+        );
+    } else {
+        $hideStmt = db()->prepare(
+            'INSERT INTO message_deletions (message_id, user_id, deleted_at)
+             VALUES (:message_id, :user_id, :deleted_at)
+             ON CONFLICT(message_id, user_id)
+             DO UPDATE SET deleted_at = excluded.deleted_at'
+        );
+    }
+    $hideStmt->execute($params);
 
     return null;
 }
@@ -3292,26 +3370,47 @@ function deleteGroupMessage(int $groupId, int $currentUserId, int $messageId): ?
         return 'Message not found.';
     }
 
-    if ((int) ($messageRow['sender_id'] ?? 0) !== $currentUserId) {
-        return 'You can only delete your own messages.';
+    if ((int) ($messageRow['sender_id'] ?? 0) === $currentUserId) {
+        deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
+        deleteStorageFileIfExists($messageRow['image_path'] ?? null);
+        deleteStorageFileIfExists($messageRow['file_path'] ?? null);
+
+        $reactionStmt = db()->prepare('DELETE FROM group_message_reactions WHERE message_id = :message_id');
+        $reactionStmt->execute(['message_id' => $messageId]);
+
+        $deleteStmt = db()->prepare(
+            'DELETE FROM group_messages
+             WHERE id = :message_id
+               AND group_id = :group_id'
+        );
+        $deleteStmt->execute([
+            'message_id' => $messageId,
+            'group_id' => $groupId,
+        ]);
+
+        return null;
     }
 
-    deleteStorageFileIfExists($messageRow['audio_path'] ?? null);
-    deleteStorageFileIfExists($messageRow['image_path'] ?? null);
-    deleteStorageFileIfExists($messageRow['file_path'] ?? null);
-
-    $reactionStmt = db()->prepare('DELETE FROM group_message_reactions WHERE message_id = :message_id');
-    $reactionStmt->execute(['message_id' => $messageId]);
-
-    $deleteStmt = db()->prepare(
-        'DELETE FROM group_messages
-         WHERE id = :message_id
-           AND group_id = :group_id'
-    );
-    $deleteStmt->execute([
+    $params = [
         'message_id' => $messageId,
-        'group_id' => $groupId,
-    ]);
+        'user_id' => $currentUserId,
+        'deleted_at' => gmdate('c'),
+    ];
+    if (dbDriver() === 'mysql') {
+        $hideStmt = db()->prepare(
+            'INSERT INTO group_message_deletions (message_id, user_id, deleted_at)
+             VALUES (:message_id, :user_id, :deleted_at)
+             ON DUPLICATE KEY UPDATE deleted_at = VALUES(deleted_at)'
+        );
+    } else {
+        $hideStmt = db()->prepare(
+            'INSERT INTO group_message_deletions (message_id, user_id, deleted_at)
+             VALUES (:message_id, :user_id, :deleted_at)
+             ON CONFLICT(message_id, user_id)
+             DO UPDATE SET deleted_at = excluded.deleted_at'
+        );
+    }
+    $hideStmt->execute($params);
 
     return null;
 }
@@ -4280,6 +4379,7 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
     $clearedAt = groupConversationClearedAt($groupId, $userId);
     $params = [
         'group_id' => $groupId,
+        'user_id' => $userId,
     ];
     $sql = 'SELECT gm.*, u.username AS sender_name,
                    rgm.id AS reply_message_id,
@@ -4295,7 +4395,9 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
             JOIN users u ON u.id = gm.sender_id
             LEFT JOIN group_messages rgm ON rgm.id = gm.reply_to_message_id
             LEFT JOIN users ru ON ru.id = rgm.sender_id
-            WHERE gm.group_id = :group_id';
+            LEFT JOIN group_message_deletions gmd ON gmd.message_id = gm.id AND gmd.user_id = :user_id
+            WHERE gm.group_id = :group_id
+              AND gmd.message_id IS NULL';
 
     if ($clearedAt !== null) {
         $sql .= ' AND gm.created_at > :cleared_at';
