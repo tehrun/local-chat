@@ -3111,7 +3111,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         : '';
     const pinButton = actionOptions.pin === false
         ? ''
-        : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? '📍' : '📌'}</button>`;
+        : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">📌</button>`;
     picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + pinButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
