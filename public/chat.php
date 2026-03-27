@@ -851,6 +851,12 @@ if ($isGroupConversation) {
             font-size: 18px;
             cursor: pointer;
         }
+        .edit-preview {
+            border-left-color: #1d4ed8;
+        }
+        .edit-preview .reply-preview-copy strong {
+            color: #1d4ed8;
+        }
         .typing-pill,
         .recording-pill,
         .hint-pill,
@@ -1729,6 +1735,13 @@ if ($isGroupConversation) {
                     </div>
                     <button id="reply-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel reply">×</button>
                 </div>
+                <div id="edit-preview" class="reply-preview edit-preview" hidden>
+                    <div class="reply-preview-copy">
+                        <strong id="edit-preview-author">Editing message</strong>
+                        <span id="edit-preview-text"></span>
+                    </div>
+                    <button id="edit-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel edit">×</button>
+                </div>
                 <div class="composer">
                     <div class="quick-grid-wrap">
                         <button id="quick-grid-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open quick icon grid" aria-expanded="false" aria-controls="quick-grid-panel"<?= $canChat ? '' : ' disabled' ?>>
@@ -1957,6 +1970,9 @@ const replyPreviewEl = document.getElementById('reply-preview');
 const replyPreviewAuthorEl = document.getElementById('reply-preview-author');
 const replyPreviewTextEl = document.getElementById('reply-preview-text');
 const replyPreviewCancelEl = document.getElementById('reply-preview-cancel');
+const editPreviewEl = document.getElementById('edit-preview');
+const editPreviewTextEl = document.getElementById('edit-preview-text');
+const editPreviewCancelEl = document.getElementById('edit-preview-cancel');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxDownload = document.getElementById('lightbox-download');
@@ -1979,6 +1995,7 @@ let messageActionMessageId = 0;
 let longPressTimer = null;
 let longPressHandled = false;
 let replyTarget = null;
+let editTarget = null;
 let textSendInFlight = false;
 let mediaRecorder = null;
 let mediaStream = null;
@@ -2803,6 +2820,9 @@ function setReplyTargetByMessage(message) {
         updateReplyPreviewUi();
         return;
     }
+    if (editTarget) {
+        clearEditTarget(false);
+    }
     replyTarget = {
         id: messageId,
         sender_name: Number(message?.sender_id || 0) === currentUserId ? 'You' : String(message?.sender_name || 'message'),
@@ -2815,6 +2835,57 @@ function setReplyTargetByMessage(message) {
 function clearReplyTarget() {
     replyTarget = null;
     updateReplyPreviewUi();
+}
+
+function updateEditPreviewUi() {
+    if (!editPreviewEl || !editPreviewTextEl) {
+        return;
+    }
+    if (!editTarget) {
+        editPreviewEl.hidden = true;
+        editPreviewTextEl.textContent = '';
+        return;
+    }
+    editPreviewEl.hidden = false;
+    editPreviewTextEl.textContent = String(editTarget.originalBody || '');
+}
+
+function setEditTargetByMessage(message) {
+    const messageId = Number(message?.id || 0);
+    const currentBody = String(message?.body || '').trim();
+    if (!messageId || currentBody === '') {
+        showError('Only text messages can be edited.');
+        return;
+    }
+    if (replyTarget) {
+        clearReplyTarget();
+    }
+    editTarget = {
+        id: messageId,
+        originalBody: currentBody,
+    };
+    bodyEl.value = currentBody;
+    autoResizeComposer();
+    updateComposerClearance();
+    updateComposerDirection();
+    updateActionButton();
+    updateEditPreviewUi();
+    keepComposerFocused(true);
+}
+
+function clearEditTarget(shouldFocusComposer = true, preserveText = false) {
+    editTarget = null;
+    updateEditPreviewUi();
+    if (!preserveText) {
+        bodyEl.value = '';
+        autoResizeComposer();
+        updateComposerClearance();
+        updateComposerDirection();
+    }
+    updateActionButton();
+    if (shouldFocusComposer) {
+        keepComposerFocused(true);
+    }
 }
 
 function renderStatus() {
@@ -3232,20 +3303,28 @@ async function editMessageById(messageId) {
         return;
     }
 
-    const currentBody = String(targetMessage.body || '');
-    if (currentBody.trim() === '') {
-        showError('Only text messages can be edited.');
+    setEditTargetByMessage(targetMessage);
+}
+
+async function submitComposerEdit() {
+    if (!editTarget) {
         return;
     }
 
-    const nextBody = window.prompt('Edit message', currentBody);
-    if (nextBody === null) {
-        return;
-    }
-
-    const trimmedBody = String(nextBody).trim();
+    const trimmedBody = String(bodyEl.value || '').trim();
     if (trimmedBody === '') {
         showError('Message cannot be empty.');
+        return;
+    }
+
+    if (trimmedBody === String(editTarget.originalBody || '').trim()) {
+        clearEditTarget();
+        return;
+    }
+
+    const targetId = Number(editTarget.id || 0);
+    if (!targetId) {
+        clearEditTarget();
         return;
     }
 
@@ -3255,7 +3334,7 @@ async function editMessageById(messageId) {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
             body: new URLSearchParams({
                 action: 'edit_message',
-                message_id: String(Number(messageId)),
+                message_id: String(targetId),
                 body: trimmedBody,
                 csrf_token: csrfToken,
             }),
@@ -3265,6 +3344,7 @@ async function editMessageById(messageId) {
             showError(payload?.error || 'Could not edit this message right now.');
             return;
         }
+        clearEditTarget(false);
 
         if (payload?.payload && typeof payload.payload === 'object') {
             applyConversationPayload(payload.payload);
@@ -3940,7 +4020,7 @@ function updateActionButton() {
         return;
     }
 
-    const hasText = bodyEl.value.trim() !== '';
+    const hasText = editTarget !== null || bodyEl.value.trim() !== '';
     actionButton.innerHTML = hasText ? buttonIcons.send : buttonIcons.mic;
     actionButton.classList.remove('recording');
     if (hasText) {
@@ -4362,11 +4442,15 @@ async function flushPendingTextQueue() {
 
 function sendTextMessage() {
     const composerWasFocused = document.activeElement === bodyEl;
-    const body = bodyEl.value.trim();
     if (!canChat) {
         showError('Friendship revoked. You cannot send new messages until you are friends again.');
         return;
     }
+    if (editTarget) {
+        submitComposerEdit();
+        return;
+    }
+    const body = bodyEl.value.trim();
     if (!body) {
         return;
     }
@@ -4881,7 +4965,7 @@ bodyEl.addEventListener('input', () => {
 bodyEl.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        if (bodyEl.value.trim() !== '') {
+        if (editTarget || bodyEl.value.trim() !== '') {
             sendTextMessage();
         }
     }
@@ -4915,6 +4999,9 @@ scrollToEndButton?.addEventListener('click', () => {
 replyPreviewCancelEl?.addEventListener('click', () => {
     clearReplyTarget();
     keepComposerFocused(true);
+});
+editPreviewCancelEl?.addEventListener('click', () => {
+    clearEditTarget();
 });
 
 headerMenuButton?.addEventListener('click', (event) => {
