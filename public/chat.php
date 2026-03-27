@@ -367,6 +367,47 @@ if ($isGroupConversation) {
             overscroll-behavior: contain;
             scroll-padding-bottom: calc(var(--composer-height) + var(--composer-clearance) - 18px);
         }
+        .pinned-messages {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px;
+            border-radius: 14px;
+            background: rgba(7, 94, 84, 0.08);
+            border: 1px solid rgba(7, 94, 84, 0.14);
+            max-width: 100%;
+        }
+        .pinned-messages-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--header);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .pinned-message-item {
+            width: 100%;
+            border: none;
+            background: rgba(255, 255, 255, 0.68);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 8px 10px;
+            text-align: left;
+            font-size: 13px;
+            line-height: 1.35;
+            cursor: pointer;
+        }
+        .pinned-message-item strong {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .message-pin-badge {
+            font-size: 12px;
+            color: var(--muted);
+            margin-right: 4px;
+        }
         .conversation-actions {
             position: absolute;
             right: 18px;
@@ -1652,11 +1693,62 @@ const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
+const pinnedMessageStorageKey = isGroupConversation
+    ? `localchat:pins:group:${groupId}`
+    : `localchat:pins:user:${[currentUserId, conversationUserId].sort((a, b) => a - b).join(':')}`;
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     rootEl.setAttribute('data-theme', nextTheme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
+}
+
+function loadPinnedMessageIds() {
+    try {
+        const rawValue = window.localStorage.getItem(pinnedMessageStorageKey);
+        if (!rawValue) {
+            return [];
+        }
+        const parsed = JSON.parse(rawValue);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return [...new Set(parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0))];
+    } catch (error) {
+        return [];
+    }
+}
+
+function savePinnedMessageIds() {
+    try {
+        window.localStorage.setItem(pinnedMessageStorageKey, JSON.stringify(pinnedMessageIds));
+    } catch (error) {
+        // Ignore storage access errors.
+    }
+}
+
+function isMessagePinned(messageId) {
+    return pinnedMessageIds.includes(Number(messageId || 0));
+}
+
+function toggleMessagePin(messageId) {
+    const targetId = Number(messageId || 0);
+    if (!targetId) {
+        return;
+    }
+
+    if (isMessagePinned(targetId)) {
+        pinnedMessageIds = pinnedMessageIds.filter((id) => id !== targetId);
+        showHint('Message unpinned.');
+    } else {
+        pinnedMessageIds = [targetId, ...pinnedMessageIds.filter((id) => id !== targetId)];
+        showHint('Message pinned to the top.');
+    }
+
+    savePinnedMessageIds();
+    renderMessages(window.__messagesState || []);
 }
 
 (function loadStoredTheme() {
@@ -1697,6 +1789,7 @@ const scrollToEndButton = document.getElementById('scroll-to-end-button');
 let lastFocusedElement = null;
 let renderedSignature = '';
 let localMessageCounter = 0;
+let pinnedMessageIds = loadPinnedMessageIds();
 let typingTimer = null;
 let typingActive = false;
 let isSending = false;
@@ -3016,7 +3109,12 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const deleteButton = actionOptions.delete
         ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
-    picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + editButton + deleteButton;
+    const pinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path></svg>';
+    const unpinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path><path d="M4 4l16 16"></path></svg>';
+    const pinButton = actionOptions.pin === false
+        ? ''
+        : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
+    picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + pinButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -3046,6 +3144,10 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     picker.querySelector('button[data-action="delete"]')?.addEventListener('click', async () => {
         hideReactionPicker();
         await deleteMessageById(messageId);
+    });
+    picker.querySelector('button[data-action="pin"]')?.addEventListener('click', () => {
+        hideReactionPicker();
+        toggleMessagePin(messageId);
     });
 
     const anchorRect = anchorEl.getBoundingClientRect();
@@ -3240,6 +3342,15 @@ function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
     window.__messagesState = messages;
+    const availableMessageIds = new Set(messages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
+    const validPinnedIds = pinnedMessageIds.filter((id) => availableMessageIds.has(id));
+    if (validPinnedIds.length !== pinnedMessageIds.length) {
+        pinnedMessageIds = validPinnedIds;
+        savePinnedMessageIds();
+    }
+    const pinnedMessages = validPinnedIds
+        .map((id) => messages.find((message) => Number(message.id) === id))
+        .filter((message) => Boolean(message));
     const signature = JSON.stringify(messages.map((message) => [
         message.id,
         message.created_at,
@@ -3255,7 +3366,7 @@ function renderMessages(messages) {
         String(message.reply_reference?.body || ''),
         Boolean(message.attachment_expired),
         (Array.isArray(message.reactions) ? message.reactions : []).map((reaction) => `${Number(reaction?.user_id || 0)}:${String(reaction?.emoji || '')}`).join('|'),
-    ]));
+    ]).concat(`pins:${validPinnedIds.join('|')}`));
     if (signature === renderedSignature) {
         return;
     }
@@ -3270,10 +3381,21 @@ function renderMessages(messages) {
     if (messages.length === 0) {
         messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
-        messagesEl.innerHTML = messages.map((message) => {
+        const pinnedSection = pinnedMessages.length > 0
+            ? `<section class="pinned-messages" aria-label="Pinned messages">
+                <div class="pinned-messages-title">Pinned messages</div>
+                ${pinnedMessages.map((message) => {
+        const preview = replySnippetFromMessage(message) || 'Pinned message';
+        const timestamp = formatHumanTimestamp(message.created_at);
+        return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><strong>${escapeHtml(timestamp)}</strong>${escapeHtml(preview)}</button>`;
+    }).join('')}
+            </section>`
+            : '';
+        messagesEl.innerHTML = pinnedSection + messages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
+            const isPinned = isMessagePinned(message.id);
             const body = message.body
                 ? `<div class="message-text ${textDirection}" dir="${textDirection}">${escapeHtml(message.body).replace(/\n/g, '<br>')}</div>`
                 : '';
@@ -3301,6 +3423,7 @@ function renderMessages(messages) {
             const myReaction = Array.isArray(message.reactions)
                 ? String((message.reactions.find((reaction) => Number(reaction?.user_id) === currentUserId)?.emoji) || '')
                 : '';
+            const pinBadge = isPinned ? '<span class="message-pin-badge" aria-hidden="true">📌</span>' : '';
 
             const rowClasses = ['message-row'];
             if (isMine) {
@@ -3323,7 +3446,7 @@ function renderMessages(messages) {
                         ${audio}
                         ${file}
                         ${expiredAttachment}
-                        <div class="meta"><span class="meta-label">${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
+                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
                     </div>
                     ${reactions}
                 </article>`;
@@ -3343,6 +3466,20 @@ function renderMessages(messages) {
                     scrollMessagesToEnd();
                 }
             }, { once: true });
+        });
+        messagesEl.querySelectorAll('[data-pinned-target-id]').forEach((pinnedEl) => {
+            pinnedEl.addEventListener('click', () => {
+                const targetId = Number(pinnedEl.getAttribute('data-pinned-target-id') || 0);
+                if (!targetId) {
+                    return;
+                }
+                const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
+                if (targetRow instanceof HTMLElement) {
+                    targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    targetRow.classList.add('reply-target-highlight');
+                    window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
+                }
+            });
         });
 
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
@@ -3383,6 +3520,8 @@ function renderMessages(messages) {
                     if (isOwnMessage()) {
                         showReactionPicker(rowEl, messageId, '', false, {
                             reply: false,
+                            pin: true,
+                            pinned: isMessagePinned(messageId),
                             edit: true,
                             delete: true,
                         });
@@ -3396,6 +3535,8 @@ function renderMessages(messages) {
                     longPressHandled = true;
                     showReactionPicker(rowEl, messageId, existingEmoji, true, {
                         reply: true,
+                        pin: true,
+                        pinned: isMessagePinned(messageId),
                         edit: false,
                         delete: false,
                     });
@@ -3413,13 +3554,18 @@ function renderMessages(messages) {
                 if (isOwnMessage()) {
                     showReactionPicker(rowEl, messageId, '', false, {
                         reply: false,
+                        pin: true,
+                        pinned: isMessagePinned(messageId),
                         edit: true,
                         delete: true,
                     });
                     return;
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
-                showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow());
+                showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
+                    pin: true,
+                    pinned: isMessagePinned(messageId),
+                });
             });
             rowEl.querySelectorAll('[data-reply-target-id]').forEach((referenceEl) => {
                 referenceEl.addEventListener('click', (event) => {
