@@ -1788,6 +1788,16 @@ if ($isGroupConversation) {
                                     <button class="quick-grid-option" type="button" data-grid-icon="🙌" aria-label="Insert raised hands">🙌</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🤝" aria-label="Insert handshake">🤝</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="💬" aria-label="Insert speech balloon">💬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🙂" aria-label="Insert slightly smiling face">🙂</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😉" aria-label="Insert winking face">😉</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😍" aria-label="Insert smiling face with heart eyes">😍</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥰" aria-label="Insert smiling face with hearts">🥰</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤗" aria-label="Insert hugging face">🤗</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😇" aria-label="Insert smiling face with halo">😇</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤩" aria-label="Insert star struck face">🤩</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥲" aria-label="Insert smiling face with tear">🥲</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🫶" aria-label="Insert heart hands">🫶</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤟" aria-label="Insert love you hand sign">🤟</button>
                                 </div>
                             </section>
                             <section class="quick-grid-category" aria-label="Hearts and symbols">
@@ -1803,6 +1813,16 @@ if ($isGroupConversation) {
                                     <button class="quick-grid-option" type="button" data-grid-icon="❗" aria-label="Insert exclamation mark">❗</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="📌" aria-label="Insert pin">📌</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="💡" aria-label="Insert light bulb">💡</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💜" aria-label="Insert purple heart">💜</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🖤" aria-label="Insert black heart">🖤</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤍" aria-label="Insert white heart">🤍</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💯" aria-label="Insert hundred points">💯</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔔" aria-label="Insert bell">🔔</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⚠️" aria-label="Insert warning">⚠️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔒" aria-label="Insert lock">🔒</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔑" aria-label="Insert key">🔑</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📣" aria-label="Insert megaphone">📣</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📍" aria-label="Insert round pushpin">📍</button>
                                 </div>
                             </section>
                             <section class="quick-grid-category" aria-label="Nature and weather">
@@ -1818,6 +1838,16 @@ if ($isGroupConversation) {
                                     <button class="quick-grid-option" type="button" data-grid-icon="🌊" aria-label="Insert wave">🌊</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🍀" aria-label="Insert clover">🍀</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🪴" aria-label="Insert potted plant">🪴</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌤️" aria-label="Insert sun behind small cloud">🌤️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌧️" aria-label="Insert cloud with rain">🌧️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⛄" aria-label="Insert snowman">⛄</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍁" aria-label="Insert maple leaf">🍁</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌻" aria-label="Insert sunflower">🌻</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌼" aria-label="Insert blossom">🌼</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🦋" aria-label="Insert butterfly">🦋</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🐝" aria-label="Insert honeybee">🐝</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🐬" aria-label="Insert dolphin">🐬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🪐" aria-label="Insert ringed planet">🪐</button>
                                 </div>
                             </section>
                             <section class="quick-grid-category" aria-label="Food and drinks">
@@ -1833,6 +1863,16 @@ if ($isGroupConversation) {
                                     <button class="quick-grid-option" type="button" data-grid-icon="🥤" aria-label="Insert soft drink">🥤</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🍩" aria-label="Insert doughnut">🍩</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🍰" aria-label="Insert cake">🍰</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍎" aria-label="Insert red apple">🍎</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍇" aria-label="Insert grapes">🍇</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥑" aria-label="Insert avocado">🥑</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍳" aria-label="Insert cooking">🍳</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍜" aria-label="Insert steaming bowl">🍜</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍪" aria-label="Insert cookie">🍪</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍫" aria-label="Insert chocolate bar">🍫</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍿" aria-label="Insert popcorn">🍿</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🧃" aria-label="Insert beverage box">🧃</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥂" aria-label="Insert clinking glasses">🥂</button>
                                 </div>
                             </section>
                             <section class="quick-grid-category" aria-label="Activities and places">
@@ -1848,6 +1888,16 @@ if ($isGroupConversation) {
                                     <button class="quick-grid-option" type="button" data-grid-icon="🚀" aria-label="Insert rocket">🚀</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🏖️" aria-label="Insert beach with umbrella">🏖️</button>
                                     <button class="quick-grid-option" type="button" data-grid-icon="🏡" aria-label="Insert house with garden">🏡</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎬" aria-label="Insert clapper board">🎬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎨" aria-label="Insert artist palette">🎨</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎯" aria-label="Insert direct hit">🎯</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎲" aria-label="Insert game die">🎲</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🏆" aria-label="Insert trophy">🏆</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚴" aria-label="Insert cyclist">🚴</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚗" aria-label="Insert car">🚗</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚆" aria-label="Insert train">🚆</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🗺️" aria-label="Insert world map">🗺️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🗽" aria-label="Insert statue of liberty">🗽</button>
                                 </div>
                             </section>
                         </div>
