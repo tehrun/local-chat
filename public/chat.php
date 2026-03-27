@@ -3511,6 +3511,77 @@ function mergeMessages(existingMessages, incomingMessages) {
     });
 }
 
+function reconcilePendingTextDuplicates(messages) {
+    const list = Array.isArray(messages) ? [...messages] : [];
+    if (list.length < 2) {
+        return list;
+    }
+
+    const matchWindowMs = 8000;
+    const confirmedByKey = new Map();
+
+    const buildKey = (message) => {
+        const body = String(message?.body || '').trim();
+        const replyId = Number(message?.reply_to_message_id || message?.reply_reference?.id || 0);
+        return `${body}::${replyId}`;
+    };
+
+    list.forEach((message) => {
+        if (!message || message.pending || Number(message.sender_id) !== currentUserId) {
+            return;
+        }
+        const body = String(message.body || '').trim();
+        if (body === '' || message.audio_path || message.image_path || message.file_path) {
+            return;
+        }
+        const key = buildKey(message);
+        const bucket = confirmedByKey.get(key) || [];
+        bucket.push(Date.parse(message.created_at) || 0);
+        confirmedByKey.set(key, bucket);
+    });
+
+    if (confirmedByKey.size === 0) {
+        return list;
+    }
+
+    const removeIndices = new Set();
+    list.forEach((message, index) => {
+        if (!message || !message.pending || Number(message.sender_id) !== currentUserId) {
+            return;
+        }
+        const body = String(message.body || '').trim();
+        if (body === '' || message.audio_path || message.image_path || message.file_path) {
+            return;
+        }
+
+        const key = buildKey(message);
+        const bucket = confirmedByKey.get(key);
+        if (!bucket || bucket.length === 0) {
+            return;
+        }
+
+        const pendingTime = Date.parse(message.created_at) || 0;
+        const matchIndex = bucket.findIndex((confirmedTime) => Math.abs(confirmedTime - pendingTime) <= matchWindowMs);
+        if (matchIndex === -1) {
+            return;
+        }
+
+        removeIndices.add(index);
+        bucket.splice(matchIndex, 1);
+        if (bucket.length === 0) {
+            confirmedByKey.delete(key);
+        } else {
+            confirmedByKey.set(key, bucket);
+        }
+    });
+
+    if (removeIndices.size === 0) {
+        return list;
+    }
+
+    return list.filter((_, index) => !removeIndices.has(index));
+}
+
 function pendingMessages(messages) {
     return (messages || []).filter((message) => Boolean(message && message.pending));
 }
@@ -3561,18 +3632,19 @@ function closeImageLightbox() {
 
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
+    const normalizedMessages = reconcilePendingTextDuplicates(messages);
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
-    window.__messagesState = messages;
-    const availableMessageIds = new Set(messages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
+    window.__messagesState = normalizedMessages;
+    const availableMessageIds = new Set(normalizedMessages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
     const validPinnedIds = pinnedMessageIds.filter((id) => availableMessageIds.has(id));
     if (validPinnedIds.length !== pinnedMessageIds.length) {
         pinnedMessageIds = validPinnedIds;
         savePinnedMessageIds();
     }
     const pinnedMessages = validPinnedIds
-        .map((id) => messages.find((message) => Number(message.id) === id))
+        .map((id) => normalizedMessages.find((message) => Number(message.id) === id))
         .filter((message) => Boolean(message));
-    const signature = JSON.stringify(messages.map((message) => [
+    const signature = JSON.stringify(normalizedMessages.map((message) => [
         message.id,
         message.created_at,
         message.delivered_at || '',
@@ -3599,7 +3671,7 @@ function renderMessages(messages) {
 
     renderedSignature = signature;
 
-    if (messages.length === 0) {
+    if (normalizedMessages.length === 0) {
         messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
         const pinnedSection = pinnedMessages.length > 0
@@ -3622,7 +3694,7 @@ function renderMessages(messages) {
                 </div>
             </section>`
             : '';
-        messagesEl.innerHTML = pinnedSection + messages.map((message) => {
+        messagesEl.innerHTML = pinnedSection + normalizedMessages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
@@ -3855,7 +3927,7 @@ function renderMessages(messages) {
         updateScrollToEndButton();
     }
 
-    handleIncomingMessages(previousMessages, messages);
+    handleIncomingMessages(previousMessages, normalizedMessages);
     updateScrollToEndButton();
     ensureMessagesStayAtEnd();
 }
