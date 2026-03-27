@@ -374,7 +374,7 @@ if ($isGroupConversation) {
             align-items: center;
             padding: 10px 8px 8px;
             border-radius: 14px;
-            background: rgba(7, 94, 84, 0.10);
+            background: rgba(255, 255, 255, 0.6);
             border: 1px solid rgba(7, 94, 84, 0.14);
             max-width: 100%;
             backdrop-filter: blur(2px);
@@ -450,7 +450,7 @@ if ($isGroupConversation) {
         .pinned-message-item {
             width: 100%;
             border: none;
-            background: rgba(255, 255, 255, 0.68);
+            background: rgba(255, 255, 255, 0);
             color: var(--text);
             border-radius: 10px;
             padding: 8px 10px;
@@ -915,6 +915,49 @@ if ($isGroupConversation) {
             border-radius: 26px;
             padding: 10px;
             box-shadow: var(--shadow);
+        }
+        .quick-grid-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .quick-grid-panel {
+            position: absolute;
+            left: 0;
+            bottom: calc(100% + 10px);
+            width: 220px;
+            aspect-ratio: 1 / 1;
+            border-radius: 18px;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 8px;
+            background: var(--menu-surface);
+            box-shadow: var(--shadow);
+            z-index: 4;
+        }
+        .quick-grid-panel[hidden] {
+            display: none;
+        }
+        .quick-grid-option {
+            border: none;
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--menu-hover) 30%, transparent);
+            color: inherit;
+            font-size: 20px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .quick-grid-option:hover,
+        .quick-grid-option:focus-visible {
+            background: var(--menu-hover);
+        }
+        .quick-grid-option:active {
+            transform: scale(0.95);
         }
         .attachment-menu-wrap {
             position: relative;
@@ -1687,6 +1730,43 @@ if ($isGroupConversation) {
                     <button id="reply-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel reply">×</button>
                 </div>
                 <div class="composer">
+                    <div class="quick-grid-wrap">
+                        <button id="quick-grid-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open quick icon grid" aria-expanded="false" aria-controls="quick-grid-panel"<?= $canChat ? '' : ' disabled' ?>>
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <rect x="4" y="4" width="6" height="6" rx="1"></rect>
+                                <rect x="14" y="4" width="6" height="6" rx="1"></rect>
+                                <rect x="4" y="14" width="6" height="6" rx="1"></rect>
+                                <rect x="14" y="14" width="6" height="6" rx="1"></rect>
+                            </svg>
+                        </button>
+                        <div id="quick-grid-panel" class="quick-grid-panel" hidden>
+                            <button class="quick-grid-option" type="button" data-grid-icon="😀" aria-label="Insert grinning face">😀</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="😎" aria-label="Insert cool face">😎</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🥳" aria-label="Insert party face">🥳</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🤝" aria-label="Insert handshake">🤝</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🙏" aria-label="Insert folded hands">🙏</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="❤️" aria-label="Insert red heart">❤️</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🔥" aria-label="Insert fire">🔥</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="⭐" aria-label="Insert star">⭐</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="✅" aria-label="Insert check mark">✅</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="💡" aria-label="Insert light bulb">💡</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="📌" aria-label="Insert pin">📌</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="📷" aria-label="Insert camera">📷</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🎵" aria-label="Insert music note">🎵</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🎮" aria-label="Insert gamepad">🎮</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="⚽" aria-label="Insert soccer ball">⚽</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🍕" aria-label="Insert pizza">🍕</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="☕" aria-label="Insert coffee cup">☕</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🎉" aria-label="Insert confetti">🎉</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🚀" aria-label="Insert rocket">🚀</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🌙" aria-label="Insert moon">🌙</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🌈" aria-label="Insert rainbow">🌈</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="👏" aria-label="Insert clapping hands">👏</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🤔" aria-label="Insert thinking face">🤔</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="🙌" aria-label="Insert raised hands">🙌</button>
+                            <button class="quick-grid-option" type="button" data-grid-icon="💬" aria-label="Insert speech balloon">💬</button>
+                        </div>
+                    </div>
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                     <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
@@ -1766,6 +1846,8 @@ const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
 const actionButton = document.getElementById('action-button');
+const quickGridButton = document.getElementById('quick-grid-button');
+const quickGridPanel = document.getElementById('quick-grid-panel');
 const attachmentButton = document.getElementById('attachment-button');
 const attachmentMenu = document.getElementById('attachment-menu');
 const attachmentGalleryOption = document.getElementById('attachment-gallery-option');
@@ -1963,6 +2045,33 @@ function conversationApiUrl(action = '') {
     }
 
     return `chat_api.php?${params.toString()}`;
+}
+
+function setQuickGridOpen(isOpen) {
+    if (!quickGridButton || !quickGridPanel) {
+        return;
+    }
+    quickGridButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    quickGridPanel.hidden = !isOpen;
+}
+
+function insertIconIntoComposer(icon) {
+    if (!bodyEl || !icon || bodyEl.disabled) {
+        return;
+    }
+    const start = bodyEl.selectionStart ?? bodyEl.value.length;
+    const end = bodyEl.selectionEnd ?? bodyEl.value.length;
+    const prefix = bodyEl.value.slice(0, start);
+    const suffix = bodyEl.value.slice(end);
+    bodyEl.value = `${prefix}${icon}${suffix}`;
+    const nextPos = start + icon.length;
+    bodyEl.setSelectionRange(nextPos, nextPos);
+    bodyEl.focus();
+    autoResizeComposer();
+    updateComposerClearance();
+    updateComposerDirection();
+    updateActionButton();
+    markTyping();
 }
 
 function conversationPageUrl() {
@@ -2209,10 +2318,14 @@ function updateFriendshipUi() {
     if (isGroupConversation) {
         canChat = true;
         actionButton.disabled = activeUploadCount > 0;
+        if (quickGridButton) {
+            quickGridButton.disabled = activeUploadCount > 0;
+        }
         attachmentButton.disabled = activeUploadCount > 0;
         attachmentGalleryOption.disabled = activeUploadCount > 0;
         attachmentDocumentOption.disabled = activeUploadCount > 0;
         if (activeUploadCount > 0) {
+            setQuickGridOpen(false);
             setAttachmentMenuOpen(false);
         }
         bodyEl.disabled = false;
@@ -2222,10 +2335,14 @@ function updateFriendshipUi() {
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
     canChat = isAccepted;
     actionButton.disabled = !canChat || activeUploadCount > 0;
+    if (quickGridButton) {
+        quickGridButton.disabled = !canChat || activeUploadCount > 0;
+    }
     attachmentButton.disabled = !canChat || activeUploadCount > 0;
     attachmentGalleryOption.disabled = !canChat || activeUploadCount > 0;
     attachmentDocumentOption.disabled = !canChat || activeUploadCount > 0;
     if (!canChat || activeUploadCount > 0) {
+        setQuickGridOpen(false);
         setAttachmentMenuOpen(false);
     }
     bodyEl.disabled = !canChat;
@@ -3394,6 +3511,77 @@ function mergeMessages(existingMessages, incomingMessages) {
     });
 }
 
+function reconcilePendingTextDuplicates(messages) {
+    const list = Array.isArray(messages) ? [...messages] : [];
+    if (list.length < 2) {
+        return list;
+    }
+
+    const matchWindowMs = 8000;
+    const confirmedByKey = new Map();
+
+    const buildKey = (message) => {
+        const body = String(message?.body || '').trim();
+        const replyId = Number(message?.reply_to_message_id || message?.reply_reference?.id || 0);
+        return `${body}::${replyId}`;
+    };
+
+    list.forEach((message) => {
+        if (!message || message.pending || Number(message.sender_id) !== currentUserId) {
+            return;
+        }
+        const body = String(message.body || '').trim();
+        if (body === '' || message.audio_path || message.image_path || message.file_path) {
+            return;
+        }
+        const key = buildKey(message);
+        const bucket = confirmedByKey.get(key) || [];
+        bucket.push(Date.parse(message.created_at) || 0);
+        confirmedByKey.set(key, bucket);
+    });
+
+    if (confirmedByKey.size === 0) {
+        return list;
+    }
+
+    const removeIndices = new Set();
+    list.forEach((message, index) => {
+        if (!message || !message.pending || Number(message.sender_id) !== currentUserId) {
+            return;
+        }
+        const body = String(message.body || '').trim();
+        if (body === '' || message.audio_path || message.image_path || message.file_path) {
+            return;
+        }
+
+        const key = buildKey(message);
+        const bucket = confirmedByKey.get(key);
+        if (!bucket || bucket.length === 0) {
+            return;
+        }
+
+        const pendingTime = Date.parse(message.created_at) || 0;
+        const matchIndex = bucket.findIndex((confirmedTime) => Math.abs(confirmedTime - pendingTime) <= matchWindowMs);
+        if (matchIndex === -1) {
+            return;
+        }
+
+        removeIndices.add(index);
+        bucket.splice(matchIndex, 1);
+        if (bucket.length === 0) {
+            confirmedByKey.delete(key);
+        } else {
+            confirmedByKey.set(key, bucket);
+        }
+    });
+
+    if (removeIndices.size === 0) {
+        return list;
+    }
+
+    return list.filter((_, index) => !removeIndices.has(index));
+}
+
 function pendingMessages(messages) {
     return (messages || []).filter((message) => Boolean(message && message.pending));
 }
@@ -3444,18 +3632,19 @@ function closeImageLightbox() {
 
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
+    const normalizedMessages = reconcilePendingTextDuplicates(messages);
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
-    window.__messagesState = messages;
-    const availableMessageIds = new Set(messages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
+    window.__messagesState = normalizedMessages;
+    const availableMessageIds = new Set(normalizedMessages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
     const validPinnedIds = pinnedMessageIds.filter((id) => availableMessageIds.has(id));
     if (validPinnedIds.length !== pinnedMessageIds.length) {
         pinnedMessageIds = validPinnedIds;
         savePinnedMessageIds();
     }
     const pinnedMessages = validPinnedIds
-        .map((id) => messages.find((message) => Number(message.id) === id))
+        .map((id) => normalizedMessages.find((message) => Number(message.id) === id))
         .filter((message) => Boolean(message));
-    const signature = JSON.stringify(messages.map((message) => [
+    const signature = JSON.stringify(normalizedMessages.map((message) => [
         message.id,
         message.created_at,
         message.delivered_at || '',
@@ -3482,7 +3671,7 @@ function renderMessages(messages) {
 
     renderedSignature = signature;
 
-    if (messages.length === 0) {
+    if (normalizedMessages.length === 0) {
         messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
         const pinnedSection = pinnedMessages.length > 0
@@ -3505,7 +3694,7 @@ function renderMessages(messages) {
                 </div>
             </section>`
             : '';
-        messagesEl.innerHTML = pinnedSection + messages.map((message) => {
+        messagesEl.innerHTML = pinnedSection + normalizedMessages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
@@ -3738,7 +3927,7 @@ function renderMessages(messages) {
         updateScrollToEndButton();
     }
 
-    handleIncomingMessages(previousMessages, messages);
+    handleIncomingMessages(previousMessages, normalizedMessages);
     updateScrollToEndButton();
     ensureMessagesStayAtEnd();
 }
@@ -4581,11 +4770,31 @@ async function toggleRecording() {
     await startRecording();
 }
 
+quickGridButton?.addEventListener('click', () => {
+    markUserInteraction();
+    if (!canChat || isSending || quickGridButton.disabled) {
+        return;
+    }
+    const isOpen = quickGridButton.getAttribute('aria-expanded') === 'true';
+    setQuickGridOpen(!isOpen);
+});
+
+quickGridPanel?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-grid-icon]') : null;
+    if (!target) {
+        return;
+    }
+    const icon = target.getAttribute('data-grid-icon') || '';
+    insertIconIntoComposer(icon);
+    setQuickGridOpen(false);
+});
+
 attachmentButton.addEventListener('click', () => {
     markUserInteraction();
     if (!canChat || isSending || (!supportsFileUpload() && !supportsImageUpload())) {
         return;
     }
+    setQuickGridOpen(false);
     setAttachmentMenuOpen(!isAttachmentMenuOpen());
 });
 
@@ -4636,6 +4845,9 @@ actionButton.addEventListener('pointerdown', sendTextMessageFromActionPress);
 actionButton.addEventListener('mousedown', preserveComposerFocus);
 actionButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 actionButton.addEventListener('touchstart', sendTextMessageFromActionPress, { passive: false });
+quickGridButton?.addEventListener('pointerdown', preserveComposerFocus);
+quickGridButton?.addEventListener('mousedown', preserveComposerFocus);
+quickGridButton?.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 attachmentButton.addEventListener('pointerdown', preserveComposerFocus);
 attachmentDocumentOption.addEventListener('pointerdown', preserveComposerFocus);
 attachmentGalleryOption.addEventListener('pointerdown', preserveComposerFocus);
@@ -5102,6 +5314,13 @@ document.addEventListener('pointerdown', (event) => {
 document.addEventListener('click', markUserInteraction, { passive: true });
 
 document.addEventListener('click', (event) => {
+    if (quickGridButton && quickGridButton.getAttribute('aria-expanded') === 'true') {
+        const target = event.target;
+        if (!(target instanceof Node) || (!quickGridPanel?.contains(target) && !quickGridButton.contains(target))) {
+            setQuickGridOpen(false);
+        }
+    }
+
     if (!isAttachmentMenuOpen()) {
         return;
     }
@@ -5114,6 +5333,7 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+        setQuickGridOpen(false);
         setAttachmentMenuOpen(false);
     }
 });
