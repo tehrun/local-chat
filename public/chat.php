@@ -371,9 +371,6 @@ if ($isGroupConversation) {
             position: sticky;
             top: 0;
             z-index: 3;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
             padding: 10px 8px 8px;
             border-radius: 14px;
             background: rgba(7, 94, 84, 0.08);
@@ -435,6 +432,7 @@ if ($isGroupConversation) {
             transform: rotate(180deg);
         }
         .pinned-messages-list {
+            margin-top: 6px;
             display: grid;
             grid-template-rows: 0fr;
             transition: grid-template-rows 0.22s ease;
