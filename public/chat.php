@@ -374,7 +374,7 @@ if ($isGroupConversation) {
             display: flex;
             flex-direction: column;
             gap: 6px;
-            padding: 8px;
+            padding: 10px 8px 8px;
             border-radius: 14px;
             background: rgba(7, 94, 84, 0.08);
             border: 1px solid rgba(7, 94, 84, 0.14);
