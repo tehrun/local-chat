@@ -392,6 +392,7 @@ if ($isGroupConversation) {
             gap: 10px;
             cursor: pointer;
             text-align: left;
+            min-height: 20px;
         }
         .pinned-messages-title {
             font-size: 12px;
@@ -399,17 +400,20 @@ if ($isGroupConversation) {
             color: var(--header);
             letter-spacing: 0.02em;
             text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
         }
         .pinned-messages-indicator {
             width: 14px;
             height: 14px;
             color: var(--muted);
             transition: transform 0.22s ease;
-            transform: rotate(-90deg);
+            transform: rotate(0deg);
             flex-shrink: 0;
         }
         .pinned-messages.is-expanded .pinned-messages-indicator {
-            transform: rotate(0deg);
+            transform: rotate(180deg);
         }
         .pinned-messages-list {
             display: grid;
