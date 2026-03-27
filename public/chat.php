@@ -368,6 +368,9 @@ if ($isGroupConversation) {
             scroll-padding-bottom: calc(var(--composer-height) + var(--composer-clearance) - 18px);
         }
         .pinned-messages {
+            position: sticky;
+            top: 0;
+            z-index: 3;
             display: flex;
             flex-direction: column;
             gap: 6px;
@@ -376,6 +379,7 @@ if ($isGroupConversation) {
             background: rgba(7, 94, 84, 0.08);
             border: 1px solid rgba(7, 94, 84, 0.14);
             max-width: 100%;
+            backdrop-filter: blur(2px);
         }
         .pinned-messages-title {
             font-size: 12px;
