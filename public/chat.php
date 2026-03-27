@@ -374,7 +374,7 @@ if ($isGroupConversation) {
             align-items: center;
             padding: 10px 8px 8px;
             border-radius: 14px;
-            background: rgba(7, 94, 84, 0.10);
+            background: rgba(255, 255, 255, 0.6);
             border: 1px solid rgba(7, 94, 84, 0.14);
             max-width: 100%;
             backdrop-filter: blur(2px);
@@ -450,7 +450,7 @@ if ($isGroupConversation) {
         .pinned-message-item {
             width: 100%;
             border: none;
-            background: rgba(255, 255, 255, 0.68);
+            background: rgba(255, 255, 255, 0);
             color: var(--text);
             border-radius: 10px;
             padding: 8px 10px;
