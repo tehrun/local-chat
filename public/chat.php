@@ -526,14 +526,26 @@ if ($isGroupConversation) {
         .reaction-picker {
             position: fixed;
             z-index: 30;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 4px;
             padding: 6px;
-            border-radius: 999px;
+            border-radius: 14px;
             background: rgba(255, 255, 255, 0.98);
             box-shadow: 0 14px 30px rgba(17, 27, 33, 0.2);
             border: 1px solid rgba(17, 27, 33, 0.12);
+            max-width: min(94vw, 380px);
+        }
+        .reaction-picker-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .reaction-picker-actions {
+            border-top: 1px solid rgba(17, 27, 33, 0.08);
+            padding-top: 4px;
         }
         .reaction-picker[hidden] {
             display: none;
@@ -3123,7 +3135,9 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const pinButton = actionOptions.pin === false
         ? ''
         : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
-    picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + pinButton + editButton + deleteButton;
+    const reactionsRow = reactionButtons + removeButton;
+    const actionsRow = replyButton + copyButton + pinButton + editButton + deleteButton;
+    picker.innerHTML = `${reactionsRow !== '' ? `<div class="reaction-picker-row reaction-picker-reactions">${reactionsRow}</div>` : ''}<div class="reaction-picker-row reaction-picker-actions">${actionsRow}</div>`;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
