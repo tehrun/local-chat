@@ -381,12 +381,49 @@ if ($isGroupConversation) {
             max-width: 100%;
             backdrop-filter: blur(2px);
         }
+        .pinned-messages-header {
+            width: 100%;
+            border: none;
+            background: transparent;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            cursor: pointer;
+            text-align: left;
+        }
         .pinned-messages-title {
             font-size: 12px;
             font-weight: 700;
             color: var(--header);
             letter-spacing: 0.02em;
             text-transform: uppercase;
+        }
+        .pinned-messages-indicator {
+            width: 14px;
+            height: 14px;
+            color: var(--muted);
+            transition: transform 0.22s ease;
+            transform: rotate(-90deg);
+            flex-shrink: 0;
+        }
+        .pinned-messages.is-expanded .pinned-messages-indicator {
+            transform: rotate(0deg);
+        }
+        .pinned-messages-list {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.22s ease;
+        }
+        .pinned-messages.is-expanded .pinned-messages-list {
+            grid-template-rows: 1fr;
+        }
+        .pinned-messages-list-inner {
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
         .pinned-message-item {
             width: 100%;
@@ -1825,6 +1862,7 @@ let lastFocusedElement = null;
 let renderedSignature = '';
 let localMessageCounter = 0;
 let pinnedMessageIds = loadPinnedMessageIds();
+let pinnedMessagesExpanded = false;
 let typingTimer = null;
 let typingActive = false;
 let isSending = false;
@@ -3426,13 +3464,20 @@ function renderMessages(messages) {
         messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
         const pinnedSection = pinnedMessages.length > 0
-            ? `<section class="pinned-messages" aria-label="Pinned messages">
-                <div class="pinned-messages-title">Pinned messages</div>
+            ? `<section class="pinned-messages ${pinnedMessagesExpanded ? 'is-expanded' : ''}" aria-label="Pinned messages">
+                <button type="button" class="pinned-messages-header" data-pinned-toggle aria-expanded="${pinnedMessagesExpanded ? 'true' : 'false'}">
+                    <div class="pinned-messages-title">Pinned messages</div>
+                    <svg class="pinned-messages-indicator" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                </button>
+                <div class="pinned-messages-list" data-pinned-list aria-hidden="${pinnedMessagesExpanded ? 'false' : 'true'}">
+                    <div class="pinned-messages-list-inner">
                 ${pinnedMessages.map((message) => {
         const preview = replySnippetFromMessage(message) || 'Pinned message';
         const timestamp = formatHumanTimestamp(message.created_at);
         return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><span class="pinned-preview">${escapeHtml(preview)}</span><span class="pinned-timestamp">${escapeHtml(timestamp)}</span></button>`;
     }).join('')}
+                    </div>
+                </div>
             </section>`
             : '';
         messagesEl.innerHTML = pinnedSection + messages.map((message) => {
@@ -3511,6 +3556,20 @@ function renderMessages(messages) {
                 }
             }, { once: true });
         });
+        const pinnedToggleButton = messagesEl.querySelector('[data-pinned-toggle]');
+        const pinnedList = messagesEl.querySelector('[data-pinned-list]');
+        if (pinnedToggleButton instanceof HTMLElement && pinnedList instanceof HTMLElement) {
+            pinnedToggleButton.addEventListener('click', () => {
+                pinnedMessagesExpanded = !pinnedMessagesExpanded;
+                const pinnedPanel = messagesEl.querySelector('.pinned-messages');
+                if (!(pinnedPanel instanceof HTMLElement)) {
+                    return;
+                }
+                pinnedPanel.classList.toggle('is-expanded', pinnedMessagesExpanded);
+                pinnedToggleButton.setAttribute('aria-expanded', pinnedMessagesExpanded ? 'true' : 'false');
+                pinnedList.setAttribute('aria-hidden', pinnedMessagesExpanded ? 'false' : 'true');
+            });
+        }
         messagesEl.querySelectorAll('[data-pinned-target-id]').forEach((pinnedEl) => {
             pinnedEl.addEventListener('click', () => {
                 const targetId = Number(pinnedEl.getAttribute('data-pinned-target-id') || 0);
