@@ -3109,9 +3109,11 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const deleteButton = actionOptions.delete
         ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
+    const pinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path></svg>';
+    const unpinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path><path d="M4 4l16 16"></path></svg>';
     const pinButton = actionOptions.pin === false
         ? ''
-        : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3h8"></path><path d="m12 3 3 6v4l2 2H7l2-2V9l3-6"></path><path d="M12 15v6"></path>${actionOptions.pinned ? '<path d="M4 4l16 16"></path>' : ''}</svg></button>`;
+        : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
     picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + pinButton + editButton + deleteButton;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
