@@ -404,6 +404,25 @@ if ($isGroupConversation) {
             align-items: center;
             line-height: 1;
         }
+        .pinned-messages-summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pinned-messages-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: rgba(7, 94, 84, 0.14);
+            color: var(--header);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+        }
         .pinned-messages-indicator {
             width: 14px;
             height: 14px;
@@ -3470,7 +3489,10 @@ function renderMessages(messages) {
         const pinnedSection = pinnedMessages.length > 0
             ? `<section class="pinned-messages ${pinnedMessagesExpanded ? 'is-expanded' : ''}" aria-label="Pinned messages">
                 <button type="button" class="pinned-messages-header" data-pinned-toggle aria-expanded="${pinnedMessagesExpanded ? 'true' : 'false'}">
-                    <div class="pinned-messages-title">Pinned messages</div>
+                    <div class="pinned-messages-summary">
+                        <div class="pinned-messages-title">Pinned messages</div>
+                        <span class="pinned-messages-count" aria-label="${pinnedMessages.length} pinned messages">${pinnedMessages.length}</span>
+                    </div>
                     <svg class="pinned-messages-indicator" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
                 </button>
                 <div class="pinned-messages-list" data-pinned-list aria-hidden="${pinnedMessagesExpanded ? 'false' : 'true'}">
