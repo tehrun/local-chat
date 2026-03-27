@@ -931,21 +931,43 @@ if ($isGroupConversation) {
             position: absolute;
             left: 0;
             bottom: calc(100% + 10px);
-            width: 220px;
-            aspect-ratio: 1 / 1;
+            width: min(290px, 76vw);
+            max-height: min(420px, 62vh);
+            overflow-y: auto;
             border-radius: 18px;
             padding: 10px;
-            display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
             background: var(--menu-surface);
             box-shadow: var(--shadow);
             z-index: 4;
+            overscroll-behavior: contain;
         }
         .quick-grid-panel[hidden] {
             display: none;
         }
+        .quick-grid-category {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .quick-grid-category-title {
+            margin: 0;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--muted);
+            padding-inline: 2px;
+        }
+        .quick-grid-category-options {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 8px;
+        }
         .quick-grid-option {
+            min-height: 36px;
             border: none;
             border-radius: 10px;
             background: color-mix(in srgb, var(--menu-hover) 30%, transparent);
@@ -1753,31 +1775,131 @@ if ($isGroupConversation) {
                             </svg>
                         </button>
                         <div id="quick-grid-panel" class="quick-grid-panel" hidden>
-                            <button class="quick-grid-option" type="button" data-grid-icon="😀" aria-label="Insert grinning face">😀</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="😎" aria-label="Insert cool face">😎</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🥳" aria-label="Insert party face">🥳</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🤝" aria-label="Insert handshake">🤝</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🙏" aria-label="Insert folded hands">🙏</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="❤️" aria-label="Insert red heart">❤️</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🔥" aria-label="Insert fire">🔥</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="⭐" aria-label="Insert star">⭐</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="✅" aria-label="Insert check mark">✅</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="💡" aria-label="Insert light bulb">💡</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="📌" aria-label="Insert pin">📌</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="📷" aria-label="Insert camera">📷</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🎵" aria-label="Insert music note">🎵</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🎮" aria-label="Insert gamepad">🎮</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="⚽" aria-label="Insert soccer ball">⚽</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🍕" aria-label="Insert pizza">🍕</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="☕" aria-label="Insert coffee cup">☕</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🎉" aria-label="Insert confetti">🎉</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🚀" aria-label="Insert rocket">🚀</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🌙" aria-label="Insert moon">🌙</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🌈" aria-label="Insert rainbow">🌈</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="👏" aria-label="Insert clapping hands">👏</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🤔" aria-label="Insert thinking face">🤔</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="🙌" aria-label="Insert raised hands">🙌</button>
-                            <button class="quick-grid-option" type="button" data-grid-icon="💬" aria-label="Insert speech balloon">💬</button>
+                            <section class="quick-grid-category" aria-label="Smileys and people">
+                                <p class="quick-grid-category-title">Smileys &amp; People</p>
+                                <div class="quick-grid-category-options">
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😀" aria-label="Insert grinning face">😀</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😄" aria-label="Insert smiling face with open mouth">😄</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😎" aria-label="Insert cool face">😎</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥳" aria-label="Insert party face">🥳</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤔" aria-label="Insert thinking face">🤔</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🙏" aria-label="Insert folded hands">🙏</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="👏" aria-label="Insert clapping hands">👏</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🙌" aria-label="Insert raised hands">🙌</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤝" aria-label="Insert handshake">🤝</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💬" aria-label="Insert speech balloon">💬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🙂" aria-label="Insert slightly smiling face">🙂</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😉" aria-label="Insert winking face">😉</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😍" aria-label="Insert smiling face with heart eyes">😍</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥰" aria-label="Insert smiling face with hearts">🥰</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤗" aria-label="Insert hugging face">🤗</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="😇" aria-label="Insert smiling face with halo">😇</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤩" aria-label="Insert star struck face">🤩</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥲" aria-label="Insert smiling face with tear">🥲</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🫶" aria-label="Insert heart hands">🫶</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤟" aria-label="Insert love you hand sign">🤟</button>
+                                </div>
+                            </section>
+                            <section class="quick-grid-category" aria-label="Hearts and symbols">
+                                <p class="quick-grid-category-title">Hearts &amp; Symbols</p>
+                                <div class="quick-grid-category-options">
+                                    <button class="quick-grid-option" type="button" data-grid-icon="❤️" aria-label="Insert red heart">❤️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💙" aria-label="Insert blue heart">💙</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💚" aria-label="Insert green heart">💚</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔥" aria-label="Insert fire">🔥</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="✨" aria-label="Insert sparkle">✨</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⭐" aria-label="Insert star">⭐</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="✅" aria-label="Insert check mark">✅</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="❗" aria-label="Insert exclamation mark">❗</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📌" aria-label="Insert pin">📌</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💡" aria-label="Insert light bulb">💡</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💜" aria-label="Insert purple heart">💜</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🖤" aria-label="Insert black heart">🖤</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🤍" aria-label="Insert white heart">🤍</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="💯" aria-label="Insert hundred points">💯</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔔" aria-label="Insert bell">🔔</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⚠️" aria-label="Insert warning">⚠️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔒" aria-label="Insert lock">🔒</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🔑" aria-label="Insert key">🔑</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📣" aria-label="Insert megaphone">📣</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📍" aria-label="Insert round pushpin">📍</button>
+                                </div>
+                            </section>
+                            <section class="quick-grid-category" aria-label="Nature and weather">
+                                <p class="quick-grid-category-title">Nature &amp; Weather</p>
+                                <div class="quick-grid-category-options">
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌞" aria-label="Insert sun with face">🌞</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌙" aria-label="Insert moon">🌙</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌈" aria-label="Insert rainbow">🌈</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="☁️" aria-label="Insert cloud">☁️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⚡" aria-label="Insert lightning bolt">⚡</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌸" aria-label="Insert cherry blossom">🌸</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌴" aria-label="Insert palm tree">🌴</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌊" aria-label="Insert wave">🌊</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍀" aria-label="Insert clover">🍀</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🪴" aria-label="Insert potted plant">🪴</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌤️" aria-label="Insert sun behind small cloud">🌤️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌧️" aria-label="Insert cloud with rain">🌧️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⛄" aria-label="Insert snowman">⛄</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍁" aria-label="Insert maple leaf">🍁</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌻" aria-label="Insert sunflower">🌻</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌼" aria-label="Insert blossom">🌼</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🦋" aria-label="Insert butterfly">🦋</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🐝" aria-label="Insert honeybee">🐝</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🐬" aria-label="Insert dolphin">🐬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🪐" aria-label="Insert ringed planet">🪐</button>
+                                </div>
+                            </section>
+                            <section class="quick-grid-category" aria-label="Food and drinks">
+                                <p class="quick-grid-category-title">Food &amp; Drinks</p>
+                                <div class="quick-grid-category-options">
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍕" aria-label="Insert pizza">🍕</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍔" aria-label="Insert burger">🍔</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍟" aria-label="Insert fries">🍟</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🌮" aria-label="Insert taco">🌮</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍣" aria-label="Insert sushi">🍣</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="☕" aria-label="Insert coffee cup">☕</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍵" aria-label="Insert tea cup">🍵</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥤" aria-label="Insert soft drink">🥤</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍩" aria-label="Insert doughnut">🍩</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍰" aria-label="Insert cake">🍰</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍎" aria-label="Insert red apple">🍎</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍇" aria-label="Insert grapes">🍇</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥑" aria-label="Insert avocado">🥑</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍳" aria-label="Insert cooking">🍳</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍜" aria-label="Insert steaming bowl">🍜</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍪" aria-label="Insert cookie">🍪</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍫" aria-label="Insert chocolate bar">🍫</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🍿" aria-label="Insert popcorn">🍿</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🧃" aria-label="Insert beverage box">🧃</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🥂" aria-label="Insert clinking glasses">🥂</button>
+                                </div>
+                            </section>
+                            <section class="quick-grid-category" aria-label="Activities and places">
+                                <p class="quick-grid-category-title">Activities &amp; Places</p>
+                                <div class="quick-grid-category-options">
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎉" aria-label="Insert confetti">🎉</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎵" aria-label="Insert music note">🎵</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎮" aria-label="Insert gamepad">🎮</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="⚽" aria-label="Insert soccer ball">⚽</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🏀" aria-label="Insert basketball">🏀</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="📷" aria-label="Insert camera">📷</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="✈️" aria-label="Insert airplane">✈️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚀" aria-label="Insert rocket">🚀</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🏖️" aria-label="Insert beach with umbrella">🏖️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🏡" aria-label="Insert house with garden">🏡</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎬" aria-label="Insert clapper board">🎬</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎨" aria-label="Insert artist palette">🎨</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎯" aria-label="Insert direct hit">🎯</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🎲" aria-label="Insert game die">🎲</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🏆" aria-label="Insert trophy">🏆</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚴" aria-label="Insert cyclist">🚴</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚗" aria-label="Insert car">🚗</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🚆" aria-label="Insert train">🚆</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🗺️" aria-label="Insert world map">🗺️</button>
+                                    <button class="quick-grid-option" type="button" data-grid-icon="🗽" aria-label="Insert statue of liberty">🗽</button>
+                                </div>
+                            </section>
                         </div>
                     </div>
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
