@@ -368,6 +368,9 @@ if ($isGroupConversation) {
             scroll-padding-bottom: calc(var(--composer-height) + var(--composer-clearance) - 18px);
         }
         .pinned-messages {
+            position: sticky;
+            top: 0;
+            z-index: 3;
             display: flex;
             flex-direction: column;
             gap: 6px;
@@ -376,6 +379,7 @@ if ($isGroupConversation) {
             background: rgba(7, 94, 84, 0.08);
             border: 1px solid rgba(7, 94, 84, 0.14);
             max-width: 100%;
+            backdrop-filter: blur(2px);
         }
         .pinned-messages-title {
             font-size: 12px;
@@ -501,17 +505,22 @@ if ($isGroupConversation) {
             bottom: -10px;
             left: 10px;
             display: inline-flex;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 2px;
-            border-radius: 999px;
-            padding: 2px 6px;
+            border-radius: 10px;
+            padding: 4px 6px;
             background: rgba(255, 255, 255, 0.95);
             border: 1px solid rgba(17, 27, 33, 0.14);
             box-shadow: 0 2px 6px rgba(17, 27, 33, 0.12);
             font-size: 13px;
-            line-height: 1;
+            line-height: 1.1;
             color: #111b21;
             cursor: pointer;
+            max-width: min(76vw, 220px);
+        }
+        .message-reactions-line {
+            white-space: nowrap;
         }
         .message-row.mine .message-reactions {
             right: 10px;
@@ -521,14 +530,29 @@ if ($isGroupConversation) {
         .reaction-picker {
             position: fixed;
             z-index: 30;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 4px;
             padding: 6px;
-            border-radius: 999px;
+            border-radius: 14px;
             background: rgba(255, 255, 255, 0.98);
             box-shadow: 0 14px 30px rgba(17, 27, 33, 0.2);
             border: 1px solid rgba(17, 27, 33, 0.12);
+            max-width: min(94vw, 380px);
+        }
+        .reaction-picker-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .reaction-picker-actions {
+            padding-top: 0;
+        }
+        .reaction-picker-actions.with-reaction-row {
+            border-top: 1px solid rgba(17, 27, 33, 0.08);
+            padding-top: 4px;
         }
         .reaction-picker[hidden] {
             display: none;
@@ -1667,7 +1691,7 @@ const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
-const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😢', '🙏'];
 const messagesEl = document.getElementById('messages');
 const statusRowEl = document.getElementById('status-row');
 const bodyEl = document.getElementById('message-body');
@@ -2825,23 +2849,27 @@ function renderMessageReactions(message) {
         return '';
     }
 
-    let emojiLabel = '';
+    let reactionLines = [];
     if (isGroupConversation) {
         const grouped = new Map();
         Array.from(uniqueByUser.values()).forEach((emoji) => {
             grouped.set(emoji, (grouped.get(emoji) || 0) + 1);
         });
-        emojiLabel = Array.from(grouped.entries())
+        reactionLines = Array.from(grouped.entries())
             .sort((left, right) => right[1] - left[1])
             .slice(0, 3)
-            .map(([emoji, total]) => `${escapeHtml(emoji)} ${total > 1 ? total : ''}`.trim())
-            .join(' ');
+            .map(([emoji, total]) => `${escapeHtml(emoji)}${total > 1 ? ` ${total}` : ''}`);
     } else {
-        const emojis = Array.from(uniqueByUser.values()).slice(0, 3);
-        emojiLabel = emojis.map((emoji) => escapeHtml(emoji)).join(' ');
+        reactionLines = Array.from(uniqueByUser.values())
+            .slice(0, 3)
+            .map((emoji) => escapeHtml(emoji));
     }
 
-    return `<div class="message-reactions" aria-label="Reactions">${emojiLabel}</div>`;
+    if (reactionLines.length === 0) {
+        return '';
+    }
+
+    return `<div class="message-reactions" aria-label="Reactions">${reactionLines.map((line) => `<span class="message-reactions-line">${line}</span>`).join('')}</div>`;
 }
 
 function renderReplyReference(message) {
@@ -3107,14 +3135,19 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
     const deleteButton = actionOptions.delete
-        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete message" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
+        ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete for me" title="Delete for me"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
     const pinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path></svg>';
     const unpinIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17v5"></path><path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path><path d="M4 4l16 16"></path></svg>';
     const pinButton = actionOptions.pin === false
         ? ''
         : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
-    picker.innerHTML = reactionButtons + removeButton + replyButton + copyButton + pinButton + editButton + deleteButton;
+    const reactionsRow = reactionButtons + removeButton;
+    const actionsRow = replyButton + copyButton + pinButton + editButton + deleteButton;
+    const actionRowClasses = reactionsRow !== ''
+        ? 'reaction-picker-row reaction-picker-actions with-reaction-row'
+        : 'reaction-picker-row reaction-picker-actions';
+    picker.innerHTML = `${reactionsRow !== '' ? `<div class="reaction-picker-row reaction-picker-reactions">${reactionsRow}</div>` : ''}<div class="${actionRowClasses}">${actionsRow}</div>`;
 
     picker.querySelectorAll('button[data-emoji]').forEach((buttonEl) => {
         buttonEl.addEventListener('click', () => {
@@ -3475,7 +3508,13 @@ function renderMessages(messages) {
                 }
                 const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
                 if (targetRow instanceof HTMLElement) {
-                    targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    const pinnedPanel = messagesEl.querySelector('.pinned-messages');
+                    const pinnedOffset = pinnedPanel instanceof HTMLElement ? pinnedPanel.offsetHeight + 10 : 10;
+                    const containerRect = messagesEl.getBoundingClientRect();
+                    const targetRect = targetRow.getBoundingClientRect();
+                    const targetTop = messagesEl.scrollTop + (targetRect.top - containerRect.top);
+                    const nextTop = Math.max(0, targetTop - pinnedOffset);
+                    messagesEl.scrollTo({ top: nextTop, behavior: 'smooth' });
                     targetRow.classList.add('reply-target-highlight');
                     window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
                 }
@@ -3538,7 +3577,7 @@ function renderMessages(messages) {
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: false,
-                        delete: false,
+                        delete: true,
                     });
                 }, 480);
             });
@@ -3565,6 +3604,7 @@ function renderMessages(messages) {
                 showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
                     pin: true,
                     pinned: isMessagePinned(messageId),
+                    delete: true,
                 });
             });
             rowEl.querySelectorAll('[data-reply-target-id]').forEach((referenceEl) => {
