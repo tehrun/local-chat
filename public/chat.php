@@ -371,9 +371,10 @@ if ($isGroupConversation) {
             position: sticky;
             top: 0;
             z-index: 3;
+            align-items: center;
             padding: 10px 8px 8px;
             border-radius: 14px;
-            background: rgba(7, 94, 84, 0.08);
+            background: rgba(7, 94, 84, 0.10);
             border: 1px solid rgba(7, 94, 84, 0.14);
             max-width: 100%;
             backdrop-filter: blur(2px);
