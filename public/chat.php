@@ -276,7 +276,10 @@ if ($isGroupConversation) {
             background: var(--menu-hover);
         }
         .header-menu-item.danger {
-            color: var(--muted);
+            color: var(--text);
+        }
+        .mute-icon-segment.is-hidden {
+            display: none;
         }
         .header-menu-item:disabled {
             opacity: 0.65;
@@ -1765,9 +1768,9 @@ if ($isGroupConversation) {
                     >
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M11 5 6 9H3v6h3l5 4z"></path>
-                            <path id="mute-icon-sound-wave" d="M16 9a5 5 0 0 1 0 6"></path>
-                            <path id="mute-icon-sound-wave-outer" d="M18.8 6.5a8.5 8.5 0 0 1 0 11"></path>
-                            <path id="mute-icon-slash" d="m21 3-9 9" hidden></path>
+                            <path id="mute-icon-sound-wave" class="mute-icon-segment" d="M16 9a5 5 0 0 1 0 6"></path>
+                            <path id="mute-icon-sound-wave-outer" class="mute-icon-segment" d="M18.8 6.5a8.5 8.5 0 0 1 0 11"></path>
+                            <path id="mute-icon-slash" class="mute-icon-segment is-hidden" d="m21 3-9 9"></path>
                         </svg>
                         <span>Mute notifications</span>
                     </button>
@@ -2234,13 +2237,13 @@ function updateMuteButtonLabel() {
     const muted = isConversationMuted();
     muteConversationButton.querySelector('span').textContent = muted ? 'Unmute notifications' : 'Mute notifications';
     if (muteIconSlash) {
-        muteIconSlash.hidden = !muted;
+        muteIconSlash.classList.toggle('is-hidden', !muted);
     }
     if (muteIconSoundWave) {
-        muteIconSoundWave.hidden = muted;
+        muteIconSoundWave.classList.toggle('is-hidden', muted);
     }
     if (muteIconSoundWaveOuter) {
-        muteIconSoundWaveOuter.hidden = muted;
+        muteIconSoundWaveOuter.classList.toggle('is-hidden', muted);
     }
 }
 
