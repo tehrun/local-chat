@@ -185,6 +185,20 @@ $tests['manual reset token UI exposure is disabled by default'] = static functio
     putenv('CHAT_PASSWORD_RESET_EXPOSE_TOKEN');
 };
 
+$tests['password reset SMTP recipient selection prefers explicit config'] = static function (): void {
+    putenv('CHAT_PASSWORD_RESET_TO');
+    assertSameValue(passwordResetRecipientAddress('not-an-email'), '');
+    assertSameValue(passwordResetRecipientAddress('user@example.com'), 'user@example.com');
+
+    putenv('CHAT_PASSWORD_RESET_TO=admin@example.com');
+    assertSameValue(passwordResetRecipientAddress('user@example.com'), 'admin@example.com');
+
+    putenv('CHAT_PASSWORD_RESET_TO=not-an-email');
+    assertSameValue(passwordResetRecipientAddress('user@example.com'), 'user@example.com');
+
+    putenv('CHAT_PASSWORD_RESET_TO');
+};
+
 $tests['base64url helpers round-trip values'] = static function (): void {
     $original = random_bytes(32);
     $encoded = base64UrlEncode($original);

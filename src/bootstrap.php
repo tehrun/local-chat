@@ -3071,6 +3071,21 @@ function passwordResetSmtpConfigured(): bool
     return $host !== '' && $from !== '';
 }
 
+function passwordResetRecipientAddress(string $username): string
+{
+    $configured = trim((string) envValue('CHAT_PASSWORD_RESET_TO', ''));
+    if ($configured !== '' && filter_var($configured, FILTER_VALIDATE_EMAIL) !== false) {
+        return $configured;
+    }
+
+    $username = trim($username);
+    if ($username !== '' && filter_var($username, FILTER_VALIDATE_EMAIL) !== false) {
+        return $username;
+    }
+
+    return '';
+}
+
 function passwordResetManualModeEnabled(): bool
 {
     $value = strtolower(trim((string) envValue('CHAT_PASSWORD_RESET_MANUAL_MODE', 'auto')));
@@ -3095,20 +3110,22 @@ function passwordResetExposeManualTokenInUi(): bool
 function dispatchPasswordResetToken(array $user, string $token): array
 {
     $username = trim((string) ($user['username'] ?? ''));
+    $recipient = passwordResetRecipientAddress($username);
     $resetUrl = './?auth=reset&token=' . rawurlencode($token);
     $manualMode = passwordResetManualModeEnabled();
     $mode = $manualMode ? 'manual' : 'smtp';
 
-    if (!$manualMode && filter_var($username, FILTER_VALIDATE_EMAIL) !== false) {
+    if (!$manualMode && $recipient !== '') {
         $subject = 'Local Chat password reset';
-        $body = "Use this link to reset your password (expires in 15 minutes):\n\n{$resetUrl}\n";
+        $ttlMinutes = (int) floor(PASSWORD_RESET_TOKEN_TTL_SECONDS / 60);
+        $body = "User: {$username}\nUse this link to reset the password (expires in {$ttlMinutes} minutes):\n\n{$resetUrl}\n";
         $headers = [];
         $from = trim((string) envValue('CHAT_SMTP_FROM', ''));
         if ($from !== '') {
             $headers[] = 'From: ' . $from;
         }
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
-        $sent = mail($username, $subject, $body, implode("\r\n", $headers));
+        $sent = mail($recipient, $subject, $body, implode("\r\n", $headers));
 
         if ($sent) {
             return [
@@ -3120,8 +3137,8 @@ function dispatchPasswordResetToken(array $user, string $token): array
         }
 
         error_log(sprintf(
-            '[local-chat] SMTP delivery failed for "%s"; falling back to manual reset token output.',
-            $username
+            '[local-chat] SMTP delivery failed for recipient "%s"; falling back to manual reset token output.',
+            $recipient
         ));
     }
 
