@@ -630,6 +630,10 @@ function initializeSqliteDatabase(PDO $pdo): void
          ON messages (recipient_id, sender_id, delivered_at, read_at, created_at, id)'
     );
     $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_messages_search_scope
+         ON messages (sender_id, recipient_id, id)'
+    );
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS message_reactions (
             message_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
@@ -825,6 +829,10 @@ function initializeSqliteDatabase(PDO $pdo): void
          ON group_messages (group_id, created_at, id)'
     );
     $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_messages_search_scope
+         ON group_messages (group_id, id)'
+    );
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_reactions (
             message_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
@@ -924,6 +932,64 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_group_message_pins_message
          ON group_message_pins (message_id)'
     );
+
+    initializeSqliteMessageSearch($pdo);
+}
+
+function initializeSqliteMessageSearch(PDO $pdo): void
+{
+    try {
+        $pdo->exec(
+            'CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                body,
+                content=\'messages\',
+                content_rowid=\'id\'
+            )'
+        );
+        $pdo->exec(
+            'CREATE VIRTUAL TABLE IF NOT EXISTS group_messages_fts USING fts5(
+                body,
+                content=\'group_messages\',
+                content_rowid=\'id\'
+            )'
+        );
+
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+                INSERT INTO messages_fts(rowid, body) VALUES (new.id, new.body);
+            END'
+        );
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+                INSERT INTO messages_fts(messages_fts, rowid, body) VALUES(\'delete\', old.id, old.body);
+            END'
+        );
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+                INSERT INTO messages_fts(messages_fts, rowid, body) VALUES(\'delete\', old.id, old.body);
+                INSERT INTO messages_fts(rowid, body) VALUES (new.id, new.body);
+            END'
+        );
+
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS group_messages_fts_ai AFTER INSERT ON group_messages BEGIN
+                INSERT INTO group_messages_fts(rowid, body) VALUES (new.id, new.body);
+            END'
+        );
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS group_messages_fts_ad AFTER DELETE ON group_messages BEGIN
+                INSERT INTO group_messages_fts(group_messages_fts, rowid, body) VALUES(\'delete\', old.id, old.body);
+            END'
+        );
+        $pdo->exec(
+            'CREATE TRIGGER IF NOT EXISTS group_messages_fts_au AFTER UPDATE ON group_messages BEGIN
+                INSERT INTO group_messages_fts(group_messages_fts, rowid, body) VALUES(\'delete\', old.id, old.body);
+                INSERT INTO group_messages_fts(rowid, body) VALUES (new.id, new.body);
+            END'
+        );
+    } catch (Throwable) {
+        // FTS5 is optional; LIKE-based search remains available.
+    }
 }
 
 function mysqlTableColumns(PDO $pdo, string $table): array
@@ -998,6 +1064,7 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('read_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
     }
+    ensureMysqlFullTextIndex($pdo, 'messages', 'idx_messages_body_fulltext', 'body');
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS message_reactions (
@@ -1158,6 +1225,7 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('file_name', $groupColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
     }
+    ensureMysqlFullTextIndex($pdo, 'group_messages', 'idx_group_messages_body_fulltext', 'body');
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_reactions (
             message_id BIGINT UNSIGNED NOT NULL,
@@ -1251,6 +1319,24 @@ function initializeMysqlDatabase(PDO $pdo): void
     );
 
     migrateMysqlPrivateMessagePinsTable($pdo);
+}
+
+function ensureMysqlFullTextIndex(PDO $pdo, string $table, string $indexName, string $column): void
+{
+    $stmt = $pdo->prepare('SHOW INDEX FROM `' . str_replace('`', '``', $table) . '` WHERE Key_name = :index_name');
+    $stmt->execute(['index_name' => $indexName]);
+    if ($stmt->fetch() !== false) {
+        return;
+    }
+
+    try {
+        $pdo->exec(
+            'ALTER TABLE `' . str_replace('`', '``', $table) . '`
+             ADD FULLTEXT INDEX `' . str_replace('`', '``', $indexName) . '` (`' . str_replace('`', '``', $column) . '`)'
+        );
+    } catch (Throwable) {
+        // FULLTEXT may not be available for every MySQL/MariaDB setup.
+    }
 }
 
 function migrateSqlitePrivateMessagePinsTable(PDO $pdo): void
@@ -3213,6 +3299,117 @@ function conversationMessagesPageWithoutMaintenance(int $userId, int $otherUserI
     return attachReactionsToMessages(array_map(static fn (array $message): array => formatMessage($message), $messages));
 }
 
+function normalizeMessageSearchQuery(string $query): ?string
+{
+    $normalized = trim(preg_replace('/\s+/', ' ', $query) ?? '');
+    if ($normalized === '') {
+        return null;
+    }
+
+    if (function_exists('mb_strlen') && mb_strlen($normalized) > 80) {
+        $normalized = mb_substr($normalized, 0, 80);
+    } elseif (strlen($normalized) > 80) {
+        $normalized = substr($normalized, 0, 80);
+    }
+
+    if (function_exists('mb_strlen') && mb_strlen($normalized) < 2) {
+        return null;
+    }
+
+    return $normalized;
+}
+
+function messageSearchLimit(int $limit): int
+{
+    return max(1, min(50, $limit > 0 ? $limit : 20));
+}
+
+function escapeLikePattern(string $value): string
+{
+    return strtr($value, [
+        '\\' => '\\\\',
+        '%' => '\%',
+        '_' => '\_',
+    ]);
+}
+
+function privateMessageSearchResults(int $userId, int $otherUserId, string $query, ?int $beforeMessageId = null, int $limit = 20): array
+{
+    $normalizedQuery = normalizeMessageSearchQuery($query);
+    if ($normalizedQuery === null) {
+        return [];
+    }
+
+    $limit = messageSearchLimit($limit);
+    $clearedAt = conversationClearedAt($userId, $otherUserId);
+    $baseSql = 'SELECT m.*, u.username AS sender_name,
+                   rm.id AS reply_message_id,
+                   rm.sender_id AS reply_sender_id,
+                   ru.username AS reply_sender_name,
+                   rm.body AS reply_body,
+                   rm.audio_path AS reply_audio_path,
+                   rm.image_path AS reply_image_path,
+                   rm.file_path AS reply_file_path,
+                   rm.file_name AS reply_file_name,
+                   rm.created_at AS reply_created_at
+            FROM messages m
+            JOIN users u ON u.id = m.sender_id
+            LEFT JOIN messages rm ON rm.id = m.reply_to_message_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            LEFT JOIN message_deletions md ON md.message_id = m.id AND md.user_id = :user_id
+            WHERE ((m.sender_id = :user_id AND m.recipient_id = :other_id)
+               OR (m.sender_id = :other_id AND m.recipient_id = :user_id))
+              AND md.message_id IS NULL';
+    $params = [
+        'user_id' => $userId,
+        'other_id' => $otherUserId,
+        'limit' => $limit,
+    ];
+    if ($clearedAt !== null) {
+        $baseSql .= ' AND m.created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+    if ($beforeMessageId !== null && $beforeMessageId > 0) {
+        $baseSql .= ' AND m.id < :before_message_id';
+        $params['before_message_id'] = $beforeMessageId;
+    }
+
+    $sql = $baseSql;
+    if (dbDriver() === 'mysql') {
+        $sql .= ' AND MATCH(m.body) AGAINST (:query IN NATURAL LANGUAGE MODE)';
+        $params['query'] = $normalizedQuery;
+    } else {
+        $sql .= ' AND m.body LIKE :query ESCAPE \'\\\'';
+        $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+    }
+    $sql .= ' ORDER BY m.id DESC LIMIT :limit';
+
+    try {
+        $stmt = db()->prepare($sql);
+        foreach ($params as $name => $value) {
+            $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+    } catch (Throwable) {
+        if (dbDriver() !== 'mysql') {
+            return [];
+        }
+        $fallbackSql = $baseSql . ' AND m.body LIKE :query ESCAPE \'\\\'
+            ORDER BY m.id DESC
+            LIMIT :limit';
+        $stmt = db()->prepare($fallbackSql);
+        $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+        foreach ($params as $name => $value) {
+            $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+    }
+
+    $messages = $stmt->fetchAll();
+
+    return attachReactionsToMessages(array_map(static fn (array $message): array => formatMessage($message), $messages));
+}
+
 function normalizePrivateReplyTargetId(int $senderId, int $recipientId, ?int $replyToMessageId): ?int
 {
     $messageId = (int) ($replyToMessageId ?? 0);
@@ -4726,6 +4923,86 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
     if ($limit > 0) {
         $messages = array_reverse($messages);
     }
+
+    return attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
+}
+
+function groupMessageSearchResults(int $groupId, int $userId, string $query, ?int $beforeMessageId = null, int $limit = 20): array
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return [];
+    }
+
+    $normalizedQuery = normalizeMessageSearchQuery($query);
+    if ($normalizedQuery === null) {
+        return [];
+    }
+
+    $limit = messageSearchLimit($limit);
+    $clearedAt = groupConversationClearedAt($groupId, $userId);
+    $params = [
+        'group_id' => $groupId,
+        'user_id' => $userId,
+        'limit' => $limit,
+    ];
+    $baseSql = 'SELECT gm.*, u.username AS sender_name,
+                   rgm.id AS reply_message_id,
+                   rgm.sender_id AS reply_sender_id,
+                   ru.username AS reply_sender_name,
+                   rgm.body AS reply_body,
+                   rgm.audio_path AS reply_audio_path,
+                   rgm.image_path AS reply_image_path,
+                   rgm.file_path AS reply_file_path,
+                   rgm.file_name AS reply_file_name,
+                   rgm.created_at AS reply_created_at
+            FROM group_messages gm
+            JOIN users u ON u.id = gm.sender_id
+            LEFT JOIN group_messages rgm ON rgm.id = gm.reply_to_message_id
+            LEFT JOIN users ru ON ru.id = rgm.sender_id
+            LEFT JOIN group_message_deletions gmd ON gmd.message_id = gm.id AND gmd.user_id = :user_id
+            WHERE gm.group_id = :group_id
+              AND gmd.message_id IS NULL';
+    if ($clearedAt !== null) {
+        $baseSql .= ' AND gm.created_at > :cleared_at';
+        $params['cleared_at'] = $clearedAt;
+    }
+    if ($beforeMessageId !== null && $beforeMessageId > 0) {
+        $baseSql .= ' AND gm.id < :before_message_id';
+        $params['before_message_id'] = $beforeMessageId;
+    }
+
+    $sql = $baseSql;
+    if (dbDriver() === 'mysql') {
+        $sql .= ' AND MATCH(gm.body) AGAINST (:query IN NATURAL LANGUAGE MODE)';
+        $params['query'] = $normalizedQuery;
+    } else {
+        $sql .= ' AND gm.body LIKE :query ESCAPE \'\\\'';
+        $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+    }
+    $sql .= ' ORDER BY gm.id DESC LIMIT :limit';
+
+    try {
+        $stmt = db()->prepare($sql);
+        foreach ($params as $name => $value) {
+            $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+    } catch (Throwable) {
+        if (dbDriver() !== 'mysql') {
+            return [];
+        }
+        $fallbackSql = $baseSql . ' AND gm.body LIKE :query ESCAPE \'\\\'
+            ORDER BY gm.id DESC
+            LIMIT :limit';
+        $stmt = db()->prepare($fallbackSql);
+        $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+        foreach ($params as $name => $value) {
+            $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+    }
+
+    $messages = $stmt->fetchAll();
 
     return attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
 }
