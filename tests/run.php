@@ -119,6 +119,56 @@ $tests['dbConfig returns mysql details when configured'] = static function (): v
     putenv('CHAT_DB_PASS');
 };
 
+$tests['password reset token helpers create, validate, consume, and reject reused token'] = static function (): void {
+    $username = 'reset-user-' . bin2hex(random_bytes(4));
+    $password = 'StrongPass123';
+
+    $stmt = db()->prepare('INSERT INTO users (username, password_hash, created_at) VALUES (:username, :password_hash, :created_at)');
+    $stmt->execute([
+        'username' => $username,
+        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+        'created_at' => gmdate('c'),
+    ]);
+
+    $userId = (int) db()->lastInsertId();
+    assertTrue($userId > 0);
+
+    $token = createPasswordResetToken($userId, 300);
+    assertTrue(is_string($token) && str_contains($token, ':'), 'Reset token should include selector and verifier');
+
+    $record = validatePasswordResetToken($token ?? '');
+    assertTrue(is_array($record), 'Reset token should validate');
+    assertSameValue((int) ($record['user_id'] ?? 0), $userId);
+
+    assertTrue(consumePasswordResetToken($token ?? ''), 'Token should be consumable once');
+    assertSameValue(validatePasswordResetToken($token ?? ''), null, 'Consumed token should not validate');
+    assertFalse(consumePasswordResetToken($token ?? ''), 'Consumed token should not consume twice');
+};
+
+$tests['updateUserPassword stores a new hash that verifies'] = static function (): void {
+    $username = 'reset-update-' . bin2hex(random_bytes(4));
+    $oldPassword = 'OriginalPass123';
+    $newPassword = 'BrandNewPass123';
+
+    $stmt = db()->prepare('INSERT INTO users (username, password_hash, created_at) VALUES (:username, :password_hash, :created_at)');
+    $stmt->execute([
+        'username' => $username,
+        'password_hash' => password_hash($oldPassword, PASSWORD_DEFAULT),
+        'created_at' => gmdate('c'),
+    ]);
+    $userId = (int) db()->lastInsertId();
+
+    updateUserPassword($userId, $newPassword);
+    $user = findUserById($userId);
+    assertTrue(is_array($user));
+
+    $rawStmt = db()->prepare('SELECT password_hash FROM users WHERE id = :id LIMIT 1');
+    $rawStmt->execute(['id' => $userId]);
+    $hash = (string) $rawStmt->fetchColumn();
+    assertTrue(password_verify($newPassword, $hash), 'New password hash should verify');
+    assertFalse(password_verify($oldPassword, $hash), 'Old password should no longer verify');
+};
+
 $tests['base64url helpers round-trip values'] = static function (): void {
     $original = random_bytes(32);
     $encoded = base64UrlEncode($original);

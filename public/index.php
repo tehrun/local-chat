@@ -9,7 +9,17 @@ purgeExpiredMessages();
 $errors = [];
 $notice = null;
 $user = currentUser();
-$authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
+$authMode = 'login';
+if (isset($_GET['auth']) && in_array($_GET['auth'], ['register', 'forgot', 'reset'], true)) {
+    $authMode = (string) $_GET['auth'];
+}
+$passwordResetToken = trim((string) ($_GET['token'] ?? ''));
+$passwordResetRecord = ($authMode === 'reset' && $passwordResetToken !== '')
+    ? validatePasswordResetToken($passwordResetToken)
+    : null;
+if ($authMode === 'reset' && $passwordResetToken === '') {
+    $errors[] = 'Password reset token is missing.';
+}
 $authChallengePrompt = authChallengePrompt();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -46,6 +56,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'request_password_reset') {
+        $authMode = 'forgot';
+        $result = requestPasswordReset(
+            $_POST['username'] ?? '',
+            $_POST['verification_answer'] ?? ''
+        );
+        $authChallengePrompt = authChallengePrompt();
+
+        if (isset($result['error']) && is_string($result['error'])) {
+            $errors[] = $result['error'];
+        } else {
+            $notice = (string) ($result['notice'] ?? 'If the account exists, a password reset link has been issued.');
+            $payload = $result['payload'] ?? null;
+            if (
+                is_array($payload)
+                && !empty($payload['manual_mode'])
+                && is_string($payload['token'] ?? null)
+                && is_string($payload['reset_url'] ?? null)
+            ) {
+                $_SESSION['password_reset_manual_token'] = $payload['token'];
+                $_SESSION['password_reset_manual_url'] = $payload['reset_url'];
+            } else {
+                unset($_SESSION['password_reset_manual_token'], $_SESSION['password_reset_manual_url']);
+            }
+        }
+    }
+
+    if ($action === 'set_new_password') {
+        $authMode = 'reset';
+        $passwordResetToken = trim((string) ($_POST['reset_token'] ?? ''));
+        $passwordResetRecord = validatePasswordResetToken($passwordResetToken);
+
+        $rateLimitError = enforceAuthRateLimit('password_reset_set');
+        if ($rateLimitError !== null) {
+            $errors[] = $rateLimitError;
+        } elseif ($passwordResetRecord === null) {
+            recordAuthAttempt('password_reset_set', false);
+            $errors[] = 'This password reset link is invalid or expired.';
+        } else {
+            $password = (string) ($_POST['password'] ?? '');
+            $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
+            if (strlen($password) < 12) {
+                recordAuthAttempt('password_reset_set', false);
+                $errors[] = 'Password must be at least 12 characters.';
+            } elseif (
+                !preg_match('/[A-Z]/', $password)
+                || !preg_match('/[a-z]/', $password)
+                || !preg_match('/\d/', $password)
+            ) {
+                recordAuthAttempt('password_reset_set', false);
+                $errors[] = 'Password must include upper-case, lower-case, and a number.';
+            } elseif (!hash_equals($password, $confirmPassword)) {
+                recordAuthAttempt('password_reset_set', false);
+                $errors[] = 'Passwords do not match.';
+            } elseif (!consumePasswordResetToken($passwordResetToken)) {
+                recordAuthAttempt('password_reset_set', false);
+                $errors[] = 'This password reset link was already used or expired.';
+            } else {
+                updateUserPassword((int) $passwordResetRecord['user_id'], $password);
+                recordAuthAttempt('password_reset_set', true);
+                unset($_SESSION['password_reset_manual_token'], $_SESSION['password_reset_manual_url']);
+                $notice = 'Your password has been updated. Please sign in.';
+                $authMode = 'login';
+                $passwordResetToken = '';
+                $passwordResetRecord = null;
+            }
+        }
+    }
+
     if ($action === 'logout') {
         $_SESSION = [];
         if (session_status() === PHP_SESSION_ACTIVE) {
@@ -62,6 +141,8 @@ $users = $user ? allOtherUsers((int) $user['id']) : [];
 $chatUsers = $user ? combinedChatList((int) $user['id']) : [];
 $incomingRequests = $user ? incomingFriendRequests((int) $user['id']) : [];
 $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
+$manualResetToken = is_string($_SESSION['password_reset_manual_token'] ?? null) ? $_SESSION['password_reset_manual_token'] : null;
+$manualResetUrl = is_string($_SESSION['password_reset_manual_url'] ?? null) ? $_SESSION['password_reset_manual_url'] : null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -916,6 +997,51 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 <button class="primary" type="submit">Register</button>
                             </form>
                             <p class="auth-switch">Already have an account? <a href="./">Sign in</a></p>
+                        <?php elseif ($authMode === 'forgot'): ?>
+                            <h2 class="panel-title">Reset password</h2>
+                            <form method="post">
+                                <input type="hidden" name="action" value="request_password_reset">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <label>
+                                    Username
+                                    <input type="text" name="username" required>
+                                </label>
+                                <label>
+                                    Verification: solve <?= e($authChallengePrompt) ?>
+                                    <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
+                                </label>
+                                <button class="secondary" type="submit">Send reset link</button>
+                            </form>
+                            <?php if ($manualResetToken !== null && $manualResetUrl !== null): ?>
+                                <div class="alert notice">
+                                    <strong>Manual delivery mode:</strong> SMTP is not configured, so copy this reset link for local admin delivery:<br>
+                                    <a href="<?= e($manualResetUrl) ?>"><?= e($manualResetUrl) ?></a><br>
+                                    <small>Token: <?= e($manualResetToken) ?></small>
+                                </div>
+                            <?php endif; ?>
+                            <p class="auth-switch"><a href="./">Back to sign in</a></p>
+                        <?php elseif ($authMode === 'reset'): ?>
+                            <h2 class="panel-title">Set new password</h2>
+                            <?php if ($passwordResetRecord === null): ?>
+                                <p class="panel-text">This password reset link is invalid or expired.</p>
+                                <p class="auth-switch"><a href="./?auth=forgot">Request a new reset link</a></p>
+                            <?php else: ?>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="set_new_password">
+                                    <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                    <input type="hidden" name="reset_token" value="<?= e($passwordResetToken) ?>">
+                                    <label>
+                                        New password
+                                        <input type="password" name="password" minlength="12" required>
+                                    </label>
+                                    <label>
+                                        Confirm new password
+                                        <input type="password" name="confirm_password" minlength="12" required>
+                                    </label>
+                                    <button class="secondary" type="submit">Update password</button>
+                                </form>
+                                <p class="auth-switch"><a href="./">Back to sign in</a></p>
+                            <?php endif; ?>
                         <?php else: ?>
                             <h2 class="panel-title">Sign in</h2>
                             <form method="post" id="login-form">
@@ -935,6 +1061,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </label>
                                 <button class="secondary" id="login-submit" type="submit">Login</button>
                             </form>
+                            <p class="auth-switch"><a href="./?auth=forgot">Forgot password?</a></p>
                             <p class="auth-switch">Don&apos;t have an account? <a href="./?auth=register">Create one</a></p>
                         <?php endif; ?>
                     </div>

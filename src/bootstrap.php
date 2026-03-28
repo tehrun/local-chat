@@ -20,6 +20,7 @@ define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
 define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
+define('PASSWORD_RESET_TOKEN_TTL_SECONDS', 15 * 60);
 
 ensureStorageDirectories();
 configureSession();
@@ -695,6 +696,27 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
 
     $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            selector TEXT NOT NULL UNIQUE,
+            verifier_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_lookup
+         ON password_reset_tokens (selector, used_at, expires_at)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user
+         ON password_reset_tokens (user_id, created_at)'
+    );
+
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS user_presence (
             user_id INTEGER PRIMARY KEY,
             updated_at TEXT NOT NULL,
@@ -1147,6 +1169,21 @@ function initializeMysqlDatabase(PDO $pdo): void
             last_seen_at DATETIME NOT NULL,
             expires_at DATETIME NOT NULL,
             INDEX idx_sessions_expires_at (expires_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            selector VARCHAR(64) NOT NULL UNIQUE,
+            verifier_hash VARCHAR(255) NOT NULL,
+            expires_at DATETIME NOT NULL,
+            used_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_password_reset_tokens_lookup (selector, used_at, expires_at),
+            INDEX idx_password_reset_tokens_user (user_id, created_at),
+            CONSTRAINT fk_password_reset_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -3023,6 +3060,180 @@ function recordAuthAttempt(string $scope, bool $success): void
     $_SESSION['auth_rate_limits'][$scope] = [
         'attempts' => $attempts,
         'blocked_until' => $blockedUntil,
+    ];
+}
+
+function passwordResetSmtpConfigured(): bool
+{
+    $host = trim((string) envValue('CHAT_SMTP_HOST', ''));
+    $from = trim((string) envValue('CHAT_SMTP_FROM', ''));
+
+    return $host !== '' && $from !== '';
+}
+
+function passwordResetManualModeEnabled(): bool
+{
+    $value = strtolower(trim((string) envValue('CHAT_PASSWORD_RESET_MANUAL_MODE', 'auto')));
+    if (in_array($value, ['1', 'true', 'yes', 'on'], true)) {
+        return true;
+    }
+
+    if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
+        return false;
+    }
+
+    return !passwordResetSmtpConfigured();
+}
+
+function createPasswordResetToken(int $userId, ?int $ttlSeconds = null): ?string
+{
+    if ($userId <= 0) {
+        return null;
+    }
+
+    $selector = bin2hex(random_bytes(9));
+    $verifier = base64UrlEncode(random_bytes(32));
+    $verifierHash = hash('sha256', $verifier);
+    $now = gmdate('c');
+    $expiresAt = gmdate('c', time() + max(60, (int) ($ttlSeconds ?? PASSWORD_RESET_TOKEN_TTL_SECONDS)));
+
+    $invalidateStmt = db()->prepare(
+        'UPDATE password_reset_tokens
+         SET used_at = :used_at
+         WHERE user_id = :user_id
+           AND used_at IS NULL'
+    );
+    $invalidateStmt->execute([
+        'used_at' => $now,
+        'user_id' => $userId,
+    ]);
+
+    $stmt = db()->prepare(
+        'INSERT INTO password_reset_tokens (user_id, selector, verifier_hash, expires_at, used_at, created_at)
+         VALUES (:user_id, :selector, :verifier_hash, :expires_at, NULL, :created_at)'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'selector' => $selector,
+        'verifier_hash' => $verifierHash,
+        'expires_at' => $expiresAt,
+        'created_at' => $now,
+    ]);
+
+    return $selector . ':' . $verifier;
+}
+
+function validatePasswordResetToken(string $token): ?array
+{
+    $token = trim($token);
+    if ($token === '' || !str_contains($token, ':')) {
+        return null;
+    }
+
+    [$selector, $verifier] = explode(':', $token, 2);
+    $selector = trim($selector);
+    $verifier = trim($verifier);
+
+    if ($selector === '' || $verifier === '') {
+        return null;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id, user_id, selector, verifier_hash, expires_at, used_at, created_at
+         FROM password_reset_tokens
+         WHERE selector = :selector
+           AND used_at IS NULL
+         LIMIT 1'
+    );
+    $stmt->execute(['selector' => $selector]);
+    $row = $stmt->fetch();
+    if (!is_array($row)) {
+        return null;
+    }
+
+    $expiresAt = strtotime((string) ($row['expires_at'] ?? ''));
+    if ($expiresAt === false || $expiresAt <= time()) {
+        return null;
+    }
+
+    $verifierHash = hash('sha256', $verifier);
+    if (!hash_equals((string) ($row['verifier_hash'] ?? ''), $verifierHash)) {
+        return null;
+    }
+
+    return $row;
+}
+
+function consumePasswordResetToken(string $token): bool
+{
+    $row = validatePasswordResetToken($token);
+    if ($row === null) {
+        return false;
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE password_reset_tokens
+         SET used_at = :used_at
+         WHERE id = :id
+           AND used_at IS NULL'
+    );
+    $stmt->execute([
+        'used_at' => gmdate('c'),
+        'id' => (int) $row['id'],
+    ]);
+
+    return $stmt->rowCount() > 0;
+}
+
+function updateUserPassword(int $userId, string $newPassword): void
+{
+    $stmt = db()->prepare(
+        'UPDATE users
+         SET password_hash = :password_hash
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+        'id' => $userId,
+    ]);
+}
+
+function requestPasswordReset(string $username, string $challengeAnswer): array
+{
+    $rateLimitError = enforceAuthRateLimit('password_reset_request');
+    if ($rateLimitError !== null) {
+        return ['error' => $rateLimitError];
+    }
+
+    $challenge = ensureAuthChallenge();
+    $normalizedAnswer = trim($challengeAnswer);
+    if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
+        recordAuthAttempt('password_reset_request', false);
+        refreshAuthChallenge();
+
+        return ['error' => 'Incorrect verification answer. Please solve the new math question.'];
+    }
+
+    $payload = ['dispatched' => false];
+    $user = findUserByUsername($username);
+    if ($user !== null) {
+        $token = createPasswordResetToken((int) $user['id']);
+        if (is_string($token) && $token !== '') {
+            $payload = [
+                'dispatched' => true,
+                'token' => $token,
+                'reset_url' => './?auth=reset&token=' . rawurlencode($token),
+                'manual_mode' => passwordResetManualModeEnabled(),
+            ];
+        }
+    }
+
+    recordAuthAttempt('password_reset_request', true);
+    refreshAuthChallenge();
+
+    return [
+        'notice' => 'If the account exists, a password reset link has been issued.',
+        'payload' => $payload,
     ];
 }
 
