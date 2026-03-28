@@ -870,6 +870,7 @@ if ($isGroupConversation) {
         .delivery-ticks {
             display: inline-flex;
             align-items: center;
+            gap: 4px;
             margin-left: 2px;
             color: #8696a0;
             line-height: 1;
@@ -877,10 +878,25 @@ if ($isGroupConversation) {
         .delivery-ticks.read {
             color: #53bdeb;
         }
+        .delivery-ticks.pending {
+            color: #f59e0b;
+        }
         .delivery-ticks svg {
             width: 14px;
             height: 10px;
             display: block;
+        }
+        .delivery-status-text {
+            display: inline-block;
+            min-width: 52px;
+            font-size: 10px;
+            text-transform: capitalize;
+            letter-spacing: 0.02em;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .delivery-status-text.pending {
+            min-width: 0;
         }
         .friendship-card {
             margin: 14px 12px 0;
@@ -3465,6 +3481,7 @@ function setTypingVisible(value) {
 function createPendingMessage(body, type, nextReplyTarget = null) {
     localMessageCounter += 1;
     const now = new Date();
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
     return {
         id: `pending-${type}-${localMessageCounter}`,
         sender_id: currentUserId,
@@ -3474,8 +3491,14 @@ function createPendingMessage(body, type, nextReplyTarget = null) {
         body,
         audio_path: null,
         image_path: null,
+        file_path: null,
+        file_name: null,
+        attachment_expired: false,
         delivered_at: null,
         read_at: null,
+        status: 'pending',
+        delivery_status: 'pending',
+        pending_reason: isOffline ? 'offline' : 'sending',
         created_at: now.toISOString(),
         created_at_label: `${now.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
         reply_to_message_id: nextReplyTarget && Number(nextReplyTarget.id) > 0 ? Number(nextReplyTarget.id) : null,
@@ -3535,26 +3558,51 @@ function updateScrollToEndButton() {
     scrollToEndButton.setAttribute('aria-hidden', shouldShowButton ? 'false' : 'true');
 }
 
+function normalizeDeliveryState(message) {
+    const rawState = String(message?.delivery_status || message?.status || '').trim().toLowerCase();
+    if (rawState === 'read') {
+        return 'read';
+    }
+    if (rawState === 'delivered') {
+        return 'delivered';
+    }
+    if (rawState === 'sent') {
+        return 'sent';
+    }
+    if (rawState === 'pending') {
+        return 'pending';
+    }
+
+    if (message?.read_at) {
+        return 'read';
+    }
+    if (message?.delivered_at) {
+        return 'delivered';
+    }
+    return 'sent';
+}
+
 function deliveryState(message) {
-    if (!message || Number(message.sender_id) !== currentUserId || message.pending) {
+    if (!message || Number(message.sender_id) !== currentUserId) {
         return '';
     }
 
-    if (message.read_at) {
-        return 'read';
+    if (message.pending) {
+        return 'pending';
     }
 
-    if (message.delivered_at) {
-        return 'delivered';
-    }
-
-    return 'sent';
+    return normalizeDeliveryState(message);
 }
 
 function renderDeliveryTicks(message) {
     const state = deliveryState(message);
     if (state === '') {
         return '';
+    }
+
+    if (state === 'pending') {
+        const pendingLabel = message?.pending_reason === 'offline' ? 'Queued (offline)' : 'Sending';
+        return `<span class="delivery-ticks pending" aria-label="${pendingLabel}"><span aria-hidden="true">…</span><span class="delivery-status-text pending">${escapeHtml(pendingLabel)}</span></span>`;
     }
 
     const singleTick = `
@@ -3568,7 +3616,10 @@ function renderDeliveryTicks(message) {
         </svg>`;
     const icon = state === 'sent' ? singleTick : doubleTick;
 
-    return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
+    const stateLabel = state === 'read'
+        ? 'Read'
+        : (state === 'delivered' ? 'Delivered' : 'Sent');
+    return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${stateLabel}">${icon}<span class="delivery-status-text ${escapeHtml(state)}">${escapeHtml(stateLabel)}</span></span>`;
 }
 
 function formatHumanTimestamp(value) {
@@ -4244,7 +4295,9 @@ function renderMessages(messages) {
         message.created_at,
         message.delivered_at || '',
         message.read_at || '',
+        String(message.delivery_status || message.status || ''),
         Boolean(message.pending),
+        String(message.pending_reason || ''),
         message.body || '',
         message.audio_path || '',
         message.image_path || '',
@@ -4292,7 +4345,9 @@ function renderMessages(messages) {
             const expiredAttachment = message.attachment_expired
                 ? '<div class="message-text muted" dir="auto">Attachment expired.</div>'
                 : '';
-            const pendingLabel = message.pending ? ' · Sending…' : '';
+            const pendingLabel = message.pending
+                ? (message.pending_reason === 'offline' ? ' · Queued (offline)…' : ' · Sending…')
+                : '';
             const ticks = renderDeliveryTicks(message);
             const replyReference = renderReplyReference(message);
             const senderLabel = shouldShowSender

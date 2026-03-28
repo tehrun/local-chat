@@ -2776,7 +2776,9 @@ function chatListStateSignature(int $currentUserId): string
                 MAX(id) AS latest_message_id,
                 MAX(created_at) AS latest_message_created_at,
                 MAX(delivered_at) AS latest_message_delivered_at,
-                MAX(read_at) AS latest_message_read_at
+                MAX(read_at) AS latest_message_read_at,
+                SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered_count,
+                SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) AS read_count
          FROM messages
          WHERE sender_id = :id OR recipient_id = :id'
     );
@@ -2860,6 +2862,8 @@ function chatListStateSignature(int $currentUserId): string
             'latest_created_at' => $messagesState['latest_message_created_at'] ?? null,
             'latest_delivered_at' => $messagesState['latest_message_delivered_at'] ?? null,
             'latest_read_at' => $messagesState['latest_message_read_at'] ?? null,
+            'delivered_count' => (int) ($messagesState['delivered_count'] ?? 0),
+            'read_count' => (int) ($messagesState['read_count'] ?? 0),
         ],
         'presence' => [
             'total' => (int) ($presenceState['total_presence_rows'] ?? 0),
@@ -3349,6 +3353,14 @@ function formatMessage(array $message): array
         ];
     }
 
+    $deliveredAt = is_string($message['delivered_at'] ?? null) && trim((string) $message['delivered_at']) !== ''
+        ? (string) $message['delivered_at']
+        : null;
+    $readAt = is_string($message['read_at'] ?? null) && trim((string) $message['read_at']) !== ''
+        ? (string) $message['read_at']
+        : null;
+    $deliveryStatus = normalizeMessageDeliveryStatus($deliveredAt, $readAt);
+
     return [
         'id' => (int) $message['id'],
         'sender_id' => (int) $message['sender_id'],
@@ -3362,12 +3374,27 @@ function formatMessage(array $message): array
         'attachment_expired' => messageHasExpiredAttachment($message),
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
         'reply_reference' => $replyReference,
-        'delivered_at' => $message['delivered_at'] ?? null,
-        'read_at' => $message['read_at'] ?? null,
+        'delivered_at' => $deliveredAt,
+        'read_at' => $readAt,
+        'status' => $deliveryStatus,
+        'delivery_status' => $deliveryStatus,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
     ];
+}
+
+function normalizeMessageDeliveryStatus(?string $deliveredAt, ?string $readAt): string
+{
+    if ($readAt !== null) {
+        return 'read';
+    }
+
+    if ($deliveredAt !== null) {
+        return 'delivered';
+    }
+
+    return 'sent';
 }
 
 function findMessageById(int $messageId): ?array
@@ -4582,7 +4609,9 @@ function conversationStateSignature(int $userId, int $otherUserId): string
                 MAX(id) AS latest_message_id,
                 MAX(created_at) AS latest_message_created_at,
                 MAX(delivered_at) AS latest_message_delivered_at,
-                MAX(read_at) AS latest_message_read_at
+                MAX(read_at) AS latest_message_read_at,
+                SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered_count,
+                SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) AS read_count
          FROM messages
          WHERE ((sender_id = :user_id AND recipient_id = :other_user_id)
             OR (sender_id = :other_user_id AND recipient_id = :user_id))';
@@ -4625,6 +4654,8 @@ function conversationStateSignature(int $userId, int $otherUserId): string
             'latest_created_at' => $messageState['latest_message_created_at'] ?? null,
             'latest_delivered_at' => $messageState['latest_message_delivered_at'] ?? null,
             'latest_read_at' => $messageState['latest_message_read_at'] ?? null,
+            'delivered_count' => (int) ($messageState['delivered_count'] ?? 0),
+            'read_count' => (int) ($messageState['read_count'] ?? 0),
         ],
         'reactions' => [
             'total' => (int) ($reactionState['total_reactions'] ?? 0),
@@ -5748,6 +5779,15 @@ function groupConversationStateSignature(int $groupId, int $userId): string
     );
     $reactionStmt->execute(['group_id' => $groupId]);
     $reactionState = $reactionStmt->fetch() ?: [];
+    $groupReadStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_read_rows,
+                MAX(updated_at) AS latest_read_updated_at,
+                SUM(COALESCE(last_read_message_id, 0)) AS read_position_sum
+         FROM group_message_reads
+         WHERE group_id = :group_id'
+    );
+    $groupReadStmt->execute(['group_id' => $groupId]);
+    $groupReadState = $groupReadStmt->fetch() ?: [];
 
     $pinIds = pinnedGroupMessageIds($groupId, $userId);
     $group = findGroupById($groupId);
@@ -5761,6 +5801,11 @@ function groupConversationStateSignature(int $groupId, int $userId): string
         'reactions' => [
             'total' => (int) ($reactionState['total_reactions'] ?? 0),
             'latest_updated_at' => $reactionState['latest_reaction_updated_at'] ?? null,
+        ],
+        'reads' => [
+            'total' => (int) ($groupReadState['total_read_rows'] ?? 0),
+            'latest_updated_at' => $groupReadState['latest_read_updated_at'] ?? null,
+            'position_sum' => (int) ($groupReadState['read_position_sum'] ?? 0),
         ],
         'pins' => $pinIds,
         'group' => $group === null ? null : [
