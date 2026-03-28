@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.1', '8.2', '8.3']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, pdo_sqlite, openssl, curl
+          coverage: none
+
+      - name: Validate PHP syntax
+        run: |
+          set -euo pipefail
+          rg --files -g '*.php' -g '!storage/**' | xargs -n1 php -l
+
+      - name: Run functional/unit tests
+        run: php tests/run.php
