@@ -2240,6 +2240,10 @@ const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
 
+if (window.history && typeof window.history.replaceState === 'function') {
+    window.history.replaceState({}, document.title, './');
+}
+
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     rootEl.setAttribute('data-theme', nextTheme);
