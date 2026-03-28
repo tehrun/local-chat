@@ -26,7 +26,9 @@ jobs:
       - name: Validate PHP syntax
         run: |
           set -euo pipefail
-          rg --files -g '*.php' -g '!storage/**' | xargs -n1 php -l
+          find . -type f -name '*.php' \
+            -not -path './storage/*' \
+            -print0 | xargs -0 -n1 php -l
 
       - name: Run functional/unit tests
         run: php tests/run.php

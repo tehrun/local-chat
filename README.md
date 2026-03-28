@@ -65,7 +65,7 @@ To host the project from a subdirectory such as `https://example.com/chat`, uplo
 Run the local checks:
 
 ```bash
-rg --files -g '*.php' -g '!storage/**' | xargs -n1 php -l
+find . -type f -name '*.php' -not -path './storage/*' -print0 | xargs -0 -n1 php -l
 php tests/run.php
 ```
 
