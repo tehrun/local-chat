@@ -95,6 +95,25 @@ if ($requestMethod === 'POST') {
         jsonResponse(['error' => 'User not found.'], 404);
     }
 
+    if ($action === 'block_user' || $action === 'unblock_user') {
+        $error = $action === 'block_user'
+            ? blockUser($currentUserId, $otherUserId)
+            : unblockUser($currentUserId, $otherUserId);
+
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+
+        jsonResponse([
+            'ok' => true,
+            'blocking' => blockingStateBetweenUsers($currentUserId, $otherUserId),
+            'payload' => array_merge(
+                chatListPayload($currentUserId),
+                ['signature' => chatListStateSignature($currentUserId)]
+            ),
+        ]);
+    }
+
     if ($action === 'send_friend_request') {
         $error = sendFriendRequest($currentUserId, $otherUserId);
 

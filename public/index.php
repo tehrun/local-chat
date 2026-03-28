@@ -1370,9 +1370,21 @@ function friendshipActionMarkup(chatUser) {
     const userId = Number(chatUser.id);
     const status = String(chatUser.friendship_status || 'none');
     const direction = chatUser.request_direction || '';
+    const blockedByMe = Boolean(chatUser.blocked_by_me);
+    const blockedMe = Boolean(chatUser.blocked_me);
+
+    if (blockedByMe) {
+        return `<button class="mini-button primary icon-button" type="button" data-request-action="unblock_user" data-user-id="${userId}" aria-label="Unblock user" title="Unblock user">${personPlusIcon}</button>`;
+    }
+
+    if (blockedMe) {
+        return `
+            <button class="mini-button danger icon-button" type="button" data-request-action="block_user" data-user-id="${userId}" aria-label="Block user" title="Block user">${personMinusIcon}</button>
+            <span class="chat-time">Blocked you</span>`;
+    }
 
     if (chatUser.can_chat) {
-        return '';
+        return `<button class="mini-button danger icon-button" type="button" data-request-action="block_user" data-user-id="${userId}" aria-label="Block user" title="Block user">${personMinusIcon}</button>`;
     }
 
     if (status === 'pending' && direction === 'incoming') {
@@ -1382,10 +1394,14 @@ function friendshipActionMarkup(chatUser) {
     }
 
     if (status === 'pending') {
-        return `<button class="mini-button danger icon-button" type="button" data-request-action="cancel_friend_request" data-user-id="${userId}" aria-label="Cancel friend request" title="Cancel friend request">${personMinusIcon}</button>`;
+        return `
+            <button class="mini-button danger icon-button" type="button" data-request-action="cancel_friend_request" data-user-id="${userId}" aria-label="Cancel friend request" title="Cancel friend request">${personMinusIcon}</button>
+            <button class="mini-button danger icon-button" type="button" data-request-action="block_user" data-user-id="${userId}" aria-label="Block user" title="Block user">${rejectIcon}</button>`;
     }
 
-    return `<button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>`;
+    return `
+        <button class="mini-button primary icon-button" type="button" data-request-action="send_friend_request" data-user-id="${userId}" aria-label="Add as friend" title="Add as friend">${personPlusIcon}</button>
+        <button class="mini-button danger icon-button" type="button" data-request-action="block_user" data-user-id="${userId}" aria-label="Block user" title="Block user">${rejectIcon}</button>`;
 }
 
 function renderDirectoryEntries(users, includeUnseenCount) {

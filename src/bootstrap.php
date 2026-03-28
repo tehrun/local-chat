@@ -737,6 +737,21 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
 
     $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS blocked_users (
+            blocker_id INTEGER NOT NULL,
+            blocked_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (blocker_id, blocked_id),
+            FOREIGN KEY(blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(blocked_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked
+         ON blocked_users (blocked_id, blocker_id, created_at)'
+    );
+
+    $pdo->exec(
         'CREATE TABLE IF NOT EXISTS push_subscriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -1148,6 +1163,18 @@ function initializeMysqlDatabase(PDO $pdo): void
             INDEX idx_friend_requests_sender_status (sender_id, status, created_at),
             CONSTRAINT fk_friend_requests_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
             CONSTRAINT fk_friend_requests_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS blocked_users (
+            blocker_id INT UNSIGNED NOT NULL,
+            blocked_id INT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (blocker_id, blocked_id),
+            INDEX idx_blocked_users_blocked (blocked_id, blocker_id, created_at),
+            CONSTRAINT fk_blocked_users_blocker FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_blocked_users_blocked FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
@@ -2145,16 +2172,62 @@ function friendshipStatuses(int $currentUserId): array
 function decorateUsersWithFriendship(array $users, int $currentUserId): array
 {
     $statuses = friendshipStatuses($currentUserId);
+    $blockingStatuses = [];
 
-    return array_map(static function (array $user) use ($statuses): array {
+    if ($users !== []) {
+        $ids = array_values(array_filter(array_map(static fn (array $user): int => (int) ($user['id'] ?? 0), $users)));
+        if ($ids !== []) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $sql = sprintf(
+                'SELECT blocker_id, blocked_id
+                 FROM blocked_users
+                 WHERE (blocker_id = ? AND blocked_id IN (%s))
+                    OR (blocked_id = ? AND blocker_id IN (%s))',
+                $placeholders,
+                $placeholders
+            );
+            $stmt = db()->prepare($sql);
+            $params = array_merge([$currentUserId], $ids, [$currentUserId], $ids);
+            $stmt->execute($params);
+
+            foreach ($stmt->fetchAll() as $row) {
+                $blockerId = (int) ($row['blocker_id'] ?? 0);
+                $blockedId = (int) ($row['blocked_id'] ?? 0);
+                $otherId = $blockerId === $currentUserId ? $blockedId : $blockerId;
+                if (!isset($blockingStatuses[$otherId])) {
+                    $blockingStatuses[$otherId] = [
+                        'blocked_by_me' => false,
+                        'blocked_me' => false,
+                    ];
+                }
+                if ($blockerId === $currentUserId) {
+                    $blockingStatuses[$otherId]['blocked_by_me'] = true;
+                } else {
+                    $blockingStatuses[$otherId]['blocked_me'] = true;
+                }
+            }
+        }
+    }
+
+    return array_map(static function (array $user) use ($statuses, $blockingStatuses): array {
+        $blockState = $blockingStatuses[(int) $user['id']] ?? [
+            'blocked_by_me' => false,
+            'blocked_me' => false,
+        ];
         $friendship = $statuses[(int) $user['id']] ?? [
             'friendship_id' => null,
             'friendship_status' => 'none',
             'can_chat' => false,
             'request_direction' => null,
         ];
+        $isBlocked = $blockState['blocked_by_me'] || $blockState['blocked_me'];
+        $friendship['can_chat'] = !$isBlocked && (bool) ($friendship['can_chat'] ?? false);
 
-        return array_merge($user, $friendship);
+        return array_merge($user, $friendship, [
+            'blocked_by_me' => $blockState['blocked_by_me'],
+            'blocked_me' => $blockState['blocked_me'],
+            'is_blocked' => $isBlocked,
+        ]);
     }, $users);
 }
 
@@ -2199,8 +2272,129 @@ function friendshipRecord(int $userId, int $otherUserId): ?array
     ];
 }
 
+function isUserBlocked(int $blockerId, int $blockedId): bool
+{
+    if ($blockerId <= 0 || $blockedId <= 0 || $blockerId === $blockedId) {
+        return false;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT 1
+         FROM blocked_users
+         WHERE blocker_id = :blocker_id
+           AND blocked_id = :blocked_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'blocker_id' => $blockerId,
+        'blocked_id' => $blockedId,
+    ]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+function blockingStateBetweenUsers(int $userId, int $otherUserId): array
+{
+    $default = [
+        'blocked_by_me' => false,
+        'blocked_me' => false,
+        'is_blocked' => false,
+    ];
+
+    if ($userId <= 0 || $otherUserId <= 0 || $userId === $otherUserId) {
+        return $default;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT blocker_id, blocked_id
+         FROM blocked_users
+         WHERE (blocker_id = :user_id AND blocked_id = :other_user_id)
+            OR (blocker_id = :other_user_id AND blocked_id = :user_id)'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    $state = $default;
+    foreach ($stmt->fetchAll() as $row) {
+        $blockerId = (int) ($row['blocker_id'] ?? 0);
+        $blockedId = (int) ($row['blocked_id'] ?? 0);
+        if ($blockerId === $userId && $blockedId === $otherUserId) {
+            $state['blocked_by_me'] = true;
+        }
+        if ($blockerId === $otherUserId && $blockedId === $userId) {
+            $state['blocked_me'] = true;
+        }
+    }
+    $state['is_blocked'] = $state['blocked_by_me'] || $state['blocked_me'];
+
+    return $state;
+}
+
+function blockUser(int $blockerId, int $blockedId): ?string
+{
+    if ($blockerId <= 0 || $blockedId <= 0 || $blockerId === $blockedId) {
+        return 'User not found.';
+    }
+
+    $otherUser = findUserById($blockedId);
+    if ($otherUser === null) {
+        return 'User not found.';
+    }
+
+    $params = [
+        'blocker_id' => $blockerId,
+        'blocked_id' => $blockedId,
+        'created_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $stmt = db()->prepare(
+            'INSERT INTO blocked_users (blocker_id, blocked_id, created_at)
+             VALUES (:blocker_id, :blocked_id, :created_at)
+             ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO blocked_users (blocker_id, blocked_id, created_at)
+             VALUES (:blocker_id, :blocked_id, :created_at)
+             ON CONFLICT(blocker_id, blocked_id)
+             DO UPDATE SET created_at = excluded.created_at'
+        );
+    }
+    $stmt->execute($params);
+    clearTypingStatus($blockerId, $blockedId);
+    clearTypingStatus($blockedId, $blockerId);
+
+    return null;
+}
+
+function unblockUser(int $blockerId, int $blockedId): ?string
+{
+    if ($blockerId <= 0 || $blockedId <= 0 || $blockerId === $blockedId) {
+        return 'User not found.';
+    }
+
+    $stmt = db()->prepare(
+        'DELETE FROM blocked_users
+         WHERE blocker_id = :blocker_id
+           AND blocked_id = :blocked_id'
+    );
+    $stmt->execute([
+        'blocker_id' => $blockerId,
+        'blocked_id' => $blockedId,
+    ]);
+
+    return null;
+}
+
 function canUsersChat(int $userId, int $otherUserId): bool
 {
+    if (blockingStateBetweenUsers($userId, $otherUserId)['is_blocked']) {
+        return false;
+    }
+
     $friendship = friendshipRecord($userId, $otherUserId);
 
     return $friendship !== null && $friendship['status'] === 'accepted';
@@ -2210,6 +2404,10 @@ function sendFriendRequest(int $senderId, int $recipientId): ?string
 {
     if ($senderId === $recipientId) {
         return 'You cannot add yourself.';
+    }
+
+    if (blockingStateBetweenUsers($senderId, $recipientId)['is_blocked']) {
+        return 'Friend requests are unavailable because one of you has blocked the other.';
     }
 
     $friendship = friendshipRecord($senderId, $recipientId);
@@ -2613,6 +2811,15 @@ function chatListStateSignature(int $currentUserId): string
     $friendshipsStmt->execute(['id' => $currentUserId]);
     $friendshipsState = $friendshipsStmt->fetch() ?: [];
 
+    $blockedStmt = db()->prepare(
+        'SELECT COUNT(*) AS total_blocks,
+                MAX(created_at) AS latest_block_created_at
+         FROM blocked_users
+         WHERE blocker_id = :id OR blocked_id = :id'
+    );
+    $blockedStmt->execute(['id' => $currentUserId]);
+    $blockedState = $blockedStmt->fetch() ?: [];
+
     $groupMembershipStmt = db()->prepare(
         'SELECT COUNT(*) AS total_group_memberships,
                 MAX(group_id) AS latest_group_id,
@@ -2668,6 +2875,10 @@ function chatListStateSignature(int $currentUserId): string
             'pending_count' => (int) ($friendshipsState['pending_count'] ?? 0),
             'rejected_count' => (int) ($friendshipsState['rejected_count'] ?? 0),
             'revoked_count' => (int) ($friendshipsState['revoked_count'] ?? 0),
+        ],
+        'blocked_users' => [
+            'total' => (int) ($blockedState['total_blocks'] ?? 0),
+            'latest_created_at' => $blockedState['latest_block_created_at'] ?? null,
         ],
         'groups' => [
             'membership_total' => (int) ($groupMembershipState['total_group_memberships'] ?? 0),
@@ -3226,6 +3437,10 @@ function conversationExistsForUser(int $userId, int $otherUserId): bool
 
 function canAccessConversation(int $userId, int $otherUserId): bool
 {
+    if (blockingStateBetweenUsers($userId, $otherUserId)['is_blocked']) {
+        return true;
+    }
+
     return canUsersChat($userId, $otherUserId)
         || friendshipRecord($userId, $otherUserId) !== null
         || conversationExistsForUser($userId, $otherUserId);
@@ -3438,6 +3653,10 @@ function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $re
 {
     purgeExpiredMessages();
 
+    if (blockingStateBetweenUsers($senderId, $recipientId)['is_blocked']) {
+        return 'Messaging is unavailable because one of you has blocked the other.';
+    }
+
     if (!canUsersChat($senderId, $recipientId)) {
         return 'You can only message users after they accept your friend request.';
     }
@@ -3469,6 +3688,10 @@ function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $re
 
 function reactToPrivateMessage(int $currentUserId, int $otherUserId, int $messageId, string $emoji): array|string
 {
+    if (blockingStateBetweenUsers($currentUserId, $otherUserId)['is_blocked']) {
+        return 'Reactions are unavailable because one of you has blocked the other.';
+    }
+
     $messageId = max(0, $messageId);
     if ($messageId <= 0) {
         return 'Message not found.';
@@ -3603,6 +3826,10 @@ function reactToGroupMessage(int $groupId, int $currentUserId, int $messageId, s
 
 function deletePrivateMessage(int $currentUserId, int $otherUserId, int $messageId): ?string
 {
+    if (blockingStateBetweenUsers($currentUserId, $otherUserId)['is_blocked']) {
+        return 'Message deletion is unavailable because one of you has blocked the other.';
+    }
+
     $messageId = max(0, $messageId);
     if ($messageId <= 0) {
         return 'Message not found.';
@@ -3667,6 +3894,10 @@ function deletePrivateMessage(int $currentUserId, int $otherUserId, int $message
 
 function editPrivateMessage(int $currentUserId, int $otherUserId, int $messageId, string $body): ?string
 {
+    if (blockingStateBetweenUsers($currentUserId, $otherUserId)['is_blocked']) {
+        return 'Message edits are unavailable because one of you has blocked the other.';
+    }
+
     $messageId = max(0, $messageId);
     if ($messageId <= 0) {
         return 'Message not found.';
@@ -3922,6 +4153,10 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
 {
     purgeExpiredMessages();
 
+    if (blockingStateBetweenUsers($senderId, $recipientId)['is_blocked']) {
+        return 'Messaging is unavailable because one of you has blocked the other.';
+    }
+
     if (!canUsersChat($senderId, $recipientId)) {
         return 'You can only message users after they accept your friend request.';
     }
@@ -3975,6 +4210,10 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
 {
     purgeExpiredMessages();
 
+    if (blockingStateBetweenUsers($senderId, $recipientId)['is_blocked']) {
+        return 'Messaging is unavailable because one of you has blocked the other.';
+    }
+
     if (!canUsersChat($senderId, $recipientId)) {
         return 'You can only message users after they accept your friend request.';
     }
@@ -4027,6 +4266,10 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
 function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
+
+    if (blockingStateBetweenUsers($senderId, $recipientId)['is_blocked']) {
+        return 'Messaging is unavailable because one of you has blocked the other.';
+    }
 
     if (!canUsersChat($senderId, $recipientId)) {
         return 'You can only message users after they accept your friend request.';
@@ -4276,6 +4519,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
     purgeExpiredMessages();
 
     touchUserPresence($userId);
+    $blockingState = blockingStateBetweenUsers($userId, $otherUserId);
     $allowed = canUsersChat($userId, $otherUserId);
 
     if ($allowed) {
@@ -4294,6 +4538,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
         'typing' => $allowed ? isUserTypingWithoutMaintenance($userId, $otherUserId) : false,
         'can_chat' => $allowed,
         'friendship' => friendshipRecord($userId, $otherUserId),
+        'blocking' => $blockingState,
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'updated_at' => $otherUser['presence_updated_at'] ?? null,
@@ -4370,6 +4615,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
     $pinIds = pinnedPrivateMessageIds($userId, $otherUserId);
 
     $friendship = friendshipRecord($userId, $otherUserId);
+    $blockingState = blockingStateBetweenUsers($userId, $otherUserId);
     $otherUser = findUserById($otherUserId);
 
     return md5(encodeJson([
@@ -4392,6 +4638,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
             'responded_at' => $friendship['responded_at'],
             'created_at' => (string) $friendship['created_at'],
         ],
+        'blocking' => $blockingState,
         'presence' => [
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'updated_at' => $otherUser['presence_updated_at'] ?? null,
