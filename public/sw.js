@@ -240,7 +240,7 @@ async function showBackgroundActivityNotifications() {
       icon: 'icons/icon.svg',
       tag: `friend-request-${requestId}`,
       renotify: true,
-      data: { url: './index.php' },
+      data: { url: './' },
     }));
   }
 
@@ -262,7 +262,7 @@ async function showBackgroundActivityNotifications() {
       icon: 'icons/icon.svg',
       tag: `friend-request-response-${update?.id || recipientId || recipientName}`,
       renotify: true,
-      data: { url: accepted && recipientId > 0 ? `./chat.php?user=${recipientId}` : './index.php' },
+      data: { url: accepted && recipientId > 0 ? `./chat.php?user=${recipientId}` : './' },
     }));
   }
 

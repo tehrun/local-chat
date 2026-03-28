@@ -2085,7 +2085,7 @@ function requireAuth(): array
     $user = currentUser();
 
     if ($user === null) {
-        header('Location: index.php?login=required');
+        header('Location: ./?login=required');
         exit;
     }
 

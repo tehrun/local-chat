@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($error !== null) {
             $errors[] = $error;
         } else {
-            header('Location: index.php');
+            header('Location: ./');
             exit;
         }
     }
@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             session_regenerate_id(true);
         }
         session_destroy();
-        header('Location: index.php');
+        header('Location: ./');
         exit;
     }
 }
@@ -76,6 +76,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title>Local Chat</title>
+    <script>
+    if (window.location.pathname.endsWith('/index.php') && window.history && typeof window.history.replaceState === 'function') {
+        const cleanPath = window.location.pathname.replace(/index\.php$/, '');
+        const cleanUrl = cleanPath + window.location.search + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl || './');
+    }
+    </script>
     <style>
         * {
             scrollbar-width: none;
@@ -908,7 +915,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </label>
                                 <button class="primary" type="submit">Register</button>
                             </form>
-                            <p class="auth-switch">Already have an account? <a href="index.php">Sign in</a></p>
+                            <p class="auth-switch">Already have an account? <a href="./">Sign in</a></p>
                         <?php else: ?>
                             <h2 class="panel-title">Sign in</h2>
                             <form method="post" id="login-form">
@@ -928,7 +935,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                 </label>
                                 <button class="secondary" id="login-submit" type="submit">Login</button>
                             </form>
-                            <p class="auth-switch">Don&apos;t have an account? <a href="index.php?auth=register">Create one</a></p>
+                            <p class="auth-switch">Don&apos;t have an account? <a href="./?auth=register">Create one</a></p>
                         <?php endif; ?>
                     </div>
                 </section>
@@ -1546,7 +1553,7 @@ async function showFriendRequestNotification(request) {
         icon: 'icons/icon.svg',
         tag: `friend-request-${request.id || request.sender_id}`,
         renotify: true,
-        data: { url: 'index.php' },
+        data: { url: './' },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1579,7 +1586,7 @@ async function showFriendRequestResponseNotification(update) {
         icon: 'icons/icon.svg',
         tag: `friend-request-response-${update.id || update.recipient_id || recipientName}`,
         renotify: true,
-        data: { url: accepted && update.recipient_id ? `chat.php?user=${Number(update.recipient_id)}` : 'index.php' },
+        data: { url: accepted && update.recipient_id ? `./chat.php?user=${Number(update.recipient_id)}` : './' },
     }).catch(() => {
         // Ignore notification errors.
     });

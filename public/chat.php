@@ -21,7 +21,7 @@ if ($isGroupConversation) {
     $group = findGroupById($groupId);
 
     if ($group === null || !canAccessGroupConversation($groupId, (int) $user['id'])) {
-        header('Location: index.php');
+        header('Location: ./');
         exit;
     }
 
@@ -35,7 +35,7 @@ if ($isGroupConversation) {
     $otherUser = findUserById($otherUserId);
 
     if ($otherUser === null || $otherUser['id'] === $user['id'] || !canAccessConversation((int) $user['id'], $otherUserId)) {
-        header('Location: index.php');
+        header('Location: ./');
         exit;
     }
 
@@ -63,6 +63,11 @@ if ($isGroupConversation) {
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
+    <script>
+    if (window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState({}, document.title, './');
+    }
+    </script>
     <style>
         * {
             scrollbar-width: none;
@@ -1645,7 +1650,7 @@ if ($isGroupConversation) {
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
-            <a class="back-link" href="index.php" aria-label="Back to chats">
+            <a class="back-link" href="./" aria-label="Back to chats">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M15 6l-6 6 6 6"></path>
                 </svg>
@@ -5962,7 +5967,7 @@ leaveGroupButton?.addEventListener('click', async () => {
             throw new Error(payload.error || 'Could not leave the group right now.');
         }
 
-        window.location.href = 'index.php';
+        window.location.href = './';
     } catch (error) {
         showError(error.message || 'Could not leave the group right now.');
     } finally {
@@ -6018,7 +6023,7 @@ deleteGroupButton?.addEventListener('click', async () => {
             throw new Error(payload.error || 'Could not delete the group right now.');
         }
 
-        window.location.href = 'index.php';
+        window.location.href = './';
     } catch (error) {
         showError(error.message || 'Could not delete the group right now.');
     } finally {
