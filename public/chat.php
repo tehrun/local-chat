@@ -3636,15 +3636,19 @@ function renderDeliveryTicks(message) {
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
 }
 
-function renderGroupDeliveryDetailsTrigger(message) {
-    if (!isGroupConversation || !message || Number(message.sender_id) !== currentUserId || message.pending) {
+function renderDeliveryDetailsTrigger(message) {
+    if (!message || Number(message.sender_id) !== currentUserId || message.pending) {
         return '';
     }
 
-    const recipientCount = Number(message.group_delivery?.recipient_count || 0);
-    const deliveredCount = Number(message.group_delivery?.delivered_count || 0);
-    const readCount = Number(message.group_delivery?.read_count || 0);
-    if (recipientCount <= 0 && deliveredCount <= 0 && readCount <= 0) {
+    const recipientCount = isGroupConversation ? Number(message.group_delivery?.recipient_count || 0) : 1;
+    const deliveredCount = isGroupConversation
+        ? Number(message.group_delivery?.delivered_count || 0)
+        : (message.delivered_at || message.read_at ? 1 : 0);
+    const readCount = isGroupConversation
+        ? Number(message.group_delivery?.read_count || 0)
+        : (message.read_at ? 1 : 0);
+    if (recipientCount <= 0) {
         return '';
     }
 
@@ -3997,24 +4001,32 @@ function hideMessageDeliveryPanel() {
 
 function showMessageDeliveryDetails(messageId) {
     const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
-    if (!messageDeliveryModal || !messageDeliveryListEl || !messageDeliveryEmptyEl || !message || !isGroupConversation) {
+    if (!messageDeliveryModal || !messageDeliveryListEl || !messageDeliveryEmptyEl || !message) {
         return;
     }
 
-    const readBy = Array.isArray(message.group_delivery?.read_by) ? message.group_delivery.read_by : [];
-    const deliveredTo = Array.isArray(message.group_delivery?.delivered_to) ? message.group_delivery.delivered_to : [];
-    const readUserIds = new Set(readBy.map((entry) => Number(entry?.user_id || 0)));
-    const deliveredOnly = deliveredTo.filter((entry) => !readUserIds.has(Number(entry?.user_id || 0)));
-    const lines = [
-        ...readBy.map((entry) => ({
-            label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Seen',
-        })),
-        ...deliveredOnly.map((entry) => ({
-            label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Delivered',
-        })),
-    ];
+    let lines = [];
+    if (isGroupConversation) {
+        const readBy = Array.isArray(message.group_delivery?.read_by) ? message.group_delivery.read_by : [];
+        const deliveredTo = Array.isArray(message.group_delivery?.delivered_to) ? message.group_delivery.delivered_to : [];
+        const readUserIds = new Set(readBy.map((entry) => Number(entry?.user_id || 0)));
+        const deliveredOnly = deliveredTo.filter((entry) => !readUserIds.has(Number(entry?.user_id || 0)));
+        lines = [
+            ...readBy.map((entry) => ({
+                label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
+                status: 'Seen',
+            })),
+            ...deliveredOnly.map((entry) => ({
+                label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
+                status: 'Delivered',
+            })),
+        ];
+    } else {
+        lines = [{
+            label: String(conversationDisplayName || 'Recipient'),
+            status: message.read_at ? 'Seen' : (message.delivered_at ? 'Delivered' : 'Sent'),
+        }];
+    }
 
     hideReactionPicker();
     hideReactionDetailsPanel();
@@ -4435,7 +4447,7 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
-            const deliveryDetailsTrigger = renderGroupDeliveryDetailsTrigger(message);
+            const deliveryDetailsTrigger = renderDeliveryDetailsTrigger(message);
             const replyReference = renderReplyReference(message);
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
