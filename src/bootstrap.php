@@ -3591,8 +3591,9 @@ function privateMessageSearchResults(int $userId, int $otherUserId, string $quer
 
     $sql = $baseSql;
     if (dbDriver() === 'mysql') {
-        $sql .= ' AND MATCH(m.body) AGAINST (:query IN NATURAL LANGUAGE MODE)';
-        $params['query'] = $normalizedQuery;
+        $sql .= ' AND (m.body LIKE :like_query ESCAPE \'\\\' OR MATCH(m.body) AGAINST (:match_query IN NATURAL LANGUAGE MODE))';
+        $params['like_query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+        $params['match_query'] = $normalizedQuery;
     } else {
         $sql .= ' AND m.body LIKE :query ESCAPE \'\\\'';
         $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
@@ -3613,6 +3614,7 @@ function privateMessageSearchResults(int $userId, int $otherUserId, string $quer
             ORDER BY m.id DESC
             LIMIT :limit';
         $stmt = db()->prepare($fallbackSql);
+        unset($params['like_query'], $params['match_query']);
         $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
         foreach ($params as $name => $value) {
             $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
@@ -5313,8 +5315,9 @@ function groupMessageSearchResults(int $groupId, int $userId, string $query, ?in
 
     $sql = $baseSql;
     if (dbDriver() === 'mysql') {
-        $sql .= ' AND MATCH(gm.body) AGAINST (:query IN NATURAL LANGUAGE MODE)';
-        $params['query'] = $normalizedQuery;
+        $sql .= ' AND (gm.body LIKE :like_query ESCAPE \'\\\' OR MATCH(gm.body) AGAINST (:match_query IN NATURAL LANGUAGE MODE))';
+        $params['like_query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
+        $params['match_query'] = $normalizedQuery;
     } else {
         $sql .= ' AND gm.body LIKE :query ESCAPE \'\\\'';
         $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
@@ -5335,6 +5338,7 @@ function groupMessageSearchResults(int $groupId, int $userId, string $query, ?in
             ORDER BY gm.id DESC
             LIMIT :limit';
         $stmt = db()->prepare($fallbackSql);
+        unset($params['like_query'], $params['match_query']);
         $params['query'] = '%' . escapeLikePattern($normalizedQuery) . '%';
         foreach ($params as $name => $value) {
             $stmt->bindValue(':' . $name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
