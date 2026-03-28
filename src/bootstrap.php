@@ -886,7 +886,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             message_id INTEGER NOT NULL,
             pinned_by INTEGER NOT NULL,
             pinned_at TEXT NOT NULL,
-            PRIMARY KEY (user_low_id, user_high_id, message_id),
+            PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
             FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(user_low_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -895,12 +895,14 @@ function initializeSqliteDatabase(PDO $pdo): void
     );
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_private_message_pins_lookup
-         ON private_message_pins (user_low_id, user_high_id, pinned_at, message_id)'
+         ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
     );
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_private_message_pins_message
          ON private_message_pins (message_id)'
     );
+
+    migrateSqlitePrivateMessagePinsTable($pdo);
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_message_pins (
@@ -1223,8 +1225,8 @@ function initializeMysqlDatabase(PDO $pdo): void
             message_id BIGINT UNSIGNED NOT NULL,
             pinned_by INT UNSIGNED NOT NULL,
             pinned_at DATETIME NOT NULL,
-            PRIMARY KEY (user_low_id, user_high_id, message_id),
-            INDEX idx_private_message_pins_lookup (user_low_id, user_high_id, pinned_at, message_id),
+            PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
+            INDEX idx_private_message_pins_lookup (user_low_id, user_high_id, pinned_by, pinned_at, message_id),
             INDEX idx_private_message_pins_message (message_id),
             CONSTRAINT fk_private_message_pins_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
             CONSTRAINT fk_private_message_pins_pinner FOREIGN KEY (pinned_by) REFERENCES users(id) ON DELETE CASCADE,
@@ -1247,6 +1249,104 @@ function initializeMysqlDatabase(PDO $pdo): void
             CONSTRAINT fk_group_message_pins_pinner FOREIGN KEY (pinned_by) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    migrateMysqlPrivateMessagePinsTable($pdo);
+}
+
+function migrateSqlitePrivateMessagePinsTable(PDO $pdo): void
+{
+    $columns = array_map(
+        static fn (array $column): string => (string) ($column['name'] ?? ''),
+        $pdo->query('PRAGMA table_info(private_message_pins)')->fetchAll()
+    );
+    if ($columns === []) {
+        return;
+    }
+
+    $primaryColumns = [];
+    foreach ($pdo->query('PRAGMA table_info(private_message_pins)')->fetchAll() as $column) {
+        $pkOrder = (int) ($column['pk'] ?? 0);
+        if ($pkOrder > 0) {
+            $primaryColumns[$pkOrder] = (string) ($column['name'] ?? '');
+        }
+    }
+    ksort($primaryColumns);
+    $primaryColumns = array_values($primaryColumns);
+    $expected = ['user_low_id', 'user_high_id', 'pinned_by', 'message_id'];
+    if ($primaryColumns === $expected) {
+        return;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('ALTER TABLE private_message_pins RENAME TO private_message_pins_legacy');
+        $pdo->exec(
+            'CREATE TABLE private_message_pins (
+                user_low_id INTEGER NOT NULL,
+                user_high_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                pinned_by INTEGER NOT NULL,
+                pinned_at TEXT NOT NULL,
+                PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_low_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_high_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec(
+            'INSERT OR IGNORE INTO private_message_pins (user_low_id, user_high_id, message_id, pinned_by, pinned_at)
+             SELECT user_low_id, user_high_id, message_id, pinned_by, pinned_at
+             FROM private_message_pins_legacy'
+        );
+        $pdo->exec('DROP TABLE private_message_pins_legacy');
+        $pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_private_message_pins_lookup
+             ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
+        );
+        $pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_private_message_pins_message
+             ON private_message_pins (message_id)'
+        );
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+}
+
+function migrateMysqlPrivateMessagePinsTable(PDO $pdo): void
+{
+    $stmt = $pdo->query('SHOW INDEX FROM private_message_pins WHERE Key_name = \'PRIMARY\'');
+    $primaryRows = $stmt ? $stmt->fetchAll() : [];
+    $columnsByOrder = [];
+    foreach ($primaryRows as $row) {
+        $sequence = (int) ($row['Seq_in_index'] ?? 0);
+        if ($sequence > 0) {
+            $columnsByOrder[$sequence] = (string) ($row['Column_name'] ?? '');
+        }
+    }
+    ksort($columnsByOrder);
+    $primaryColumns = array_values($columnsByOrder);
+    $expected = ['user_low_id', 'user_high_id', 'pinned_by', 'message_id'];
+    if ($primaryColumns !== $expected && $primaryColumns !== []) {
+        $pdo->exec(
+            'ALTER TABLE private_message_pins
+             DROP PRIMARY KEY,
+             ADD PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id)'
+        );
+    }
+
+    $indexStmt = $pdo->query('SHOW INDEX FROM private_message_pins WHERE Key_name = \'idx_private_message_pins_lookup_v2\'');
+    $hasLookupV2 = $indexStmt && $indexStmt->fetch() !== false;
+    if (!$hasLookupV2) {
+        $pdo->exec(
+            'CREATE INDEX idx_private_message_pins_lookup_v2
+             ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
+        );
+    }
 }
 
 function base64UrlEncode(string $value): string
@@ -3911,8 +4011,8 @@ function pinPrivateMessage(int $userId, int $otherUserId, int $messageId, int $p
         $pinStmt = db()->prepare(
             'INSERT INTO private_message_pins (user_low_id, user_high_id, message_id, pinned_by, pinned_at)
              VALUES (:user_low_id, :user_high_id, :message_id, :pinned_by, :pinned_at)
-             ON CONFLICT(user_low_id, user_high_id, message_id)
-             DO UPDATE SET pinned_by = excluded.pinned_by, pinned_at = excluded.pinned_at'
+             ON CONFLICT(user_low_id, user_high_id, pinned_by, message_id)
+             DO UPDATE SET pinned_at = excluded.pinned_at'
         );
     }
 
@@ -3936,11 +4036,13 @@ function unpinPrivateMessage(int $userId, int $otherUserId, int $messageId): ?st
         'DELETE FROM private_message_pins
          WHERE user_low_id = :user_low_id
            AND user_high_id = :user_high_id
+           AND pinned_by = :pinned_by
            AND message_id = :message_id'
     );
     $stmt->execute([
         'user_low_id' => $pair['user_low_id'],
         'user_high_id' => $pair['user_high_id'],
+        'pinned_by' => $userId,
         'message_id' => $messageId,
     ]);
 
@@ -3960,11 +4062,13 @@ function pinnedPrivateMessageIds(int $userId, int $otherUserId): array
          JOIN messages m ON m.id = pmp.message_id
          WHERE pmp.user_low_id = :user_low_id
            AND pmp.user_high_id = :user_high_id
+           AND pmp.pinned_by = :pinned_by
          ORDER BY pmp.pinned_at DESC, pmp.message_id DESC'
     );
     $stmt->execute([
         'user_low_id' => $pair['user_low_id'],
         'user_high_id' => $pair['user_high_id'],
+        'pinned_by' => $userId,
     ]);
 
     return array_map(static fn (mixed $value): int => (int) $value, $stmt->fetchAll(PDO::FETCH_COLUMN));
