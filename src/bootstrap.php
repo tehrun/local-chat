@@ -3085,6 +3085,56 @@ function passwordResetManualModeEnabled(): bool
     return !passwordResetSmtpConfigured();
 }
 
+function passwordResetExposeManualTokenInUi(): bool
+{
+    $value = strtolower(trim((string) envValue('CHAT_PASSWORD_RESET_EXPOSE_TOKEN', '0')));
+
+    return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
+function dispatchPasswordResetToken(array $user, string $token): array
+{
+    $username = trim((string) ($user['username'] ?? ''));
+    $resetUrl = './?auth=reset&token=' . rawurlencode($token);
+    $manualMode = passwordResetManualModeEnabled();
+    $mode = $manualMode ? 'manual' : 'smtp';
+
+    if (!$manualMode && filter_var($username, FILTER_VALIDATE_EMAIL) !== false) {
+        $subject = 'Local Chat password reset';
+        $body = "Use this link to reset your password (expires in 15 minutes):\n\n{$resetUrl}\n";
+        $headers = [];
+        $from = trim((string) envValue('CHAT_SMTP_FROM', ''));
+        if ($from !== '') {
+            $headers[] = 'From: ' . $from;
+        }
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+        @mail($username, $subject, $body, implode("\r\n", $headers));
+
+        return [
+            'dispatched' => true,
+            'mode' => $mode,
+            'manual_mode' => false,
+            'expose_token' => false,
+        ];
+    }
+
+    error_log(sprintf(
+        '[local-chat] Password reset token for user "%s": %s (url: %s)',
+        $username,
+        $token,
+        $resetUrl
+    ));
+
+    return [
+        'dispatched' => true,
+        'mode' => 'manual',
+        'manual_mode' => true,
+        'expose_token' => passwordResetExposeManualTokenInUi(),
+        'token' => $token,
+        'reset_url' => $resetUrl,
+    ];
+}
+
 function createPasswordResetToken(int $userId, ?int $ttlSeconds = null): ?string
 {
     if ($userId <= 0) {
@@ -3214,17 +3264,12 @@ function requestPasswordReset(string $username, string $challengeAnswer): array
         return ['error' => 'Incorrect verification answer. Please solve the new math question.'];
     }
 
-    $payload = ['dispatched' => false];
+    $payload = ['dispatched' => false, 'manual_mode' => passwordResetManualModeEnabled(), 'expose_token' => false];
     $user = findUserByUsername($username);
     if ($user !== null) {
         $token = createPasswordResetToken((int) $user['id']);
         if (is_string($token) && $token !== '') {
-            $payload = [
-                'dispatched' => true,
-                'token' => $token,
-                'reset_url' => './?auth=reset&token=' . rawurlencode($token),
-                'manual_mode' => passwordResetManualModeEnabled(),
-            ];
+            $payload = dispatchPasswordResetToken($user, $token);
         }
     }
 

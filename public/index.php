@@ -72,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (
                 is_array($payload)
                 && !empty($payload['manual_mode'])
+                && !empty($payload['expose_token'])
                 && is_string($payload['token'] ?? null)
                 && is_string($payload['reset_url'] ?? null)
             ) {
@@ -1014,7 +1015,7 @@ $manualResetUrl = is_string($_SESSION['password_reset_manual_url'] ?? null) ? $_
                             </form>
                             <?php if ($manualResetToken !== null && $manualResetUrl !== null): ?>
                                 <div class="alert notice">
-                                    <strong>Manual delivery mode:</strong> SMTP is not configured, so copy this reset link for local admin delivery:<br>
+                                    <strong>Manual delivery mode:</strong> copy this reset link for local admin delivery:<br>
                                     <a href="<?= e($manualResetUrl) ?>"><?= e($manualResetUrl) ?></a><br>
                                     <small>Token: <?= e($manualResetToken) ?></small>
                                 </div>

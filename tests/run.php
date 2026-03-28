@@ -169,6 +169,16 @@ $tests['updateUserPassword stores a new hash that verifies'] = static function (
     assertFalse(password_verify($oldPassword, $hash), 'Old password should no longer verify');
 };
 
+$tests['manual reset token UI exposure is disabled by default'] = static function (): void {
+    putenv('CHAT_PASSWORD_RESET_EXPOSE_TOKEN');
+    assertFalse(passwordResetExposeManualTokenInUi());
+
+    putenv('CHAT_PASSWORD_RESET_EXPOSE_TOKEN=1');
+    assertTrue(passwordResetExposeManualTokenInUi());
+
+    putenv('CHAT_PASSWORD_RESET_EXPOSE_TOKEN');
+};
+
 $tests['base64url helpers round-trip values'] = static function (): void {
     $original = random_bytes(32);
     $encoded = base64UrlEncode($original);
