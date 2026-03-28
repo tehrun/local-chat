@@ -375,7 +375,7 @@ if ($isGroupConversation) {
             top: 0;
             z-index: 3;
             align-items: center;
-            padding: 10px 8px 8px;
+            padding: 14px 8px 8px;
             border-radius: 14px;
             background: rgba(255, 255, 255, 0.6);
             border: 1px solid rgba(7, 94, 84, 0.14);
