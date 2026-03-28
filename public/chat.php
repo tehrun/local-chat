@@ -2807,11 +2807,11 @@ function formatPresenceLabel(isOnline, updatedAt) {
     }).format(date);
 
     if (diffDays === 0) {
-        return `Last seen today at ${timeLabel}`;
+        return `Today at ${timeLabel}`;
     }
 
     if (diffDays === -1) {
-        return `Last seen yesterday at ${timeLabel}`;
+        return `Yesterday at ${timeLabel}`;
     }
 
     const dateLabel = new Intl.DateTimeFormat(undefined, {
@@ -2820,7 +2820,7 @@ function formatPresenceLabel(isOnline, updatedAt) {
         year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
     }).format(date);
 
-    return `Last seen ${dateLabel} at ${timeLabel}`;
+    return `${dateLabel} at ${timeLabel}`;
 }
 
 function updatePresence(isOnline, updatedAt = null) {
