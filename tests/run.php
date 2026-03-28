@@ -143,6 +143,7 @@ $tests['password reset token helpers create, validate, consume, and reject reuse
     assertTrue(consumePasswordResetToken($token ?? ''), 'Token should be consumable once');
     assertSameValue(validatePasswordResetToken($token ?? ''), null, 'Consumed token should not validate');
     assertFalse(consumePasswordResetToken($token ?? ''), 'Consumed token should not consume twice');
+    assertSameValue(validatePasswordResetToken('bad-format-token'), null, 'Malformed token should never validate');
 };
 
 $tests['updateUserPassword stores a new hash that verifies'] = static function (): void {
@@ -167,6 +168,11 @@ $tests['updateUserPassword stores a new hash that verifies'] = static function (
     $hash = (string) $rawStmt->fetchColumn();
     assertTrue(password_verify($newPassword, $hash), 'New password hash should verify');
     assertFalse(password_verify($oldPassword, $hash), 'Old password should no longer verify');
+
+    $token = createPasswordResetToken($userId, 300);
+    assertTrue(is_string($token));
+    updateUserPassword($userId, 'AnotherPass123');
+    assertSameValue(validatePasswordResetToken((string) $token), null, 'Password update should invalidate prior reset tokens');
 };
 
 $tests['manual reset token UI exposure is disabled by default'] = static function (): void {

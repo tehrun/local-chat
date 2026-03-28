@@ -3108,14 +3108,21 @@ function dispatchPasswordResetToken(array $user, string $token): array
             $headers[] = 'From: ' . $from;
         }
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
-        @mail($username, $subject, $body, implode("\r\n", $headers));
+        $sent = mail($username, $subject, $body, implode("\r\n", $headers));
 
-        return [
-            'dispatched' => true,
-            'mode' => $mode,
-            'manual_mode' => false,
-            'expose_token' => false,
-        ];
+        if ($sent) {
+            return [
+                'dispatched' => true,
+                'mode' => $mode,
+                'manual_mode' => false,
+                'expose_token' => false,
+            ];
+        }
+
+        error_log(sprintf(
+            '[local-chat] SMTP delivery failed for "%s"; falling back to manual reset token output.',
+            $username
+        ));
     }
 
     error_log(sprintf(
@@ -3184,7 +3191,12 @@ function validatePasswordResetToken(string $token): ?array
     $selector = trim($selector);
     $verifier = trim($verifier);
 
-    if ($selector === '' || $verifier === '') {
+    if (
+        $selector === ''
+        || $verifier === ''
+        || !preg_match('/^[a-f0-9]{18}$/', $selector)
+        || !preg_match('/^[A-Za-z0-9_-]{20,128}$/', $verifier)
+    ) {
         return null;
     }
 
@@ -3246,6 +3258,19 @@ function updateUserPassword(int $userId, string $newPassword): void
         'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
         'id' => $userId,
     ]);
+
+    if ($stmt->rowCount() > 0) {
+        $invalidateStmt = db()->prepare(
+            'UPDATE password_reset_tokens
+             SET used_at = :used_at
+             WHERE user_id = :user_id
+               AND used_at IS NULL'
+        );
+        $invalidateStmt->execute([
+            'used_at' => gmdate('c'),
+            'user_id' => $userId,
+        ]);
+    }
 }
 
 function requestPasswordReset(string $username, string $challengeAnswer): array

@@ -92,36 +92,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rateLimitError = enforceAuthRateLimit('password_reset_set');
         if ($rateLimitError !== null) {
             $errors[] = $rateLimitError;
-        } elseif ($passwordResetRecord === null) {
-            recordAuthAttempt('password_reset_set', false);
-            $errors[] = 'This password reset link is invalid or expired.';
         } else {
-            $password = (string) ($_POST['password'] ?? '');
-            $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
-            if (strlen($password) < 12) {
+            $challenge = ensureAuthChallenge();
+            $normalizedAnswer = trim((string) ($_POST['verification_answer'] ?? ''));
+            if ($normalizedAnswer === '' || !preg_match('/^-?\d+$/', $normalizedAnswer) || (int) $normalizedAnswer !== $challenge['answer']) {
                 recordAuthAttempt('password_reset_set', false);
-                $errors[] = 'Password must be at least 12 characters.';
-            } elseif (
-                !preg_match('/[A-Z]/', $password)
-                || !preg_match('/[a-z]/', $password)
-                || !preg_match('/\d/', $password)
-            ) {
+                refreshAuthChallenge();
+                $authChallengePrompt = authChallengePrompt();
+                $errors[] = 'Incorrect verification answer. Please solve the new math question.';
+            } elseif ($passwordResetRecord === null) {
                 recordAuthAttempt('password_reset_set', false);
-                $errors[] = 'Password must include upper-case, lower-case, and a number.';
-            } elseif (!hash_equals($password, $confirmPassword)) {
-                recordAuthAttempt('password_reset_set', false);
-                $errors[] = 'Passwords do not match.';
-            } elseif (!consumePasswordResetToken($passwordResetToken)) {
-                recordAuthAttempt('password_reset_set', false);
-                $errors[] = 'This password reset link was already used or expired.';
+                $errors[] = 'This password reset link is invalid or expired.';
             } else {
-                updateUserPassword((int) $passwordResetRecord['user_id'], $password);
-                recordAuthAttempt('password_reset_set', true);
-                unset($_SESSION['password_reset_manual_token'], $_SESSION['password_reset_manual_url']);
-                $notice = 'Your password has been updated. Please sign in.';
-                $authMode = 'login';
-                $passwordResetToken = '';
-                $passwordResetRecord = null;
+                $password = (string) ($_POST['password'] ?? '');
+                $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
+                if (strlen($password) < 12) {
+                    recordAuthAttempt('password_reset_set', false);
+                    $errors[] = 'Password must be at least 12 characters.';
+                } elseif (
+                    !preg_match('/[A-Z]/', $password)
+                    || !preg_match('/[a-z]/', $password)
+                    || !preg_match('/\d/', $password)
+                ) {
+                    recordAuthAttempt('password_reset_set', false);
+                    $errors[] = 'Password must include upper-case, lower-case, and a number.';
+                } elseif (!hash_equals($password, $confirmPassword)) {
+                    recordAuthAttempt('password_reset_set', false);
+                    $errors[] = 'Passwords do not match.';
+                } elseif (!consumePasswordResetToken($passwordResetToken)) {
+                    recordAuthAttempt('password_reset_set', false);
+                    $errors[] = 'This password reset link was already used or expired.';
+                } else {
+                    updateUserPassword((int) $passwordResetRecord['user_id'], $password);
+                    recordAuthAttempt('password_reset_set', true);
+                    refreshAuthChallenge();
+                    $authChallengePrompt = authChallengePrompt();
+                    unset($_SESSION['password_reset_manual_token'], $_SESSION['password_reset_manual_url']);
+                    $notice = 'Your password has been updated. Please sign in.';
+                    $authMode = 'login';
+                    $passwordResetToken = '';
+                    $passwordResetRecord = null;
+                }
             }
         }
     }
@@ -1038,6 +1049,10 @@ $manualResetUrl = is_string($_SESSION['password_reset_manual_url'] ?? null) ? $_
                                     <label>
                                         Confirm new password
                                         <input type="password" name="confirm_password" minlength="12" required>
+                                    </label>
+                                    <label>
+                                        Verification: solve <?= e($authChallengePrompt) ?>
+                                        <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
                                     </label>
                                     <button class="secondary" type="submit">Update password</button>
                                 </form>
