@@ -67,6 +67,7 @@ Run the local checks:
 ```bash
 find . -type f -name '*.php' -not -path './storage/*' -print0 | xargs -0 -n1 php -l
 php tests/run.php
+mkdir -p build && tar -czf build/local-chat.tar.gz --exclude-vcs --exclude='./storage/*' --exclude='./build/*' .
 ```
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs these checks on PHP 8.1, 8.2, and 8.3 for both pushes and pull requests.
+A GitHub Actions workflow (`.github/workflows/ci.yml`) now runs dedicated lint, test, and build jobs on every push and pull request. Tests run on PHP 8.1, 8.2, and 8.3, and the build job publishes a `local-chat.tar.gz` artifact.
