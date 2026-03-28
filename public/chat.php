@@ -1626,7 +1626,10 @@ if ($isGroupConversation) {
                 aria-controls="pinned-panel"
                 title="Pinned messages"
             >
-                📌
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 17v5"></path>
+                    <path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path>
+                </svg>
             </button>
             <button
                 id="search-toggle-button"
