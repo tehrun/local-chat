@@ -295,6 +295,25 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     requireCsrfToken();
 }
 
+if ($action === 'block_user' || $action === 'unblock_user') {
+    $error = $action === 'block_user'
+        ? blockUser((int) $user['id'], $otherUserId)
+        : unblockUser((int) $user['id'], $otherUserId);
+
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+
+    jsonResponse([
+        'ok' => true,
+        'blocking' => blockingStateBetweenUsers((int) $user['id'], $otherUserId),
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
+    ]);
+}
+
 if ($action === 'messages') {
     $limit = max(0, (int) ($_GET['limit'] ?? 0));
     $beforeMessageId = max(0, (int) ($_GET['before'] ?? 0));
@@ -400,6 +419,10 @@ if ($action === 'revoke_friendship') {
 }
 
 if ($action === 'send_friend_request') {
+    if (blockingStateBetweenUsers((int) $user['id'], $otherUserId)['is_blocked']) {
+        jsonResponse(['error' => 'Friend requests are unavailable because one of you has blocked the other.'], 422);
+    }
+
     $error = sendFriendRequest((int) $user['id'], $otherUserId);
 
     if ($error !== null) {

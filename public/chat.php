@@ -11,6 +11,7 @@ $otherUserId = $isGroupConversation ? 0 : requirePositiveInt($_GET, 'user');
 $otherUser = null;
 $group = null;
 $friendship = null;
+$blockingState = null;
 $messageBatchSize = 15;
 $typingMembers = [];
 $pinnedMessageIds = [];
@@ -40,6 +41,7 @@ if ($isGroupConversation) {
 
     $canChat = canUsersChat((int) $user['id'], $otherUserId);
     $friendship = friendshipRecord((int) $user['id'], $otherUserId);
+    $blockingState = blockingStateBetweenUsers((int) $user['id'], $otherUserId);
     $messages = conversationMessagesPageWithoutMaintenance((int) $user['id'], $otherUserId, $messageBatchSize);
     $hasMoreMessages = $messages !== [] && conversationHasOlderMessagesWithoutMaintenance((int) $user['id'], $otherUserId, (int) $messages[0]['id']);
     $typingMembers = $canChat && isUserTyping((int) $user['id'], $otherUserId)
@@ -274,7 +276,10 @@ if ($isGroupConversation) {
             background: var(--menu-hover);
         }
         .header-menu-item.danger {
-            color: var(--danger);
+            color: var(--text);
+        }
+        .mute-icon-segment.is-hidden {
+            display: none;
         }
         .header-menu-item:disabled {
             opacity: 0.65;
@@ -1732,6 +1737,44 @@ if ($isGroupConversation) {
                         <span>Add friend</span>
                     </button>
                     <button
+                        id="block-user-button"
+                        class="header-menu-item danger<?= !$isGroupConversation && (!$blockingState || empty($blockingState['blocked_by_me'])) ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="m6 6 12 12"></path>
+                        </svg>
+                        <span>Block user</span>
+                    </button>
+                    <button
+                        id="unblock-user-button"
+                        class="header-menu-item<?= !$isGroupConversation && $blockingState && !empty($blockingState['blocked_by_me']) ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M8 12h8"></path>
+                        </svg>
+                        <span>Unblock user</span>
+                    </button>
+                    <button
+                        id="mute-conversation-button"
+                        class="header-menu-item<?= $isGroupConversation ? ' hidden' : '' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M11 5 6 9H3v6h3l5 4z"></path>
+                            <path id="mute-icon-sound-wave" class="mute-icon-segment" d="M16 9a5 5 0 0 1 0 6"></path>
+                            <path id="mute-icon-sound-wave-outer" class="mute-icon-segment" d="M18.8 6.5a8.5 8.5 0 0 1 0 11"></path>
+                            <path id="mute-icon-slash" class="mute-icon-segment is-hidden" d="m21 3-9 9"></path>
+                        </svg>
+                        <span>Mute notifications</span>
+                    </button>
+                    <button
                         id="delete-conversation-button"
                         class="header-menu-item danger<?= $isGroupConversation ? ' hidden' : '' ?>"
                         type="button"
@@ -2097,6 +2140,7 @@ const initialHasMoreMessages = <?= $hasMoreMessages ? 'true' : 'false' ?>;
 const initialTypingMembers = <?= jsonScriptValue($typingMembers) ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
+const initialBlockingState = <?= jsonScriptValue($blockingState) ?>;
 const initialGroup = <?= jsonScriptValue($group) ?>;
 const initialPinnedMessageIds = <?= jsonScriptValue($pinnedMessageIds) ?>;
 const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
@@ -2140,17 +2184,67 @@ const searchResultsEl = document.getElementById('search-results');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
 const addFriendButton = document.getElementById('add-friend-button');
+const blockUserButton = document.getElementById('block-user-button');
+const unblockUserButton = document.getElementById('unblock-user-button');
+const muteConversationButton = document.getElementById('mute-conversation-button');
+const muteIconSlash = document.getElementById('mute-icon-slash');
+const muteIconSoundWave = document.getElementById('mute-icon-sound-wave');
+const muteIconSoundWaveOuter = document.getElementById('mute-icon-sound-wave-outer');
 const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
+const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     rootEl.setAttribute('data-theme', nextTheme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
+}
+
+function isConversationMuted() {
+    if (!muteStorageKey) {
+        return false;
+    }
+    try {
+        return window.localStorage.getItem(muteStorageKey) === '1';
+    } catch (error) {
+        return false;
+    }
+}
+
+function setConversationMuted(muted) {
+    if (!muteStorageKey) {
+        return;
+    }
+    try {
+        if (muted) {
+            window.localStorage.setItem(muteStorageKey, '1');
+        } else {
+            window.localStorage.removeItem(muteStorageKey);
+        }
+    } catch (error) {
+        // Ignore storage errors.
+    }
+}
+
+function updateMuteButtonLabel() {
+    if (!muteConversationButton) {
+        return;
+    }
+    const muted = isConversationMuted();
+    muteConversationButton.querySelector('span').textContent = muted ? 'Unmute notifications' : 'Mute notifications';
+    if (muteIconSlash) {
+        muteIconSlash.classList.toggle('is-hidden', !muted);
+    }
+    if (muteIconSoundWave) {
+        muteIconSoundWave.classList.toggle('is-hidden', muted);
+    }
+    if (muteIconSoundWaveOuter) {
+        muteIconSoundWaveOuter.classList.toggle('is-hidden', muted);
+    }
 }
 
 function isMessagePinned(messageId) {
@@ -2640,6 +2734,7 @@ let notificationPermissionPromptDismissed = false;
 let canChat = initialCanChat;
 let suppressActionButtonClick = false;
 let friendshipState = initialFriendship;
+let blockingState = initialBlockingState || { blocked_by_me: false, blocked_me: false, is_blocked: false };
 let hasMoreMessages = initialHasMoreMessages;
 let loadingOlderMessages = false;
 let lastUnseenCounts = new Map([[String(isGroupConversation ? groupId : conversationUserId), initialMessages.filter((message) =>
@@ -2756,7 +2851,13 @@ function updateFriendshipUi() {
     }
 
     const isAccepted = Boolean(friendshipState && friendshipState.status === 'accepted');
+    const blockedByMe = Boolean(blockingState?.blocked_by_me);
+    const blockedMe = Boolean(blockingState?.blocked_me);
+    const isBlocked = blockedByMe || blockedMe;
     canChat = isAccepted;
+    if (isBlocked) {
+        canChat = false;
+    }
     actionButton.disabled = !canChat || activeUploadCount > 0;
     if (quickGridButton) {
         quickGridButton.disabled = !canChat || activeUploadCount > 0;
@@ -2770,8 +2871,11 @@ function updateFriendshipUi() {
     }
     bodyEl.disabled = !canChat;
     revokeFriendshipButton.classList.toggle('hidden', !isAccepted);
+    blockUserButton?.classList.toggle('hidden', blockedByMe);
+    unblockUserButton?.classList.toggle('hidden', !blockedByMe);
     const canSendFriendRequest = Boolean(
         !isAccepted
+        && !isBlocked
         && (!friendshipState || !['pending', 'accepted'].includes(String(friendshipState.status || '')))
     );
     addFriendButton.classList.toggle('hidden', !canSendFriendRequest);
@@ -2789,6 +2893,15 @@ function updateFriendshipUi() {
     }
 
     if (!isSending && statusState !== 'recording') {
+        if (blockedByMe) {
+            showHint(`You blocked ${conversationDisplayName}. Unblock to send new messages.`);
+            return;
+        }
+        if (blockedMe) {
+            showHint(`${conversationDisplayName} blocked you. Sending and reactions are disabled.`);
+            return;
+        }
+
         const status = String(friendshipState?.status || 'none');
         const direction = String(friendshipState?.request_direction || '');
         if (status === 'pending' && direction === 'outgoing') {
@@ -4478,8 +4591,12 @@ function applyConversationPayload(payload, options = {}) {
     }
     if (Object.prototype.hasOwnProperty.call(payload, 'friendship')) {
         friendshipState = payload.friendship;
-        updateFriendshipUi();
     }
+    if (Object.prototype.hasOwnProperty.call(payload, 'blocking')) {
+        blockingState = payload.blocking || { blocked_by_me: false, blocked_me: false, is_blocked: false };
+    }
+    updateFriendshipUi();
+    updateMuteButtonLabel();
     setTypingVisible(isGroupConversation ? (payload.typing_members || []) : (Boolean(payload.typing) && canChat));
 
     if (composerWasFocused) {
@@ -5489,6 +5606,78 @@ addFriendButton?.addEventListener('click', async () => {
     }
 });
 
+blockUserButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    if (isGroupConversation || isSending || Boolean(blockingState?.blocked_by_me)) {
+        return;
+    }
+
+    const confirmed = window.confirm(`Block ${conversationDisplayName}? You won't be able to send new messages until you unblock.`);
+    if (!confirmed) {
+        return;
+    }
+
+    blockUserButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'block_user', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            showError(payload.error || 'Could not block this user right now.');
+            return;
+        }
+        applyConversationPayload(payload.payload || payload);
+        showHint(`${conversationDisplayName} is blocked.`);
+    } catch (error) {
+        showError('Could not block this user right now. Please try again.');
+    } finally {
+        blockUserButton.disabled = false;
+    }
+});
+
+unblockUserButton?.addEventListener('click', async () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    if (isGroupConversation || isSending || !Boolean(blockingState?.blocked_by_me)) {
+        return;
+    }
+
+    unblockUserButton.disabled = true;
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action: 'unblock_user', csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            showError(payload.error || 'Could not unblock this user right now.');
+            return;
+        }
+        applyConversationPayload(payload.payload || payload);
+        showHint(`${conversationDisplayName} unblocked.`);
+    } catch (error) {
+        showError('Could not unblock this user right now. Please try again.');
+    } finally {
+        unblockUserButton.disabled = false;
+    }
+});
+
+muteConversationButton?.addEventListener('click', () => {
+    setHeaderMenuOpen(false);
+    if (isGroupConversation || !muteStorageKey) {
+        return;
+    }
+    const muted = !isConversationMuted();
+    setConversationMuted(muted);
+    updateMuteButtonLabel();
+    showHint(muted ? 'Notifications muted for this conversation on this device.' : 'Notifications enabled for this conversation.');
+});
+
 groupMembersButton?.addEventListener('click', () => {
     if (!isGroupConversation) {
         return;
@@ -5868,6 +6057,7 @@ window.addEventListener('load', () => {
 }, { once: true });
 updatePresence(initialPresence, initialPresenceUpdatedAt);
 updateFriendshipUi();
+updateMuteButtonLabel();
 renderStatus();
 connectConversationStream();
 syncReadStateSoon();
