@@ -59,3 +59,15 @@ If `CHAT_DB_DRIVER` is omitted, the app continues using SQLite at `storage/db/ch
 ## cPanel deployment
 
 To host the project from a subdirectory such as `https://example.com/chat`, upload the repository so the repository root is served from that `/chat` folder. The root now includes wrapper entry points (`index.php`, `chat.php`, API endpoints, `manifest.json`, `sw.js`, and `icons/`) that forward to the existing `public/` implementation while keeping URLs relative to the current directory.
+
+## Testing
+
+Run the local checks:
+
+```bash
+find . -type f -name '*.php' -not -path './storage/*' -print0 | xargs -0 -n1 php -l
+php tests/run.php
+mkdir -p build && tar -czf build/local-chat.tar.gz --exclude-vcs --exclude='./storage/*' --exclude='./build/*' .
+```
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) now runs dedicated lint, test, and build jobs on every push and pull request. Tests run on PHP 8.1, 8.2, and 8.3, and the build job publishes a `local-chat.tar.gz` artifact.
