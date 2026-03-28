@@ -63,6 +63,11 @@ if ($isGroupConversation) {
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <meta name="csrf-token" content="<?= e(csrfToken()) ?>">
     <title><?= $isGroupConversation ? e((string) $group['name']) : 'Chat with ' . e($otherUser['username']) ?></title>
+    <script>
+    if (window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState({}, document.title, './');
+    }
+    </script>
     <style>
         * {
             scrollbar-width: none;
@@ -2239,10 +2244,6 @@ const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
-
-if (window.history && typeof window.history.replaceState === 'function') {
-    window.history.replaceState({}, document.title, './');
-}
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
