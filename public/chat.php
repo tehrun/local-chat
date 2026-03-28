@@ -5967,7 +5967,7 @@ leaveGroupButton?.addEventListener('click', async () => {
             throw new Error(payload.error || 'Could not leave the group right now.');
         }
 
-        window.location.href = 'index.php';
+        window.location.href = './';
     } catch (error) {
         showError(error.message || 'Could not leave the group right now.');
     } finally {
@@ -6023,7 +6023,7 @@ deleteGroupButton?.addEventListener('click', async () => {
             throw new Error(payload.error || 'Could not delete the group right now.');
         }
 
-        window.location.href = 'index.php';
+        window.location.href = './';
     } catch (error) {
         showError(error.message || 'Could not delete the group right now.');
     } finally {

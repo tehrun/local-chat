@@ -1553,7 +1553,7 @@ async function showFriendRequestNotification(request) {
         icon: 'icons/icon.svg',
         tag: `friend-request-${request.id || request.sender_id}`,
         renotify: true,
-        data: { url: 'index.php' },
+        data: { url: './' },
     }).catch(() => {
         // Ignore notification errors.
     });
@@ -1586,7 +1586,7 @@ async function showFriendRequestResponseNotification(update) {
         icon: 'icons/icon.svg',
         tag: `friend-request-response-${update.id || update.recipient_id || recipientName}`,
         renotify: true,
-        data: { url: accepted && update.recipient_id ? `chat.php?user=${Number(update.recipient_id)}` : 'index.php' },
+        data: { url: accepted && update.recipient_id ? `./chat.php?user=${Number(update.recipient_id)}` : './' },
     }).catch(() => {
         // Ignore notification errors.
     });
