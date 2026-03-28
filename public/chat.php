@@ -370,7 +370,29 @@ if ($isGroupConversation) {
             transform-origin: top center;
             transition: max-height 0.22s ease, opacity 0.18s ease, transform 0.18s ease, padding 0.18s ease, margin-top 0.18s ease;
         }
+        .pinned-panel {
+            margin: 0 12px;
+            margin-top: 0;
+            padding: 0 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border-radius: 0 0 14px 14px;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(7, 94, 84, 0.14);
+            border-top: none;
+            backdrop-filter: blur(2px);
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: scaleY(0.92);
+            transform-origin: top center;
+            transition: max-height 0.22s ease, opacity 0.18s ease, transform 0.18s ease, padding 0.18s ease, margin-top 0.18s ease;
+        }
         .search-panel[hidden] {
+            display: none !important;
+        }
+        .pinned-panel[hidden] {
             display: none !important;
         }
         .search-panel.is-open {
@@ -379,6 +401,46 @@ if ($isGroupConversation) {
             max-height: 290px;
             opacity: 1;
             transform: scaleY(1);
+        }
+        .pinned-panel.is-open {
+            margin-top: 2px;
+            padding: 10px 12px;
+            max-height: 290px;
+            opacity: 1;
+            transform: scaleY(1);
+        }
+        .pinned-panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pinned-panel-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--header);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .pinned-panel-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: rgba(7, 94, 84, 0.14);
+            color: var(--header);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .pinned-panel-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 210px;
+            overflow: auto;
         }
         .search-input-row {
             display: flex;
@@ -436,6 +498,10 @@ if ($isGroupConversation) {
             background: rgba(17, 27, 33, 0.82);
             border-color: rgba(134, 150, 160, 0.28);
         }
+        :root[data-theme="dark"] .pinned-panel {
+            background: rgba(17, 27, 33, 0.82);
+            border-color: rgba(134, 150, 160, 0.28);
+        }
         .conversation {
             position: relative;
             flex: 1;
@@ -454,86 +520,6 @@ if ($isGroupConversation) {
             padding: 6px 4px calc(var(--composer-height) + var(--composer-clearance) + env(safe-area-inset-bottom, 0px));
             overscroll-behavior: contain;
             scroll-padding-bottom: calc(var(--composer-height) + var(--composer-clearance) - 18px);
-        }
-        .pinned-messages {
-            position: sticky;
-            top: 0;
-            z-index: 3;
-            align-items: center;
-            padding: 14px 8px 8px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.6);
-            border: 1px solid rgba(7, 94, 84, 0.14);
-            max-width: 100%;
-            backdrop-filter: blur(2px);
-        }
-        .pinned-messages-header {
-            width: 100%;
-            border: none;
-            background: transparent;
-            padding: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            cursor: pointer;
-            text-align: left;
-            min-height: 20px;
-        }
-        .pinned-messages-title {
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--header);
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            display: inline-flex;
-            align-items: center;
-            line-height: 1;
-        }
-        .pinned-messages-summary {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .pinned-messages-count {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 20px;
-            height: 20px;
-            padding: 0 6px;
-            border-radius: 999px;
-            background: rgba(7, 94, 84, 0.14);
-            color: var(--header);
-            font-size: 11px;
-            font-weight: 700;
-            line-height: 1;
-        }
-        .pinned-messages-indicator {
-            width: 14px;
-            height: 14px;
-            color: var(--muted);
-            transition: transform 0.22s ease;
-            transform: rotate(0deg);
-            flex-shrink: 0;
-        }
-        .pinned-messages.is-expanded .pinned-messages-indicator {
-            transform: rotate(180deg);
-        }
-        .pinned-messages-list {
-            margin-top: 6px;
-            display: grid;
-            grid-template-rows: 0fr;
-            transition: grid-template-rows 0.22s ease;
-        }
-        .pinned-messages.is-expanded .pinned-messages-list {
-            grid-template-rows: 1fr;
-        }
-        .pinned-messages-list-inner {
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
         }
         .pinned-message-item {
             width: 100%;
@@ -1632,6 +1618,17 @@ if ($isGroupConversation) {
                 <?php endif; ?>
             </div>
             <button
+                id="pinned-toggle-button"
+                class="header-icon-button hidden"
+                type="button"
+                aria-label="Pinned messages"
+                aria-expanded="false"
+                aria-controls="pinned-panel"
+                title="Pinned messages"
+            >
+                📌
+            </button>
+            <button
                 id="search-toggle-button"
                 class="header-icon-button"
                 type="button"
@@ -1761,6 +1758,13 @@ if ($isGroupConversation) {
                 </div>
             </div>
         </header>
+        <section id="pinned-panel" class="pinned-panel" hidden aria-label="Pinned messages">
+            <div class="pinned-panel-header">
+                <div class="pinned-panel-title">Pinned messages</div>
+                <span id="pinned-panel-count" class="pinned-panel-count">0</span>
+            </div>
+            <div id="pinned-panel-list" class="pinned-panel-list"></div>
+        </section>
         <section id="search-panel" class="search-panel" hidden aria-label="Search messages">
             <div class="search-input-row">
                 <input id="message-search-input" type="search" placeholder="Search this conversation" maxlength="80" autocomplete="off" aria-label="Search messages in this conversation">
@@ -2105,6 +2109,10 @@ const headerPresenceLabel = document.getElementById('header-presence-label');
 const headerTitle = document.getElementById('header-title');
 const headerMenuButton = document.getElementById('header-menu-button');
 const headerMenuPanel = document.getElementById('header-menu-panel');
+const pinnedToggleButton = document.getElementById('pinned-toggle-button');
+const pinnedPanelEl = document.getElementById('pinned-panel');
+const pinnedPanelListEl = document.getElementById('pinned-panel-list');
+const pinnedPanelCountEl = document.getElementById('pinned-panel-count');
 const searchToggleButton = document.getElementById('search-toggle-button');
 const searchPanelEl = document.getElementById('search-panel');
 const messageSearchInput = document.getElementById('message-search-input');
@@ -2197,7 +2205,6 @@ let localMessageCounter = 0;
 let pinnedMessageIds = Array.isArray(initialPinnedMessageIds)
     ? [...new Set(initialPinnedMessageIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
     : [];
-let pinnedMessagesExpanded = false;
 let typingTimer = null;
 let typingActive = false;
 let isSending = false;
@@ -2233,6 +2240,8 @@ let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers :
 let groupState = initialGroup;
 let searchPanelOpen = false;
 let searchPanelCloseTimer = null;
+let pinnedPanelOpen = false;
+let pinnedPanelCloseTimer = null;
 const personMinusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
@@ -2294,6 +2303,7 @@ function setSearchPanelOpen(isOpen) {
     searchToggleButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
 
     if (searchPanelOpen) {
+        setPinnedPanelOpen(false);
         searchPanelEl.hidden = false;
         requestAnimationFrame(() => {
             searchPanelEl.classList.add('is-open');
@@ -2309,6 +2319,68 @@ function setSearchPanelOpen(isOpen) {
         }
         searchPanelCloseTimer = null;
     }, 220);
+}
+
+function setPinnedPanelOpen(isOpen) {
+    pinnedPanelOpen = Boolean(isOpen);
+    if (!pinnedPanelEl || !pinnedToggleButton) {
+        return;
+    }
+    if (pinnedPanelCloseTimer !== null) {
+        window.clearTimeout(pinnedPanelCloseTimer);
+        pinnedPanelCloseTimer = null;
+    }
+
+    pinnedToggleButton.setAttribute('aria-expanded', pinnedPanelOpen ? 'true' : 'false');
+
+    if (pinnedPanelOpen) {
+        setSearchPanelOpen(false);
+        pinnedPanelEl.hidden = false;
+        requestAnimationFrame(() => {
+            pinnedPanelEl.classList.add('is-open');
+        });
+        return;
+    }
+
+    pinnedPanelEl.classList.remove('is-open');
+    pinnedPanelCloseTimer = window.setTimeout(() => {
+        if (!pinnedPanelEl.classList.contains('is-open')) {
+            pinnedPanelEl.hidden = true;
+        }
+        pinnedPanelCloseTimer = null;
+    }, 220);
+}
+
+function renderPinnedPanel(messages) {
+    if (!pinnedPanelEl || !pinnedPanelListEl || !pinnedPanelCountEl || !pinnedToggleButton) {
+        return;
+    }
+    const pinnedMessages = Array.isArray(messages) ? messages : [];
+    pinnedToggleButton.classList.toggle('hidden', pinnedMessages.length === 0);
+    if (pinnedMessages.length === 0) {
+        pinnedPanelCountEl.textContent = '0';
+        pinnedPanelListEl.innerHTML = '';
+        setPinnedPanelOpen(false);
+        return;
+    }
+
+    pinnedPanelCountEl.textContent = String(pinnedMessages.length);
+    pinnedPanelListEl.innerHTML = pinnedMessages.map((message) => {
+        const preview = replySnippetFromMessage(message) || 'Pinned message';
+        const timestamp = formatHumanTimestamp(message.created_at);
+        return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><span class="pinned-preview">${escapeHtml(preview)}</span><span class="pinned-timestamp">${escapeHtml(timestamp)}</span></button>`;
+    }).join('');
+
+    pinnedPanelListEl.querySelectorAll('[data-pinned-target-id]').forEach((pinnedEl) => {
+        pinnedEl.addEventListener('click', () => {
+            const targetId = Number(pinnedEl.getAttribute('data-pinned-target-id') || 0);
+            if (!targetId) {
+                return;
+            }
+            jumpToMessage(targetId);
+            setPinnedPanelOpen(false);
+        });
+    });
 }
 
 function jumpToMessage(messageId, behavior = 'smooth') {
@@ -4062,30 +4134,12 @@ function renderMessages(messages) {
 
     renderedSignature = signature;
 
+    renderPinnedPanel(pinnedMessages);
+
     if (normalizedMessages.length === 0) {
         messagesEl.innerHTML = '<div class="empty-state">No messages yet. Say hi, share a file, share a photo, or tap the microphone to send a voice note.</div>';
     } else {
-        const pinnedSection = pinnedMessages.length > 0
-            ? `<section class="pinned-messages ${pinnedMessagesExpanded ? 'is-expanded' : ''}" aria-label="Pinned messages">
-                <button type="button" class="pinned-messages-header" data-pinned-toggle aria-expanded="${pinnedMessagesExpanded ? 'true' : 'false'}">
-                    <div class="pinned-messages-summary">
-                        <div class="pinned-messages-title">Pinned messages</div>
-                        <span class="pinned-messages-count" aria-label="${pinnedMessages.length} pinned messages">${pinnedMessages.length}</span>
-                    </div>
-                    <svg class="pinned-messages-indicator" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                </button>
-                <div class="pinned-messages-list" data-pinned-list aria-hidden="${pinnedMessagesExpanded ? 'false' : 'true'}">
-                    <div class="pinned-messages-list-inner">
-                ${pinnedMessages.map((message) => {
-        const preview = replySnippetFromMessage(message) || 'Pinned message';
-        const timestamp = formatHumanTimestamp(message.created_at);
-        return `<button class="pinned-message-item" type="button" data-pinned-target-id="${Number(message.id)}"><span class="pinned-preview">${escapeHtml(preview)}</span><span class="pinned-timestamp">${escapeHtml(timestamp)}</span></button>`;
-    }).join('')}
-                    </div>
-                </div>
-            </section>`
-            : '';
-        messagesEl.innerHTML = pinnedSection + normalizedMessages.map((message) => {
+        messagesEl.innerHTML = normalizedMessages.map((message) => {
             const isMine = Number(message.sender_id) === currentUserId;
             const shouldShowSender = isGroupConversation && !isMine;
             const textDirection = detectTextDirection(message.body || '');
@@ -4161,30 +4215,6 @@ function renderMessages(messages) {
                 }
             }, { once: true });
         });
-        const pinnedToggleButton = messagesEl.querySelector('[data-pinned-toggle]');
-        const pinnedList = messagesEl.querySelector('[data-pinned-list]');
-        if (pinnedToggleButton instanceof HTMLElement && pinnedList instanceof HTMLElement) {
-            pinnedToggleButton.addEventListener('click', () => {
-                pinnedMessagesExpanded = !pinnedMessagesExpanded;
-                const pinnedPanel = messagesEl.querySelector('.pinned-messages');
-                if (!(pinnedPanel instanceof HTMLElement)) {
-                    return;
-                }
-                pinnedPanel.classList.toggle('is-expanded', pinnedMessagesExpanded);
-                pinnedToggleButton.setAttribute('aria-expanded', pinnedMessagesExpanded ? 'true' : 'false');
-                pinnedList.setAttribute('aria-hidden', pinnedMessagesExpanded ? 'false' : 'true');
-            });
-        }
-        messagesEl.querySelectorAll('[data-pinned-target-id]').forEach((pinnedEl) => {
-            pinnedEl.addEventListener('click', () => {
-                const targetId = Number(pinnedEl.getAttribute('data-pinned-target-id') || 0);
-                if (!targetId) {
-                    return;
-                }
-                jumpToMessage(targetId);
-            });
-        });
-
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
             const canReactToRow = () => {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
@@ -5307,6 +5337,11 @@ headerMenuButton?.addEventListener('click', (event) => {
     const isOpen = headerMenuButton.getAttribute('aria-expanded') === 'true';
     setHeaderMenuOpen(!isOpen);
 });
+pinnedToggleButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    setHeaderMenuOpen(false);
+    setPinnedPanelOpen(!pinnedPanelOpen);
+});
 searchToggleButton?.addEventListener('click', (event) => {
     event.preventDefault();
     setHeaderMenuOpen(false);
@@ -5683,6 +5718,10 @@ document.addEventListener('keydown', (event) => {
         setSearchPanelOpen(false);
         return;
     }
+    if (event.key === 'Escape' && pinnedPanelOpen) {
+        setPinnedPanelOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
         return;
@@ -5702,6 +5741,16 @@ document.addEventListener('click', (event) => {
     }
 
     setHeaderMenuOpen(false);
+});
+document.addEventListener('click', (event) => {
+    if (!pinnedPanelEl || !pinnedToggleButton || !pinnedPanelOpen) {
+        return;
+    }
+    const target = event.target;
+    if (target instanceof Node && (pinnedPanelEl.contains(target) || pinnedToggleButton.contains(target))) {
+        return;
+    }
+    setPinnedPanelOpen(false);
 });
 document.addEventListener('click', (event) => {
     if (!searchPanelEl || !searchToggleButton || !searchPanelOpen) {
