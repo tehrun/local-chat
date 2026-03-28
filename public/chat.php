@@ -359,6 +359,9 @@ if ($isGroupConversation) {
             flex-direction: column;
             gap: 8px;
         }
+        .search-panel[hidden] {
+            display: none !important;
+        }
         .search-input-row {
             display: flex;
             gap: 8px;
