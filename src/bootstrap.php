@@ -5111,9 +5111,100 @@ function formatGroupMessage(array $message): array
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
         'reply_reference' => $replyReference,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
+        'delivered_at' => null,
+        'read_at' => null,
+        'group_delivery' => [
+            'recipient_count' => 0,
+            'delivered_count' => 0,
+            'read_count' => 0,
+            'delivered_to' => [],
+            'read_by' => [],
+        ],
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime((string) $message['created_at'])) . ' UTC',
     ];
+}
+
+/**
+ * @param array<int, array<string, mixed>> $messages
+ * @return array<int, array<string, mixed>>
+ */
+function attachGroupDeliveryState(array $messages, int $groupId): array
+{
+    if ($messages === []) {
+        return $messages;
+    }
+
+    $members = groupMembers($groupId);
+    $activeRecipientsById = [];
+    foreach ($members as $member) {
+        $memberId = (int) ($member['user_id'] ?? 0);
+        if ($memberId <= 0) {
+            continue;
+        }
+        $activeRecipientsById[$memberId] = [
+            'user_id' => $memberId,
+            'username' => (string) ($member['username'] ?? ''),
+            'joined_at' => $member['joined_at'] ?? null,
+        ];
+    }
+
+    if ($activeRecipientsById === []) {
+        return $messages;
+    }
+
+    $readStmt = db()->prepare(
+        'SELECT user_id, last_read_message_id
+         FROM group_message_reads
+         WHERE group_id = :group_id'
+    );
+    $readStmt->execute(['group_id' => $groupId]);
+    $readRows = $readStmt->fetchAll();
+    $lastReadByUser = [];
+    foreach ($readRows as $row) {
+        $lastReadByUser[(int) ($row['user_id'] ?? 0)] = (int) ($row['last_read_message_id'] ?? 0);
+    }
+
+    return array_map(static function (array $message) use ($activeRecipientsById, $lastReadByUser): array {
+        $messageId = (int) ($message['id'] ?? 0);
+        $senderId = (int) ($message['sender_id'] ?? 0);
+        $messageCreatedAt = isset($message['created_at']) ? strtotime((string) $message['created_at']) : false;
+        $deliveredTo = [];
+        $readBy = [];
+
+        foreach ($activeRecipientsById as $recipient) {
+            $recipientId = (int) $recipient['user_id'];
+            if ($recipientId === $senderId) {
+                continue;
+            }
+
+            $joinedAt = $recipient['joined_at'] ?? null;
+            $joinedAtTs = is_string($joinedAt) && $joinedAt !== '' ? strtotime($joinedAt) : false;
+            if ($messageCreatedAt !== false && $joinedAtTs !== false && $joinedAtTs > $messageCreatedAt) {
+                continue;
+            }
+
+            $entry = [
+                'user_id' => $recipientId,
+                'username' => (string) ($recipient['username'] ?? ''),
+            ];
+            $deliveredTo[] = $entry;
+
+            if (($lastReadByUser[$recipientId] ?? 0) >= $messageId) {
+                $readBy[] = $entry;
+            }
+        }
+
+        $message['group_delivery'] = [
+            'recipient_count' => count($deliveredTo),
+            'delivered_count' => count($deliveredTo),
+            'read_count' => count($readBy),
+            'delivered_to' => $deliveredTo,
+            'read_by' => $readBy,
+        ];
+
+        return $message;
+    }, $messages);
 }
 
 function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $limit = 0, ?int $beforeMessageId = null): array
@@ -5171,7 +5262,9 @@ function groupMessagesPageWithoutMaintenance(int $groupId, int $userId, int $lim
         $messages = array_reverse($messages);
     }
 
-    return attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
+    $formattedMessages = attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
+
+    return attachGroupDeliveryState($formattedMessages, $groupId);
 }
 
 function groupMessageSearchResults(int $groupId, int $userId, string $query, ?int $beforeMessageId = null, int $limit = 20): array
@@ -5251,7 +5344,9 @@ function groupMessageSearchResults(int $groupId, int $userId, string $query, ?in
 
     $messages = $stmt->fetchAll();
 
-    return attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
+    $formattedMessages = attachReactionsToGroupMessages(array_map('formatGroupMessage', $messages));
+
+    return attachGroupDeliveryState($formattedMessages, $groupId);
 }
 
 function groupConversationHasOlderMessagesWithoutMaintenance(int $groupId, int $userId, int $beforeMessageId): bool

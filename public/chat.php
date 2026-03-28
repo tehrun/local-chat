@@ -889,6 +889,30 @@ if ($isGroupConversation) {
             height: 10px;
             display: block;
         }
+        .delivery-details-trigger {
+            border: 0;
+            background: transparent;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            margin-left: 4px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .delivery-details-trigger:hover,
+        .delivery-details-trigger:focus-visible {
+            color: var(--text);
+            background: rgba(17, 27, 33, 0.08);
+            outline: none;
+        }
+        .delivery-details-trigger svg {
+            width: 13px;
+            height: 13px;
+            display: block;
+        }
         .friendship-card {
             margin: 14px 12px 0;
             border-radius: 18px;
@@ -1922,6 +1946,17 @@ if ($isGroupConversation) {
             </div>
         </div>
 
+        <div id="message-delivery-modal" class="member-picker" aria-hidden="true" hidden>
+            <div class="member-picker-panel" role="dialog" aria-modal="true" aria-labelledby="message-delivery-title">
+                <div class="member-picker-header">
+                    <h2 id="message-delivery-title">Message delivery</h2>
+                    <button class="member-picker-close" id="message-delivery-close" type="button" aria-label="Close message delivery details">×</button>
+                </div>
+                <div class="member-picker-list" id="message-delivery-list"></div>
+                <p class="member-picker-empty" id="message-delivery-empty" hidden>No delivery details yet.</p>
+            </div>
+        </div>
+
         <div class="composer-wrap">
             <div class="status-row" id="status-row"></div>
             <div class="composer-stack">
@@ -2307,6 +2342,10 @@ const reactionMembersModal = document.getElementById('reaction-members-modal');
 const reactionMembersClose = document.getElementById('reaction-members-close');
 const reactionMembersListEl = document.getElementById('reaction-members-list');
 const reactionMembersEmptyEl = document.getElementById('reaction-members-empty');
+const messageDeliveryModal = document.getElementById('message-delivery-modal');
+const messageDeliveryClose = document.getElementById('message-delivery-close');
+const messageDeliveryListEl = document.getElementById('message-delivery-list');
+const messageDeliveryEmptyEl = document.getElementById('message-delivery-empty');
 const replyPreviewEl = document.getElementById('reply-preview');
 const replyPreviewAuthorEl = document.getElementById('reply-preview-author');
 const replyPreviewTextEl = document.getElementById('reply-preview-text');
@@ -3483,6 +3522,13 @@ function createPendingMessage(body, type, nextReplyTarget = null) {
         image_path: null,
         delivered_at: null,
         read_at: null,
+        group_delivery: {
+            recipient_count: 0,
+            delivered_count: 0,
+            read_count: 0,
+            delivered_to: [],
+            read_by: [],
+        },
         created_at: now.toISOString(),
         created_at_label: `${now.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
         reply_to_message_id: nextReplyTarget && Number(nextReplyTarget.id) > 0 ? Number(nextReplyTarget.id) : null,
@@ -3547,6 +3593,18 @@ function deliveryState(message) {
         return '';
     }
 
+    if (isGroupConversation) {
+        const recipientCount = Number(message.group_delivery?.recipient_count || 0);
+        const deliveredCount = Number(message.group_delivery?.delivered_count || 0);
+        const readCount = Number(message.group_delivery?.read_count || 0);
+        if (recipientCount > 0 && readCount >= recipientCount) {
+            return 'read';
+        }
+        if (deliveredCount > 0) {
+            return 'delivered';
+        }
+    }
+
     if (message.read_at) {
         return 'read';
     }
@@ -3576,6 +3634,22 @@ function renderDeliveryTicks(message) {
     const icon = state === 'sent' ? singleTick : doubleTick;
 
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
+}
+
+function renderGroupDeliveryDetailsTrigger(message) {
+    if (!isGroupConversation || !message || Number(message.sender_id) !== currentUserId || message.pending) {
+        return '';
+    }
+
+    const recipientCount = Number(message.group_delivery?.recipient_count || 0);
+    const deliveredCount = Number(message.group_delivery?.delivered_count || 0);
+    const readCount = Number(message.group_delivery?.read_count || 0);
+    if (recipientCount <= 0 && deliveredCount <= 0 && readCount <= 0) {
+        return '';
+    }
+
+    const label = `Seen by ${readCount} of ${recipientCount}; delivered to ${deliveredCount} of ${recipientCount}`;
+    return `<button type="button" class="delivery-details-trigger" data-delivery-details-id="${Number(message.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>`;
 }
 
 function formatHumanTimestamp(value) {
@@ -3906,12 +3980,66 @@ function hideReactionDetailsPanel() {
     document.body.style.overflow = '';
 }
 
+function hideMessageDeliveryPanel() {
+    if (!messageDeliveryModal) {
+        return;
+    }
+    messageDeliveryModal.hidden = true;
+    messageDeliveryModal.setAttribute('aria-hidden', 'true');
+    if (messageDeliveryListEl) {
+        messageDeliveryListEl.innerHTML = '';
+    }
+    if (messageDeliveryEmptyEl) {
+        messageDeliveryEmptyEl.hidden = true;
+    }
+    document.body.style.overflow = '';
+}
+
+function showMessageDeliveryDetails(messageId) {
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+    if (!messageDeliveryModal || !messageDeliveryListEl || !messageDeliveryEmptyEl || !message || !isGroupConversation) {
+        return;
+    }
+
+    const readBy = Array.isArray(message.group_delivery?.read_by) ? message.group_delivery.read_by : [];
+    const deliveredTo = Array.isArray(message.group_delivery?.delivered_to) ? message.group_delivery.delivered_to : [];
+    const readUserIds = new Set(readBy.map((entry) => Number(entry?.user_id || 0)));
+    const deliveredOnly = deliveredTo.filter((entry) => !readUserIds.has(Number(entry?.user_id || 0)));
+    const lines = [
+        ...readBy.map((entry) => ({
+            label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
+            status: 'Seen',
+        })),
+        ...deliveredOnly.map((entry) => ({
+            label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
+            status: 'Delivered',
+        })),
+    ];
+
+    hideReactionPicker();
+    hideReactionDetailsPanel();
+    if (lines.length === 0) {
+        messageDeliveryListEl.innerHTML = '';
+        messageDeliveryEmptyEl.hidden = false;
+    } else {
+        messageDeliveryListEl.innerHTML = lines.map((line) => (
+            `<div class="member-picker-item"><div class="member-picker-copy"><strong>${escapeHtml(line.label)}</strong><span>${escapeHtml(line.status)}</span></div></div>`
+        )).join('');
+        messageDeliveryEmptyEl.hidden = true;
+    }
+    messageDeliveryModal.hidden = false;
+    messageDeliveryModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    messageDeliveryClose?.focus();
+}
+
 function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReactions = true, actionOptions = {}) {
     if (!(anchorEl instanceof HTMLElement) || !messageId) {
         return;
     }
 
     hideReactionDetailsPanel();
+    hideMessageDeliveryPanel();
     const picker = ensureReactionPicker();
     const options = allowReactions ? [...POPULAR_REACTIONS] : [];
     if (allowReactions && existingEmoji && !options.includes(existingEmoji)) {
@@ -4067,6 +4195,7 @@ function showReactionDetails(messageId) {
     }
 
     hideReactionPicker();
+    hideMessageDeliveryPanel();
     reactionMembersListEl.innerHTML = lines.map((line) => {
         const separatorIndex = line.indexOf('  ');
         const emoji = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : '';
@@ -4251,6 +4380,10 @@ function renderMessages(messages) {
         message.created_at,
         message.delivered_at || '',
         message.read_at || '',
+        Number(message.group_delivery?.recipient_count || 0),
+        Number(message.group_delivery?.delivered_count || 0),
+        Number(message.group_delivery?.read_count || 0),
+        (Array.isArray(message.group_delivery?.read_by) ? message.group_delivery.read_by : []).map((entry) => `${Number(entry?.user_id || 0)}:${String(entry?.username || '')}`).join('|'),
         Boolean(message.pending),
         message.body || '',
         message.audio_path || '',
@@ -4268,6 +4401,7 @@ function renderMessages(messages) {
 
     hideReactionPicker();
     hideReactionDetailsPanel();
+    hideMessageDeliveryPanel();
     hideMessageActionMenu();
     clearLongPressTimer();
 
@@ -4301,6 +4435,7 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
+            const deliveryDetailsTrigger = renderGroupDeliveryDetailsTrigger(message);
             const replyReference = renderReplyReference(message);
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
@@ -4333,7 +4468,7 @@ function renderMessages(messages) {
                         ${audio}
                         ${file}
                         ${expiredAttachment}
-                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span>${ticks}</div>
+                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span><span>${ticks}${deliveryDetailsTrigger}</span></div>
                     </div>
                     ${reactions}
                 </article>`;
@@ -4459,6 +4594,15 @@ function renderMessages(messages) {
                     return;
                 }
                 showReactionDetails(messageId);
+            });
+            rowEl.querySelector('[data-delivery-details-id]')?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const messageId = Number((event.currentTarget instanceof Element ? event.currentTarget.getAttribute('data-delivery-details-id') : '') || 0);
+                if (!messageId) {
+                    return;
+                }
+                showMessageDeliveryDetails(messageId);
             });
         });
     }
@@ -5706,6 +5850,12 @@ reactionMembersModal?.addEventListener('click', (event) => {
         hideReactionDetailsPanel();
     }
 });
+messageDeliveryClose?.addEventListener('click', () => hideMessageDeliveryPanel());
+messageDeliveryModal?.addEventListener('click', (event) => {
+    if (event.target === messageDeliveryModal) {
+        hideMessageDeliveryPanel();
+    }
+});
 
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
@@ -5919,6 +6069,10 @@ document.addEventListener('keydown', (event) => {
     }
     if (event.key === 'Escape' && reactionMembersModal && !reactionMembersModal.hidden) {
         hideReactionDetailsPanel();
+        return;
+    }
+    if (event.key === 'Escape' && messageDeliveryModal && !messageDeliveryModal.hidden) {
+        hideMessageDeliveryPanel();
         return;
     }
     if (event.key === 'Escape' && memberPickerEl && !memberPickerEl.hidden) {
