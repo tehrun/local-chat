@@ -337,16 +337,17 @@ if ($isGroupConversation) {
             color: #d7efe8;
         }
         .presence-row {
-            display: inline-flex;
+            display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             margin-top: 6px;
             font-size: 13px;
             color: #d7efe8;
+            min-width: 0;
         }
         .presence-light {
-            width: 10px;
-            height: 10px;
+            width: 9px;
+            height: 9px;
             border-radius: 50%;
             background: #98a2b3;
             box-shadow: 0 0 0 3px rgba(255,255,255,0.14);
@@ -355,6 +356,12 @@ if ($isGroupConversation) {
         .presence-light.online {
             background: #25d366;
             box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.22);
+        }
+        #header-presence-label {
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .search-panel {
             margin: 0 12px;
@@ -2800,11 +2807,11 @@ function formatPresenceLabel(isOnline, updatedAt) {
     }).format(date);
 
     if (diffDays === 0) {
-        return `Last seen today at ${timeLabel}`;
+        return `Today at ${timeLabel}`;
     }
 
     if (diffDays === -1) {
-        return `Last seen yesterday at ${timeLabel}`;
+        return `Yesterday at ${timeLabel}`;
     }
 
     const dateLabel = new Intl.DateTimeFormat(undefined, {
@@ -2813,7 +2820,7 @@ function formatPresenceLabel(isOnline, updatedAt) {
         year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
     }).format(date);
 
-    return `Last seen ${dateLabel} at ${timeLabel}`;
+    return `${dateLabel} at ${timeLabel}`;
 }
 
 function updatePresence(isOnline, updatedAt = null) {

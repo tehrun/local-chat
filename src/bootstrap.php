@@ -2059,7 +2059,7 @@ function presenceLabel(?string $updatedAt): string
         return 'Online';
     }
 
-    return 'Last seen ' . formatPresenceTimestamp($timestamp);
+    return ucfirst(formatPresenceTimestamp($timestamp));
 }
 
 function currentUser(): ?array

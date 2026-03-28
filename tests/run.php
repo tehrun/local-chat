@@ -191,14 +191,14 @@ $tests['normalizeReactionEmoji trims and limits grapheme payload length'] = stat
     assertSameValue(mb_strlen(normalizeReactionEmoji(str_repeat('😀', 25))), 16);
 };
 
-$tests['presenceLabel reports online, offline and last seen states'] = static function (): void {
+$tests['presenceLabel reports online, offline and formatted offline time states'] = static function (): void {
     assertSameValue(presenceLabel(null), 'Offline');
     assertSameValue(presenceLabel('not-a-date'), 'Offline');
     assertSameValue(presenceLabel(gmdate('c')), 'Online');
 
     $oldTimestamp = time() - (PRESENCE_TTL_SECONDS + 3600);
     $label = presenceLabel(gmdate('c', $oldTimestamp));
-    assertStringContains($label, 'Last seen ');
+    assertStringContains($label, ' at ');
 };
 
 $tests['formatChatListTime handles invalid and valid timestamps'] = static function (): void {
