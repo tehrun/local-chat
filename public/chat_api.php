@@ -31,6 +31,24 @@ if ($isGroupConversation) {
         jsonResponse($payload);
     }
 
+    if ($action === 'search_messages') {
+        $query = is_string($_GET['q'] ?? null) ? $_GET['q'] : (string) ($_POST['q'] ?? '');
+        $limit = max(1, min(50, (int) ($_GET['limit'] ?? $_POST['limit'] ?? 20)));
+        $beforeMessageId = max(0, (int) ($_GET['before'] ?? $_POST['before'] ?? 0));
+        $messages = groupMessageSearchResults(
+            $groupId,
+            (int) $user['id'],
+            $query,
+            $beforeMessageId > 0 ? $beforeMessageId : null,
+            $limit
+        );
+        jsonResponse([
+            'ok' => true,
+            'messages' => $messages,
+            'has_more' => count($messages) === $limit,
+        ]);
+    }
+
     if ($action === 'signature') {
         jsonResponse([
             'signature' => groupConversationStateSignature($groupId, (int) $user['id']),
@@ -289,6 +307,24 @@ if ($action === 'messages') {
     $payload['signature'] = conversationStateSignature((int) $user['id'], $otherUserId);
 
     jsonResponse($payload);
+}
+
+if ($action === 'search_messages') {
+    $query = is_string($_GET['q'] ?? null) ? $_GET['q'] : (string) ($_POST['q'] ?? '');
+    $limit = max(1, min(50, (int) ($_GET['limit'] ?? $_POST['limit'] ?? 20)));
+    $beforeMessageId = max(0, (int) ($_GET['before'] ?? $_POST['before'] ?? 0));
+    $messages = privateMessageSearchResults(
+        (int) $user['id'],
+        $otherUserId,
+        $query,
+        $beforeMessageId > 0 ? $beforeMessageId : null,
+        $limit
+    );
+    jsonResponse([
+        'ok' => true,
+        'messages' => $messages,
+        'has_more' => count($messages) === $limit,
+    ]);
 }
 
 if ($action === 'signature') {

@@ -351,6 +351,66 @@ if ($isGroupConversation) {
             background: #25d366;
             box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.22);
         }
+        .search-panel {
+            background: var(--panel);
+            border-bottom: 1px solid rgba(102, 119, 129, 0.28);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .search-input-row {
+            display: flex;
+            gap: 8px;
+        }
+        .search-input-row input {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid rgba(102, 119, 129, 0.42);
+            border-radius: 12px;
+            padding: 10px 12px;
+            background: #fff;
+            color: var(--text);
+            font-size: 14px;
+        }
+        .search-input-row button {
+            border: none;
+            border-radius: 12px;
+            padding: 10px 14px;
+            background: var(--action);
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .search-results {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 180px;
+            overflow: auto;
+        }
+        .search-result-item {
+            border: none;
+            border-radius: 10px;
+            text-align: left;
+            background: rgba(7, 94, 84, 0.08);
+            color: var(--text);
+            padding: 10px;
+            cursor: pointer;
+        }
+        .search-result-item strong,
+        .search-result-item span {
+            display: block;
+        }
+        .search-result-item span {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        :root[data-theme="dark"] .search-input-row input {
+            background: #111b21;
+            border-color: rgba(134, 150, 160, 0.55);
+        }
         .conversation {
             position: relative;
             flex: 1;
@@ -1546,6 +1606,20 @@ if ($isGroupConversation) {
                     </div>
                 <?php endif; ?>
             </div>
+            <button
+                id="search-toggle-button"
+                class="header-icon-button"
+                type="button"
+                aria-label="Search messages"
+                aria-expanded="false"
+                aria-controls="search-panel"
+                title="Search messages"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-3.5-3.5"></path>
+                </svg>
+            </button>
             <div class="header-menu">
                 <button
                     id="header-menu-button"
@@ -1662,6 +1736,13 @@ if ($isGroupConversation) {
                 </div>
             </div>
         </header>
+        <section id="search-panel" class="search-panel" hidden aria-label="Search messages">
+            <div class="search-input-row">
+                <input id="message-search-input" type="search" placeholder="Search this conversation" maxlength="80" autocomplete="off" aria-label="Search messages in this conversation">
+                <button id="message-search-submit" type="button">Search</button>
+            </div>
+            <div class="search-results" id="search-results" aria-live="polite"></div>
+        </section>
 
         <?php if (!$isGroupConversation && !$canChat): ?>
             <div class="friendship-card">
@@ -1999,6 +2080,11 @@ const headerPresenceLabel = document.getElementById('header-presence-label');
 const headerTitle = document.getElementById('header-title');
 const headerMenuButton = document.getElementById('header-menu-button');
 const headerMenuPanel = document.getElementById('header-menu-panel');
+const searchToggleButton = document.getElementById('search-toggle-button');
+const searchPanelEl = document.getElementById('search-panel');
+const messageSearchInput = document.getElementById('message-search-input');
+const messageSearchSubmit = document.getElementById('message-search-submit');
+const searchResultsEl = document.getElementById('search-results');
 const deleteConversationButton = document.getElementById('delete-conversation-button');
 const revokeFriendshipButton = document.getElementById('revoke-friendship-button');
 const addFriendButton = document.getElementById('add-friend-button');
@@ -2120,6 +2206,7 @@ let homePollDelay = FAST_HOME_POLL_INTERVAL_MS;
 let streamState = preferPolling ? 'polling' : 'connecting';
 let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers : [];
 let groupState = initialGroup;
+let searchPanelOpen = false;
 const personMinusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
@@ -2166,6 +2253,86 @@ function conversationApiUrl(action = '') {
     }
 
     return `chat_api.php?${params.toString()}`;
+}
+
+function setSearchPanelOpen(isOpen) {
+    searchPanelOpen = Boolean(isOpen);
+    if (!searchPanelEl || !searchToggleButton) {
+        return;
+    }
+    searchPanelEl.hidden = !searchPanelOpen;
+    searchToggleButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
+    if (searchPanelOpen) {
+        window.setTimeout(() => messageSearchInput?.focus(), 0);
+    }
+}
+
+function jumpToMessage(messageId, behavior = 'smooth') {
+    const targetId = Number(messageId || 0);
+    if (!targetId) {
+        return false;
+    }
+    const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
+    if (!(targetRow instanceof HTMLElement)) {
+        window.location.hash = `message-${targetId}`;
+        return false;
+    }
+    targetRow.scrollIntoView({ block: 'center', behavior });
+    targetRow.classList.add('reply-target-highlight');
+    window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
+    window.location.hash = `message-${targetId}`;
+    return true;
+}
+
+function renderSearchResults(results) {
+    if (!searchResultsEl) {
+        return;
+    }
+    if (!Array.isArray(results) || results.length === 0) {
+        searchResultsEl.innerHTML = '<div class="empty-state">No matching messages found.</div>';
+        return;
+    }
+    searchResultsEl.innerHTML = results.map((message) => {
+        const snippet = String(message?.body || '').trim() || '(No text content)';
+        const sender = isGroupConversation ? String(message?.sender_name || '') : '';
+        const timestamp = formatHumanTimestamp(message?.created_at || '');
+        const prefix = sender !== '' ? `${sender}: ` : '';
+        return `<button class="search-result-item" type="button" data-search-message-id="${Number(message?.id || 0)}"><strong>${escapeHtml(prefix + snippet)}</strong><span>${escapeHtml(timestamp)}</span></button>`;
+    }).join('');
+    searchResultsEl.querySelectorAll('[data-search-message-id]').forEach((resultEl) => {
+        resultEl.addEventListener('click', () => {
+            const messageId = Number(resultEl.getAttribute('data-search-message-id') || 0);
+            if (!messageId) {
+                return;
+            }
+            jumpToMessage(messageId);
+            setSearchPanelOpen(false);
+        });
+    });
+}
+
+async function performMessageSearch() {
+    const query = String(messageSearchInput?.value || '').trim();
+    if (!searchResultsEl) {
+        return;
+    }
+    if (query.length < 2) {
+        searchResultsEl.innerHTML = '<div class="empty-state">Type at least 2 characters.</div>';
+        return;
+    }
+    searchResultsEl.innerHTML = '<div class="empty-state">Searching…</div>';
+    try {
+        const response = await fetch(`${conversationApiUrl('search_messages')}&q=${encodeURIComponent(query)}&limit=20`, {
+            headers: { 'Accept': 'application/json' },
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Search failed.');
+        }
+        renderSearchResults(Array.isArray(payload.messages) ? payload.messages : []);
+    } catch (error) {
+        searchResultsEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Search failed.')}</div>`;
+    }
 }
 
 function setQuickGridOpen(isOpen) {
@@ -3970,18 +4137,7 @@ function renderMessages(messages) {
                 if (!targetId) {
                     return;
                 }
-                const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
-                if (targetRow instanceof HTMLElement) {
-                    const pinnedPanel = messagesEl.querySelector('.pinned-messages');
-                    const pinnedOffset = pinnedPanel instanceof HTMLElement ? pinnedPanel.offsetHeight + 10 : 10;
-                    const containerRect = messagesEl.getBoundingClientRect();
-                    const targetRect = targetRow.getBoundingClientRect();
-                    const targetTop = messagesEl.scrollTop + (targetRect.top - containerRect.top);
-                    const nextTop = Math.max(0, targetTop - pinnedOffset);
-                    messagesEl.scrollTo({ top: nextTop, behavior: 'smooth' });
-                    targetRow.classList.add('reply-target-highlight');
-                    window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
-                }
+                jumpToMessage(targetId);
             });
         });
 
@@ -4079,14 +4235,7 @@ function renderMessages(messages) {
                     if (!targetId) {
                         return;
                     }
-                    const targetRow = messagesEl.querySelector(`.message-row[data-message-id="${targetId}"]`);
-                    if (targetRow instanceof HTMLElement) {
-                        targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                        targetRow.classList.add('reply-target-highlight');
-                        window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
-                    } else {
-                        window.location.hash = `message-${targetId}`;
-                    }
+                    jumpToMessage(targetId);
                 });
             });
             rowEl.querySelector('.message-reactions')?.addEventListener('click', (event) => {
@@ -5114,6 +5263,20 @@ headerMenuButton?.addEventListener('click', (event) => {
     const isOpen = headerMenuButton.getAttribute('aria-expanded') === 'true';
     setHeaderMenuOpen(!isOpen);
 });
+searchToggleButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    setHeaderMenuOpen(false);
+    setSearchPanelOpen(!searchPanelOpen);
+});
+messageSearchSubmit?.addEventListener('click', () => {
+    performMessageSearch();
+});
+messageSearchInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        performMessageSearch();
+    }
+});
 
 deleteConversationButton?.addEventListener('click', async () => {
     markUserInteraction();
@@ -5472,6 +5635,10 @@ document.addEventListener('keydown', (event) => {
         setHeaderMenuOpen(false);
         return;
     }
+    if (event.key === 'Escape' && searchPanelOpen) {
+        setSearchPanelOpen(false);
+        return;
+    }
     if (event.key === 'Escape' && imageLightbox && !imageLightbox.hidden) {
         closeImageLightbox();
         return;
@@ -5491,6 +5658,16 @@ document.addEventListener('click', (event) => {
     }
 
     setHeaderMenuOpen(false);
+});
+document.addEventListener('click', (event) => {
+    if (!searchPanelEl || !searchToggleButton || !searchPanelOpen) {
+        return;
+    }
+    const target = event.target;
+    if (target instanceof Node && (searchPanelEl.contains(target) || searchToggleButton.contains(target))) {
+        return;
+    }
+    setSearchPanelOpen(false);
 });
 document.addEventListener('pointerdown', (event) => {
     if (!(event.target instanceof Node)) {
