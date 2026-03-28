@@ -144,6 +144,34 @@ if ($isGroupConversation) {
         ]);
     }
 
+    if ($action === 'pin_message') {
+        $error = pinGroupMessage($groupId, (int) $user['id'], (int) ($_POST['message_id'] ?? 0), (int) $user['id']);
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
+    if ($action === 'unpin_message') {
+        $error = unpinGroupMessage($groupId, (int) $user['id'], (int) ($_POST['message_id'] ?? 0));
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
     if ($action === 'delete_message') {
         $error = deleteGroupMessage($groupId, (int) $user['id'], (int) ($_POST['message_id'] ?? 0));
         if ($error !== null) {
@@ -367,6 +395,34 @@ if ($action === 'react') {
         'ok' => true,
         'message_id' => (int) ($result['message_id'] ?? 0),
         'signature' => conversationStateSignature((int) $user['id'], $otherUserId),
+    ]);
+}
+
+if ($action === 'pin_message') {
+    $error = pinPrivateMessage((int) $user['id'], $otherUserId, (int) ($_POST['message_id'] ?? 0), (int) $user['id']);
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
+    ]);
+}
+
+if ($action === 'unpin_message') {
+    $error = unpinPrivateMessage((int) $user['id'], $otherUserId, (int) ($_POST['message_id'] ?? 0));
+    if ($error !== null) {
+        jsonResponse(['error' => $error], 422);
+    }
+    jsonResponse([
+        'ok' => true,
+        'payload' => array_merge(
+            conversationPayload((int) $user['id'], $otherUserId),
+            ['signature' => conversationStateSignature((int) $user['id'], $otherUserId)]
+        ),
     ]);
 }
 

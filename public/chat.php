@@ -13,6 +13,7 @@ $group = null;
 $friendship = null;
 $messageBatchSize = 15;
 $typingMembers = [];
+$pinnedMessageIds = [];
 $availableInviteUsers = allOtherUsers((int) $user['id']);
 
 if ($isGroupConversation) {
@@ -27,6 +28,7 @@ if ($isGroupConversation) {
     $messages = groupMessagesPageWithoutMaintenance($groupId, (int) $user['id'], $messageBatchSize);
     $hasMoreMessages = $messages !== [] && groupConversationHasOlderMessagesWithoutMaintenance($groupId, (int) $user['id'], (int) $messages[0]['id']);
     $typingMembers = groupTypingMembersWithoutMaintenance($groupId, (int) $user['id']);
+    $pinnedMessageIds = pinnedGroupMessageIds($groupId, (int) $user['id']);
     $initialConversationSignature = groupConversationStateSignature($groupId, (int) $user['id']);
 } else {
     $otherUser = findUserById($otherUserId);
@@ -43,6 +45,7 @@ if ($isGroupConversation) {
     $typingMembers = $canChat && isUserTyping((int) $user['id'], $otherUserId)
         ? [['user_id' => (int) $otherUser['id'], 'username' => (string) $otherUser['username']]]
         : [];
+    $pinnedMessageIds = pinnedPrivateMessageIds((int) $user['id'], $otherUserId);
     $initialConversationSignature = conversationStateSignature((int) $user['id'], $otherUserId);
 }
 ?>
@@ -1966,6 +1969,7 @@ const initialTypingMembers = <?= jsonScriptValue($typingMembers) ?>;
 const initialCanChat = <?= $canChat ? 'true' : 'false' ?>;
 const initialFriendship = <?= jsonScriptValue($friendship) ?>;
 const initialGroup = <?= jsonScriptValue($group) ?>;
+const initialPinnedMessageIds = <?= jsonScriptValue($pinnedMessageIds) ?>;
 const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_online']) ? 'true' : 'false' ?>;
 const initialPresenceUpdatedAt = <?= jsonScriptValue($isGroupConversation ? null : ($otherUser['presence_updated_at'] ?? null)) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
@@ -2004,9 +2008,6 @@ const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
-const pinnedMessageStorageKey = isGroupConversation
-    ? `localchat:pins:group:${groupId}`
-    : `localchat:pins:user:${[currentUserId, conversationUserId].sort((a, b) => a - b).join(':')}`;
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
@@ -2014,52 +2015,31 @@ function applyTheme(theme) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'dark' ? '#202c33' : '#075e54');
 }
 
-function loadPinnedMessageIds() {
-    try {
-        const rawValue = window.localStorage.getItem(pinnedMessageStorageKey);
-        if (!rawValue) {
-            return [];
-        }
-        const parsed = JSON.parse(rawValue);
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-        return [...new Set(parsed
-            .map((value) => Number(value))
-            .filter((value) => Number.isInteger(value) && value > 0))];
-    } catch (error) {
-        return [];
-    }
-}
-
-function savePinnedMessageIds() {
-    try {
-        window.localStorage.setItem(pinnedMessageStorageKey, JSON.stringify(pinnedMessageIds));
-    } catch (error) {
-        // Ignore storage access errors.
-    }
-}
-
 function isMessagePinned(messageId) {
     return pinnedMessageIds.includes(Number(messageId || 0));
 }
 
-function toggleMessagePin(messageId) {
+async function toggleMessagePin(messageId) {
     const targetId = Number(messageId || 0);
     if (!targetId) {
         return;
     }
-
-    if (isMessagePinned(targetId)) {
-        pinnedMessageIds = pinnedMessageIds.filter((id) => id !== targetId);
-        showHint('Message unpinned.');
-    } else {
-        pinnedMessageIds = [targetId, ...pinnedMessageIds.filter((id) => id !== targetId)];
-        showHint('Message pinned to the top.');
+    const action = isMessagePinned(targetId) ? 'unpin_message' : 'pin_message';
+    try {
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: new URLSearchParams({ action, message_id: String(targetId), csrf_token: csrfToken }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not update pin right now.');
+        }
+        applyConversationPayload(payload.payload || payload);
+        showHint(action === 'unpin_message' ? 'Message unpinned.' : 'Message pinned to the top.');
+    } catch (error) {
+        showError(error.message || 'Could not update pin right now.');
     }
-
-    savePinnedMessageIds();
-    renderMessages(window.__messagesState || []);
 }
 
 (function loadStoredTheme() {
@@ -2103,7 +2083,9 @@ const scrollToEndButton = document.getElementById('scroll-to-end-button');
 let lastFocusedElement = null;
 let renderedSignature = '';
 let localMessageCounter = 0;
-let pinnedMessageIds = loadPinnedMessageIds();
+let pinnedMessageIds = Array.isArray(initialPinnedMessageIds)
+    ? [...new Set(initialPinnedMessageIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+    : [];
 let pinnedMessagesExpanded = false;
 let typingTimer = null;
 let typingActive = false;
@@ -3568,9 +3550,9 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         hideReactionPicker();
         await deleteMessageById(messageId);
     });
-    picker.querySelector('button[data-action="pin"]')?.addEventListener('click', () => {
+    picker.querySelector('button[data-action="pin"]')?.addEventListener('click', async () => {
         hideReactionPicker();
-        toggleMessagePin(messageId);
+        await toggleMessagePin(messageId);
     });
 
     const anchorRect = anchorEl.getBoundingClientRect();
@@ -3839,10 +3821,6 @@ function renderMessages(messages) {
     window.__messagesState = normalizedMessages;
     const availableMessageIds = new Set(normalizedMessages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
     const validPinnedIds = pinnedMessageIds.filter((id) => availableMessageIds.has(id));
-    if (validPinnedIds.length !== pinnedMessageIds.length) {
-        pinnedMessageIds = validPinnedIds;
-        savePinnedMessageIds();
-    }
     const pinnedMessages = validPinnedIds
         .map((id) => normalizedMessages.find((message) => Number(message.id) === id))
         .filter((message) => Boolean(message));
@@ -4233,6 +4211,11 @@ function applyConversationPayload(payload, options = {}) {
     } else if (payload.message) {
         replacePendingMessage(payload.pending_id || '', payload.message);
         upsertMessage(payload.message);
+    }
+    if (Array.isArray(payload.pinned_message_ids)) {
+        pinnedMessageIds = [...new Set(payload.pinned_message_ids
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0))];
     }
     if (payload.group) {
         groupState = payload.group;
