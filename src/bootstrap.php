@@ -878,6 +878,52 @@ function initializeSqliteDatabase(PDO $pdo): void
             FOREIGN KEY(user_id) REFERENCES users(id)
         )'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS private_message_pins (
+            user_low_id INTEGER NOT NULL,
+            user_high_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            pinned_by INTEGER NOT NULL,
+            pinned_at TEXT NOT NULL,
+            PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_low_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_high_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_private_message_pins_lookup
+         ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_private_message_pins_message
+         ON private_message_pins (message_id)'
+    );
+
+    migrateSqlitePrivateMessagePinsTable($pdo);
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_pins (
+            group_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            pinned_by INTEGER NOT NULL,
+            pinned_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, message_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY(message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_message_pins_lookup
+         ON group_message_pins (group_id, pinned_at, message_id)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_group_message_pins_message
+         ON group_message_pins (message_id)'
+    );
 }
 
 function mysqlTableColumns(PDO $pdo, string $table): array
@@ -1171,6 +1217,136 @@ function initializeMysqlDatabase(PDO $pdo): void
             CONSTRAINT fk_group_clears_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS private_message_pins (
+            user_low_id INT UNSIGNED NOT NULL,
+            user_high_id INT UNSIGNED NOT NULL,
+            message_id BIGINT UNSIGNED NOT NULL,
+            pinned_by INT UNSIGNED NOT NULL,
+            pinned_at DATETIME NOT NULL,
+            PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
+            INDEX idx_private_message_pins_lookup (user_low_id, user_high_id, pinned_by, pinned_at, message_id),
+            INDEX idx_private_message_pins_message (message_id),
+            CONSTRAINT fk_private_message_pins_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_private_message_pins_pinner FOREIGN KEY (pinned_by) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_private_message_pins_user_low FOREIGN KEY (user_low_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_private_message_pins_user_high FOREIGN KEY (user_high_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS group_message_pins (
+            group_id BIGINT UNSIGNED NOT NULL,
+            message_id BIGINT UNSIGNED NOT NULL,
+            pinned_by INT UNSIGNED NOT NULL,
+            pinned_at DATETIME NOT NULL,
+            PRIMARY KEY (group_id, message_id),
+            INDEX idx_group_message_pins_lookup (group_id, pinned_at, message_id),
+            INDEX idx_group_message_pins_message (message_id),
+            CONSTRAINT fk_group_message_pins_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_message_pins_message FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_group_message_pins_pinner FOREIGN KEY (pinned_by) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    migrateMysqlPrivateMessagePinsTable($pdo);
+}
+
+function migrateSqlitePrivateMessagePinsTable(PDO $pdo): void
+{
+    $columns = array_map(
+        static fn (array $column): string => (string) ($column['name'] ?? ''),
+        $pdo->query('PRAGMA table_info(private_message_pins)')->fetchAll()
+    );
+    if ($columns === []) {
+        return;
+    }
+
+    $primaryColumns = [];
+    foreach ($pdo->query('PRAGMA table_info(private_message_pins)')->fetchAll() as $column) {
+        $pkOrder = (int) ($column['pk'] ?? 0);
+        if ($pkOrder > 0) {
+            $primaryColumns[$pkOrder] = (string) ($column['name'] ?? '');
+        }
+    }
+    ksort($primaryColumns);
+    $primaryColumns = array_values($primaryColumns);
+    $expected = ['user_low_id', 'user_high_id', 'pinned_by', 'message_id'];
+    if ($primaryColumns === $expected) {
+        return;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('ALTER TABLE private_message_pins RENAME TO private_message_pins_legacy');
+        $pdo->exec(
+            'CREATE TABLE private_message_pins (
+                user_low_id INTEGER NOT NULL,
+                user_high_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                pinned_by INTEGER NOT NULL,
+                pinned_at TEXT NOT NULL,
+                PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id),
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_low_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_high_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec(
+            'INSERT OR IGNORE INTO private_message_pins (user_low_id, user_high_id, message_id, pinned_by, pinned_at)
+             SELECT user_low_id, user_high_id, message_id, pinned_by, pinned_at
+             FROM private_message_pins_legacy'
+        );
+        $pdo->exec('DROP TABLE private_message_pins_legacy');
+        $pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_private_message_pins_lookup
+             ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
+        );
+        $pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_private_message_pins_message
+             ON private_message_pins (message_id)'
+        );
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+}
+
+function migrateMysqlPrivateMessagePinsTable(PDO $pdo): void
+{
+    $stmt = $pdo->query('SHOW INDEX FROM private_message_pins WHERE Key_name = \'PRIMARY\'');
+    $primaryRows = $stmt ? $stmt->fetchAll() : [];
+    $columnsByOrder = [];
+    foreach ($primaryRows as $row) {
+        $sequence = (int) ($row['Seq_in_index'] ?? 0);
+        if ($sequence > 0) {
+            $columnsByOrder[$sequence] = (string) ($row['Column_name'] ?? '');
+        }
+    }
+    ksort($columnsByOrder);
+    $primaryColumns = array_values($columnsByOrder);
+    $expected = ['user_low_id', 'user_high_id', 'pinned_by', 'message_id'];
+    if ($primaryColumns !== $expected && $primaryColumns !== []) {
+        $pdo->exec(
+            'ALTER TABLE private_message_pins
+             DROP PRIMARY KEY,
+             ADD PRIMARY KEY (user_low_id, user_high_id, pinned_by, message_id)'
+        );
+    }
+
+    $indexStmt = $pdo->query('SHOW INDEX FROM private_message_pins WHERE Key_name = \'idx_private_message_pins_lookup_v2\'');
+    $hasLookupV2 = $indexStmt && $indexStmt->fetch() !== false;
+    if (!$hasLookupV2) {
+        $pdo->exec(
+            'CREATE INDEX idx_private_message_pins_lookup_v2
+             ON private_message_pins (user_low_id, user_high_id, pinned_by, pinned_at, message_id)'
+        );
+    }
 }
 
 function base64UrlEncode(string $value): string
@@ -3780,6 +3956,124 @@ function isUserTypingWithoutMaintenance(int $userId, int $otherUserId): bool
     return (bool) $stmt->fetchColumn();
 }
 
+function privateConversationPair(int $userId, int $otherUserId): array
+{
+    return [
+        'user_low_id' => min($userId, $otherUserId),
+        'user_high_id' => max($userId, $otherUserId),
+    ];
+}
+
+function pinPrivateMessage(int $userId, int $otherUserId, int $messageId, int $pinnedBy): ?string
+{
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    if (!canAccessConversation($userId, $otherUserId)) {
+        return 'Conversation not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id
+         FROM messages
+         WHERE id = :message_id
+           AND ((sender_id = :user_id AND recipient_id = :other_user_id)
+             OR (sender_id = :other_user_id AND recipient_id = :user_id))
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'user_id' => $userId,
+        'other_user_id' => $otherUserId,
+    ]);
+
+    if (!$stmt->fetchColumn()) {
+        return 'Message not found.';
+    }
+
+    $pair = privateConversationPair($userId, $otherUserId);
+    $params = [
+        'user_low_id' => $pair['user_low_id'],
+        'user_high_id' => $pair['user_high_id'],
+        'message_id' => $messageId,
+        'pinned_by' => $pinnedBy,
+        'pinned_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $pinStmt = db()->prepare(
+            'INSERT INTO private_message_pins (user_low_id, user_high_id, message_id, pinned_by, pinned_at)
+             VALUES (:user_low_id, :user_high_id, :message_id, :pinned_by, :pinned_at)
+             ON DUPLICATE KEY UPDATE pinned_by = VALUES(pinned_by), pinned_at = VALUES(pinned_at)'
+        );
+    } else {
+        $pinStmt = db()->prepare(
+            'INSERT INTO private_message_pins (user_low_id, user_high_id, message_id, pinned_by, pinned_at)
+             VALUES (:user_low_id, :user_high_id, :message_id, :pinned_by, :pinned_at)
+             ON CONFLICT(user_low_id, user_high_id, pinned_by, message_id)
+             DO UPDATE SET pinned_at = excluded.pinned_at'
+        );
+    }
+
+    $pinStmt->execute($params);
+
+    return null;
+}
+
+function unpinPrivateMessage(int $userId, int $otherUserId, int $messageId): ?string
+{
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    if (!canAccessConversation($userId, $otherUserId)) {
+        return 'Conversation not found.';
+    }
+
+    $pair = privateConversationPair($userId, $otherUserId);
+    $stmt = db()->prepare(
+        'DELETE FROM private_message_pins
+         WHERE user_low_id = :user_low_id
+           AND user_high_id = :user_high_id
+           AND pinned_by = :pinned_by
+           AND message_id = :message_id'
+    );
+    $stmt->execute([
+        'user_low_id' => $pair['user_low_id'],
+        'user_high_id' => $pair['user_high_id'],
+        'pinned_by' => $userId,
+        'message_id' => $messageId,
+    ]);
+
+    return null;
+}
+
+function pinnedPrivateMessageIds(int $userId, int $otherUserId): array
+{
+    if (!canAccessConversation($userId, $otherUserId)) {
+        return [];
+    }
+
+    $pair = privateConversationPair($userId, $otherUserId);
+    $stmt = db()->prepare(
+        'SELECT pmp.message_id
+         FROM private_message_pins pmp
+         JOIN messages m ON m.id = pmp.message_id
+         WHERE pmp.user_low_id = :user_low_id
+           AND pmp.user_high_id = :user_high_id
+           AND pmp.pinned_by = :pinned_by
+         ORDER BY pmp.pinned_at DESC, pmp.message_id DESC'
+    );
+    $stmt->execute([
+        'user_low_id' => $pair['user_low_id'],
+        'user_high_id' => $pair['user_high_id'],
+        'pinned_by' => $userId,
+    ]);
+
+    return array_map(static fn (mixed $value): int => (int) $value, $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int $beforeMessageId = null): array
 {
     purgeExpiredMessages();
@@ -3807,6 +4101,7 @@ function conversationPayload(int $userId, int $otherUserId, int $limit = 0, ?int
             'is_online' => (bool) ($otherUser['is_online'] ?? false),
             'updated_at' => $otherUser['presence_updated_at'] ?? null,
         ],
+        'pinned_message_ids' => pinnedPrivateMessageIds($userId, $otherUserId),
     ];
 }
 
@@ -3875,6 +4170,8 @@ function conversationStateSignature(int $userId, int $otherUserId): string
     $reactionStmt->execute($params);
     $reactionState = $reactionStmt->fetch() ?: [];
 
+    $pinIds = pinnedPrivateMessageIds($userId, $otherUserId);
+
     $friendship = friendshipRecord($userId, $otherUserId);
     $otherUser = findUserById($otherUserId);
 
@@ -3890,6 +4187,7 @@ function conversationStateSignature(int $userId, int $otherUserId): string
             'total' => (int) ($reactionState['total_reactions'] ?? 0),
             'latest_updated_at' => $reactionState['latest_reaction_updated_at'] ?? null,
         ],
+        'pins' => $pinIds,
         'typing' => isUserTypingWithoutMaintenance($userId, $otherUserId),
         'friendship' => $friendship === null ? null : [
             'id' => (int) $friendship['id'],
@@ -4779,6 +5077,100 @@ function markGroupMessagesRead(int $groupId, int $userId): void
     $stmt->execute($params);
 }
 
+function pinGroupMessage(int $groupId, int $userId, int $messageId, int $pinnedBy): ?string
+{
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id
+         FROM group_messages
+         WHERE id = :message_id
+           AND group_id = :group_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        'message_id' => $messageId,
+        'group_id' => $groupId,
+    ]);
+
+    if (!$stmt->fetchColumn()) {
+        return 'Message not found.';
+    }
+
+    $params = [
+        'group_id' => $groupId,
+        'message_id' => $messageId,
+        'pinned_by' => $pinnedBy,
+        'pinned_at' => gmdate('c'),
+    ];
+
+    if (dbDriver() === 'mysql') {
+        $pinStmt = db()->prepare(
+            'INSERT INTO group_message_pins (group_id, message_id, pinned_by, pinned_at)
+             VALUES (:group_id, :message_id, :pinned_by, :pinned_at)
+             ON DUPLICATE KEY UPDATE pinned_by = VALUES(pinned_by), pinned_at = VALUES(pinned_at)'
+        );
+    } else {
+        $pinStmt = db()->prepare(
+            'INSERT INTO group_message_pins (group_id, message_id, pinned_by, pinned_at)
+             VALUES (:group_id, :message_id, :pinned_by, :pinned_at)
+             ON CONFLICT(group_id, message_id)
+             DO UPDATE SET pinned_by = excluded.pinned_by, pinned_at = excluded.pinned_at'
+        );
+    }
+
+    $pinStmt->execute($params);
+
+    return null;
+}
+
+function unpinGroupMessage(int $groupId, int $userId, int $messageId): ?string
+{
+    if ($messageId <= 0) {
+        return 'Message not found.';
+    }
+
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return 'Group not found.';
+    }
+
+    $stmt = db()->prepare(
+        'DELETE FROM group_message_pins
+         WHERE group_id = :group_id
+           AND message_id = :message_id'
+    );
+    $stmt->execute([
+        'group_id' => $groupId,
+        'message_id' => $messageId,
+    ]);
+
+    return null;
+}
+
+function pinnedGroupMessageIds(int $groupId, int $userId): array
+{
+    if (!canAccessGroupConversation($groupId, $userId)) {
+        return [];
+    }
+
+    $stmt = db()->prepare(
+        'SELECT gmp.message_id
+         FROM group_message_pins gmp
+         JOIN group_messages gm ON gm.id = gmp.message_id
+         WHERE gmp.group_id = :group_id
+         ORDER BY gmp.pinned_at DESC, gmp.message_id DESC'
+    );
+    $stmt->execute(['group_id' => $groupId]);
+
+    return array_map(static fn (mixed $value): int => (int) $value, $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 function groupConversationPayload(int $groupId, int $userId, int $limit = 0, ?int $beforeMessageId = null): array
 {
     $group = findGroupById($groupId);
@@ -4808,6 +5200,7 @@ function groupConversationPayload(int $groupId, int $userId, int $limit = 0, ?in
             ? groupConversationHasOlderMessagesWithoutMaintenance($groupId, $userId, $oldestLoadedId)
             : false,
         'typing_members' => groupTypingMembersWithoutMaintenance($groupId, $userId),
+        'pinned_message_ids' => pinnedGroupMessageIds($groupId, $userId),
     ];
 }
 
@@ -4832,6 +5225,7 @@ function groupConversationStateSignature(int $groupId, int $userId): string
     $reactionStmt->execute(['group_id' => $groupId]);
     $reactionState = $reactionStmt->fetch() ?: [];
 
+    $pinIds = pinnedGroupMessageIds($groupId, $userId);
     $group = findGroupById($groupId);
 
     return md5(encodeJson([
@@ -4844,6 +5238,7 @@ function groupConversationStateSignature(int $groupId, int $userId): string
             'total' => (int) ($reactionState['total_reactions'] ?? 0),
             'latest_updated_at' => $reactionState['latest_reaction_updated_at'] ?? null,
         ],
+        'pins' => $pinIds,
         'group' => $group === null ? null : [
             'id' => (int) $group['id'],
             'name' => (string) $group['name'],
