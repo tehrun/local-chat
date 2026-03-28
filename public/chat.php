@@ -449,7 +449,7 @@ if ($isGroupConversation) {
         .search-input-row input {
             flex: 1;
             min-width: 0;
-            border: 1px solid rgba(102, 119, 129, 0.42);
+            border: 1px solid rgba(102, 119, 129, 0.24);
             border-radius: 12px;
             padding: 10px 12px;
             background: #fff;
@@ -492,7 +492,7 @@ if ($isGroupConversation) {
         }
         :root[data-theme="dark"] .search-input-row input {
             background: #111b21;
-            border-color: rgba(134, 150, 160, 0.55);
+            border-color: rgba(134, 150, 160, 0.35);
         }
         :root[data-theme="dark"] .search-panel {
             background: rgba(17, 27, 33, 0.82);
