@@ -56,11 +56,14 @@ function normalizeUrl(raw) {
         return '';
     }
 
-    if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value)) {
-        return value;
-    }
+    const withScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value) ? value : `https://${value}`;
 
-    return `https://${value}`;
+    try {
+        const parsed = new URL(withScheme);
+        return `${parsed.protocol}//${parsed.hostname}`;
+    } catch (error) {
+        return '';
+    }
 }
 
 form.addEventListener('submit', (event) => {
