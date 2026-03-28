@@ -455,6 +455,17 @@ if ($isGroupConversation) {
             background: #fff;
             color: var(--text);
             font-size: 14px;
+            appearance: none;
+            -webkit-appearance: none;
+            outline: none;
+            box-shadow: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .search-input-row input:focus,
+        .search-input-row input:focus-visible {
+            outline: none;
+            border-color: rgba(7, 94, 84, 0.36);
+            box-shadow: none;
         }
         .search-input-row button {
             border: none;
@@ -493,6 +504,11 @@ if ($isGroupConversation) {
         :root[data-theme="dark"] .search-input-row input {
             background: #111b21;
             border-color: rgba(134, 150, 160, 0.35);
+        }
+        :root[data-theme="dark"] .search-input-row input:focus,
+        :root[data-theme="dark"] .search-input-row input:focus-visible {
+            border-color: rgba(77, 182, 172, 0.65);
+            box-shadow: none;
         }
         :root[data-theme="dark"] .search-panel {
             background: rgba(17, 27, 33, 0.82);
