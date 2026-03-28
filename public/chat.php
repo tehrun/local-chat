@@ -352,15 +352,33 @@ if ($isGroupConversation) {
             box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.22);
         }
         .search-panel {
-            background: var(--panel);
-            border-bottom: 1px solid rgba(102, 119, 129, 0.28);
-            padding: 10px 12px;
+            margin: 0 12px;
+            margin-top: 0;
+            padding: 0 12px;
             display: flex;
             flex-direction: column;
             gap: 8px;
+            border-radius: 0 0 14px 14px;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(7, 94, 84, 0.14);
+            border-top: none;
+            backdrop-filter: blur(2px);
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: scaleY(0.92);
+            transform-origin: top center;
+            transition: max-height 0.22s ease, opacity 0.18s ease, transform 0.18s ease, padding 0.18s ease, margin-top 0.18s ease;
         }
         .search-panel[hidden] {
             display: none !important;
+        }
+        .search-panel.is-open {
+            margin-top: 2px;
+            padding: 10px 12px;
+            max-height: 290px;
+            opacity: 1;
+            transform: scaleY(1);
         }
         .search-input-row {
             display: flex;
@@ -413,6 +431,10 @@ if ($isGroupConversation) {
         :root[data-theme="dark"] .search-input-row input {
             background: #111b21;
             border-color: rgba(134, 150, 160, 0.55);
+        }
+        :root[data-theme="dark"] .search-panel {
+            background: rgba(17, 27, 33, 0.82);
+            border-color: rgba(134, 150, 160, 0.28);
         }
         .conversation {
             position: relative;
@@ -2210,6 +2232,7 @@ let streamState = preferPolling ? 'polling' : 'connecting';
 let typingMembers = Array.isArray(initialTypingMembers) ? initialTypingMembers : [];
 let groupState = initialGroup;
 let searchPanelOpen = false;
+let searchPanelCloseTimer = null;
 const personMinusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
@@ -2263,11 +2286,29 @@ function setSearchPanelOpen(isOpen) {
     if (!searchPanelEl || !searchToggleButton) {
         return;
     }
-    searchPanelEl.hidden = !searchPanelOpen;
-    searchToggleButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
-    if (searchPanelOpen) {
-        window.setTimeout(() => messageSearchInput?.focus(), 0);
+    if (searchPanelCloseTimer !== null) {
+        window.clearTimeout(searchPanelCloseTimer);
+        searchPanelCloseTimer = null;
     }
+
+    searchToggleButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
+
+    if (searchPanelOpen) {
+        searchPanelEl.hidden = false;
+        requestAnimationFrame(() => {
+            searchPanelEl.classList.add('is-open');
+        });
+        window.setTimeout(() => messageSearchInput?.focus(), 80);
+        return;
+    }
+
+    searchPanelEl.classList.remove('is-open');
+    searchPanelCloseTimer = window.setTimeout(() => {
+        if (!searchPanelEl.classList.contains('is-open')) {
+            searchPanelEl.hidden = true;
+        }
+        searchPanelCloseTimer = null;
+    }, 220);
 }
 
 function jumpToMessage(messageId, behavior = 'smooth') {
