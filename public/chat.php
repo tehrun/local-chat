@@ -870,6 +870,7 @@ if ($isGroupConversation) {
         .delivery-ticks {
             display: inline-flex;
             align-items: center;
+            gap: 4px;
             margin-left: 2px;
             color: #8696a0;
             line-height: 1;
@@ -877,10 +878,18 @@ if ($isGroupConversation) {
         .delivery-ticks.read {
             color: #53bdeb;
         }
+        .delivery-ticks.pending {
+            color: #f59e0b;
+        }
         .delivery-ticks svg {
             width: 14px;
             height: 10px;
             display: block;
+        }
+        .delivery-status-text {
+            font-size: 10px;
+            text-transform: capitalize;
+            letter-spacing: 0.02em;
         }
         .friendship-card {
             margin: 14px 12px 0;
@@ -3585,8 +3594,8 @@ function renderDeliveryTicks(message) {
     }
 
     if (state === 'pending') {
-        const pendingLabel = message?.pending_reason === 'offline' ? 'Sending queued (offline)' : 'Sending';
-        return `<span class="delivery-ticks pending" aria-label="${pendingLabel}">…</span>`;
+        const pendingLabel = message?.pending_reason === 'offline' ? 'Queued (offline)' : 'Sending';
+        return `<span class="delivery-ticks pending" aria-label="${pendingLabel}"><span aria-hidden="true">…</span><span class="delivery-status-text">${escapeHtml(pendingLabel)}</span></span>`;
     }
 
     const singleTick = `
@@ -3603,7 +3612,7 @@ function renderDeliveryTicks(message) {
     const stateLabel = state === 'read'
         ? 'Read'
         : (state === 'delivered' ? 'Delivered' : 'Sent');
-    return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${stateLabel}">${icon}</span>`;
+    return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${stateLabel}">${icon}<span class="delivery-status-text">${escapeHtml(stateLabel)}</span></span>`;
 }
 
 function formatHumanTimestamp(value) {
