@@ -5156,7 +5156,7 @@ function attachGroupDeliveryState(array $messages, int $groupId): array
     }
 
     $readStmt = db()->prepare(
-        'SELECT user_id, last_read_message_id
+        'SELECT user_id, last_read_message_id, updated_at
          FROM group_message_reads
          WHERE group_id = :group_id'
     );
