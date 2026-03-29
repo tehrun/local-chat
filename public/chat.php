@@ -3654,7 +3654,7 @@ function renderDeliveryDetailsTrigger(message) {
     }
 
     const label = `Seen by ${readCount} of ${recipientCount}; delivered to ${deliveredCount} of ${recipientCount}`;
-    return `<button type="button" class="delivery-details-trigger" data-delivery-details-id="${Number(message.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>`;
+    return `<button type="button" class="delivery-details-trigger" data-delivery-details-id="${Number(message.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="2.2"></circle><circle cx="16" cy="9.2" r="1.9"></circle><path d="M4.2 17.8c0-2.7 2.2-4.9 4.9-4.9s4.9 2.2 4.9 4.9v.2H4.2v-.2Z"></path><path d="M13 18v-.2c0-2 1.6-3.6 3.6-3.6s3.6 1.6 3.6 3.6v.2H13Z"></path></svg></button>`;
 }
 
 function formatHumanTimestamp(value) {
