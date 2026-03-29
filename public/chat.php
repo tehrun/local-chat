@@ -3654,6 +3654,11 @@ function formatHumanTimestamp(value) {
     return `${dateLabel} ${timeLabel}`;
 }
 
+function formatHumanTimestampWithAt(value) {
+    const label = formatHumanTimestamp(value);
+    return label.replace(/^(.*)\s(\d{2}:\d{2})$/, '$1 at $2');
+}
+
 function renderMessageReactions(message) {
     if (!Array.isArray(message.reactions) || message.reactions.length === 0) {
         return '';
@@ -3974,13 +3979,13 @@ function showMessageDeliveryDetails(messageId) {
         ...readBy.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
             status: entry?.read_at
-                ? `Seen at ${formatHumanTimestamp(entry.read_at)}`
+                ? `Seen ${formatHumanTimestampWithAt(entry.read_at)}`
                 : 'Seen',
         })),
         ...deliveredOnly.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
             status: entry?.delivered_at
-                ? `Delivered at ${formatHumanTimestamp(entry.delivered_at)}`
+                ? `Delivered ${formatHumanTimestampWithAt(entry.delivered_at)}`
                 : 'Delivered',
         })),
     ];
