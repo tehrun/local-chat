@@ -5163,13 +5163,17 @@ function attachGroupDeliveryState(array $messages, int $groupId): array
     $readStmt->execute(['group_id' => $groupId]);
     $readRows = $readStmt->fetchAll();
     $lastReadByUser = [];
+    $lastReadAtByUser = [];
     foreach ($readRows as $row) {
-        $lastReadByUser[(int) ($row['user_id'] ?? 0)] = (int) ($row['last_read_message_id'] ?? 0);
+        $userId = (int) ($row['user_id'] ?? 0);
+        $lastReadByUser[$userId] = (int) ($row['last_read_message_id'] ?? 0);
+        $lastReadAtByUser[$userId] = isset($row['updated_at']) ? (string) $row['updated_at'] : null;
     }
 
-    return array_map(static function (array $message) use ($activeRecipientsById, $lastReadByUser): array {
+    return array_map(static function (array $message) use ($activeRecipientsById, $lastReadByUser, $lastReadAtByUser): array {
         $messageId = (int) ($message['id'] ?? 0);
         $senderId = (int) ($message['sender_id'] ?? 0);
+        $createdAt = isset($message['created_at']) ? (string) $message['created_at'] : null;
         $messageCreatedAt = isset($message['created_at']) ? strtotime((string) $message['created_at']) : false;
         $deliveredTo = [];
         $readBy = [];
@@ -5189,11 +5193,14 @@ function attachGroupDeliveryState(array $messages, int $groupId): array
             $entry = [
                 'user_id' => $recipientId,
                 'username' => (string) ($recipient['username'] ?? ''),
+                'delivered_at' => $createdAt,
             ];
             $deliveredTo[] = $entry;
 
             if (($lastReadByUser[$recipientId] ?? 0) >= $messageId) {
-                $readBy[] = $entry;
+                $readEntry = $entry;
+                $readEntry['read_at'] = $lastReadAtByUser[$recipientId] ?? null;
+                $readBy[] = $readEntry;
             }
         }
 
