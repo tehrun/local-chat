@@ -3973,11 +3973,15 @@ function showMessageDeliveryDetails(messageId) {
     const lines = [
         ...readBy.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Seen',
+            status: entry?.read_at
+                ? `Seen at ${formatHumanTimestamp(entry.read_at)}`
+                : 'Seen',
         })),
         ...deliveredOnly.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Delivered',
+            status: entry?.delivered_at
+                ? `Delivered at ${formatHumanTimestamp(entry.delivered_at)}`
+                : 'Delivered',
         })),
     ];
 
