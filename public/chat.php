@@ -183,6 +183,35 @@ if ($isGroupConversation) {
                 }
             }
         }
+        @media (prefers-reduced-motion: reduce) {
+            :root {
+                --motion-page-duration: 1ms;
+                --motion-page-old-x: 0px;
+                --motion-page-new-x: 0px;
+            }
+            body.is-route-leaving {
+                opacity: 1;
+                transform: none;
+            }
+            .back-link,
+            .header-icon-button,
+            .header-menu-panel,
+            .header-menu-item,
+            .search-panel,
+            .pinned-panel,
+            .message-reactions.is-new-reaction,
+            .message-reactions.is-new-reaction::after,
+            .reaction-picker button[data-emoji].is-tapped,
+            .dot {
+                animation: none;
+                transition: none;
+                transform: none;
+            }
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation: none;
+            }
+        }
         .app {
             min-height: 100vh;
             min-height: 100dvh;
@@ -2301,6 +2330,13 @@ const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
 const backLink = document.querySelector('.back-link');
+const reducedMotionQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+
+function prefersReducedMotion() {
+    return Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+}
 
 function navigateWithTransition(url) {
     if (!url) {
@@ -2313,6 +2349,11 @@ function navigateWithTransition(url) {
     const supportsCrossDocumentTransitions = typeof CSS !== 'undefined'
         && typeof CSS.supports === 'function'
         && CSS.supports('view-transition-name: none');
+
+    if (prefersReducedMotion()) {
+        navigate();
+        return;
+    }
 
     if (supportsCrossDocumentTransitions) {
         navigate();
@@ -2519,14 +2560,20 @@ function setHeaderMenuOpen(isOpen) {
     headerMenuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     if (isOpen) {
         headerMenuPanel.hidden = false;
-        requestAnimationFrame(() => {
+        if (prefersReducedMotion()) {
             headerMenuPanel.classList.add('is-open');
-        });
+        } else {
+            requestAnimationFrame(() => {
+                headerMenuPanel.classList.add('is-open');
+            });
+        }
         return;
     }
 
     headerMenuPanel.classList.remove('is-open');
-    if (!isOpen) {
+    if (prefersReducedMotion()) {
+        headerMenuPanel.hidden = true;
+    } else if (!isOpen) {
         window.setTimeout(() => {
             if (!headerMenuPanel.classList.contains('is-open')) {
                 headerMenuPanel.hidden = true;
@@ -2564,20 +2611,29 @@ function setSearchPanelOpen(isOpen) {
     if (searchPanelOpen) {
         setPinnedPanelOpen(false);
         searchPanelEl.hidden = false;
-        requestAnimationFrame(() => {
+        if (prefersReducedMotion()) {
             searchPanelEl.classList.add('is-open');
-        });
-        window.setTimeout(() => messageSearchInput?.focus(), 80);
+            messageSearchInput?.focus();
+        } else {
+            requestAnimationFrame(() => {
+                searchPanelEl.classList.add('is-open');
+            });
+            window.setTimeout(() => messageSearchInput?.focus(), 80);
+        }
         return;
     }
 
     searchPanelEl.classList.remove('is-open');
-    searchPanelCloseTimer = window.setTimeout(() => {
-        if (!searchPanelEl.classList.contains('is-open')) {
-            searchPanelEl.hidden = true;
-        }
-        searchPanelCloseTimer = null;
-    }, 220);
+    if (prefersReducedMotion()) {
+        searchPanelEl.hidden = true;
+    } else {
+        searchPanelCloseTimer = window.setTimeout(() => {
+            if (!searchPanelEl.classList.contains('is-open')) {
+                searchPanelEl.hidden = true;
+            }
+            searchPanelCloseTimer = null;
+        }, 220);
+    }
 }
 
 function setPinnedPanelOpen(isOpen) {
@@ -2595,19 +2651,27 @@ function setPinnedPanelOpen(isOpen) {
     if (pinnedPanelOpen) {
         setSearchPanelOpen(false);
         pinnedPanelEl.hidden = false;
-        requestAnimationFrame(() => {
+        if (prefersReducedMotion()) {
             pinnedPanelEl.classList.add('is-open');
-        });
+        } else {
+            requestAnimationFrame(() => {
+                pinnedPanelEl.classList.add('is-open');
+            });
+        }
         return;
     }
 
     pinnedPanelEl.classList.remove('is-open');
-    pinnedPanelCloseTimer = window.setTimeout(() => {
-        if (!pinnedPanelEl.classList.contains('is-open')) {
-            pinnedPanelEl.hidden = true;
-        }
-        pinnedPanelCloseTimer = null;
-    }, 220);
+    if (prefersReducedMotion()) {
+        pinnedPanelEl.hidden = true;
+    } else {
+        pinnedPanelCloseTimer = window.setTimeout(() => {
+            if (!pinnedPanelEl.classList.contains('is-open')) {
+                pinnedPanelEl.hidden = true;
+            }
+            pinnedPanelCloseTimer = null;
+        }, 220);
+    }
 }
 
 function renderPinnedPanel(messages) {
@@ -4198,17 +4262,21 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
             if (!reactionPickerMessageId) {
                 return;
             }
-            buttonEl.classList.add('is-tapped');
-            buttonEl.addEventListener('animationend', () => {
-                buttonEl.classList.remove('is-tapped');
-                hideReactionPicker();
-            }, { once: true });
-            window.setTimeout(() => {
-                buttonEl.classList.remove('is-tapped');
-                if (reactionPickerMessageId) {
+            if (!prefersReducedMotion()) {
+                buttonEl.classList.add('is-tapped');
+                buttonEl.addEventListener('animationend', () => {
+                    buttonEl.classList.remove('is-tapped');
                     hideReactionPicker();
-                }
-            }, 220);
+                }, { once: true });
+                window.setTimeout(() => {
+                    buttonEl.classList.remove('is-tapped');
+                    if (reactionPickerMessageId) {
+                        hideReactionPicker();
+                    }
+                }, 220);
+            } else {
+                hideReactionPicker();
+            }
             setMessageReaction(reactionPickerMessageId, emoji);
         });
     });
@@ -4577,7 +4645,7 @@ function renderMessages(messages) {
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
             const reactions = renderMessageReactions(message);
-            const hasReactionAnimation = reactionChangedMessageIds.has(Number(message.id));
+            const hasReactionAnimation = !prefersReducedMotion() && reactionChangedMessageIds.has(Number(message.id));
             const myReaction = Array.isArray(message.reactions)
                 ? String((message.reactions.find((reaction) => Number(reaction?.user_id) === currentUserId)?.emoji) || '')
                 : '';
