@@ -187,6 +187,32 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                 }
             }
         }
+        @media (prefers-reduced-motion: reduce) {
+            :root {
+                --motion-page-duration: 1ms;
+                --motion-page-old-x: 0px;
+                --motion-page-new-x: 0px;
+            }
+            body.is-route-leaving {
+                opacity: 1;
+                transform: none;
+            }
+            .header-menu-panel {
+                transition: none;
+                transform: none;
+            }
+            .header-icon-button,
+            .header-menu-item,
+            .install-button,
+            .chat-row,
+            .chat-row-action-button {
+                transition: none;
+            }
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation: none;
+            }
+        }
         .app {
             min-height: 100vh;
             max-width: 720px;
@@ -1127,6 +1153,13 @@ const rootEl = document.documentElement;
 const settingsMenuButton = document.getElementById('settings-menu-button');
 const settingsMenuPanel = document.getElementById('settings-menu-panel');
 const themeToggle = document.getElementById('theme-toggle');
+const reducedMotionQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+
+function prefersReducedMotion() {
+    return Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+}
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
@@ -1160,11 +1193,20 @@ function setSettingsMenuOpen(isOpen) {
     settingsMenuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     if (isOpen) {
         settingsMenuPanel.hidden = false;
-        requestAnimationFrame(() => settingsMenuPanel.classList.add('is-open'));
+        if (prefersReducedMotion()) {
+            settingsMenuPanel.classList.add('is-open');
+        } else {
+            requestAnimationFrame(() => settingsMenuPanel.classList.add('is-open'));
+        }
         return;
     }
 
     settingsMenuPanel.classList.remove('is-open');
+    if (prefersReducedMotion()) {
+        settingsMenuPanel.hidden = true;
+        return;
+    }
+
     window.setTimeout(() => {
         if (!settingsMenuPanel.classList.contains('is-open')) {
             settingsMenuPanel.hidden = true;
@@ -1745,6 +1787,11 @@ function openChatFromRow(eventTarget) {
     const supportsCrossDocumentTransitions = typeof CSS !== 'undefined'
         && typeof CSS.supports === 'function'
         && CSS.supports('view-transition-name: none');
+
+    if (prefersReducedMotion()) {
+        navigate();
+        return true;
+    }
 
     if (supportsCrossDocumentTransitions) {
         navigate();
