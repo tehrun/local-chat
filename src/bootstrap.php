@@ -1921,6 +1921,11 @@ function pushNotificationPayload(int $currentUserId): array
 function purgeExpiredMessages(bool $force = false): void
 {
     static $lastRunAt = null;
+    static $purgeDisabled = false;
+
+    if ($purgeDisabled) {
+        return;
+    }
 
     if (!$force && $lastRunAt !== null && (time() - $lastRunAt) < PURGE_INTERVAL_SECONDS) {
         return;
@@ -1931,44 +1936,54 @@ function purgeExpiredMessages(bool $force = false): void
     $typingCutoff = gmdate('c', time() - TYPING_TTL_SECONDS);
     $pdo = db();
 
-    $stmt = $pdo->prepare('SELECT audio_path, image_path, file_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)');
-    $stmt->execute(['cutoff' => $mediaCutoff]);
+    try {
+        $stmt = $pdo->prepare('SELECT audio_path, image_path, file_path FROM messages WHERE created_at < :cutoff AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL)');
+        $stmt->execute(['cutoff' => $mediaCutoff]);
 
-    foreach ($stmt->fetchAll() as $row) {
-        foreach (['audio_path', 'image_path', 'file_path'] as $column) {
-            $relativePath = $row[$column] ?? null;
-            if (!is_string($relativePath) || $relativePath === '') {
-                continue;
-            }
+        foreach ($stmt->fetchAll() as $row) {
+            foreach (['audio_path', 'image_path', 'file_path'] as $column) {
+                $relativePath = $row[$column] ?? null;
+                if (!is_string($relativePath) || $relativePath === '') {
+                    continue;
+                }
 
-            if (!isSafeStorageRelativePath($relativePath)) {
-                continue;
-            }
+                if (!isSafeStorageRelativePath($relativePath)) {
+                    continue;
+                }
 
-            $path = BASE_PATH . '/' . $relativePath;
-            if (is_file($path)) {
-                unlink($path);
+                $path = BASE_PATH . '/' . $relativePath;
+                if (is_file($path)) {
+                    unlink($path);
+                }
             }
         }
+
+        $clearMedia = $pdo->prepare(
+            'UPDATE messages
+             SET audio_path = NULL,
+                 image_path = NULL,
+                 file_path = NULL,
+                 file_name = NULL,
+                 attachment_expired = 1
+             WHERE created_at < :cutoff
+               AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL OR file_name IS NOT NULL)'
+        );
+        $clearMedia->execute(['cutoff' => $mediaCutoff]);
+
+        $delete = $pdo->prepare('DELETE FROM messages WHERE created_at < :cutoff');
+        $delete->execute(['cutoff' => $messageCutoff]);
+
+        $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
+        $deleteTyping->execute(['cutoff' => $typingCutoff]);
+    } catch (PDOException $e) {
+        if (dbDriver() === 'sqlite' && str_contains($e->getMessage(), 'database disk image is malformed')) {
+            $purgeDisabled = true;
+            error_log('Message purge disabled: SQLite database is malformed. Restore a healthy database backup and run integrity checks.');
+            return;
+        }
+
+        throw $e;
     }
-
-    $clearMedia = $pdo->prepare(
-        'UPDATE messages
-         SET audio_path = NULL,
-             image_path = NULL,
-             file_path = NULL,
-             file_name = NULL,
-             attachment_expired = 1
-         WHERE created_at < :cutoff
-           AND (audio_path IS NOT NULL OR image_path IS NOT NULL OR file_path IS NOT NULL OR file_name IS NOT NULL)'
-    );
-    $clearMedia->execute(['cutoff' => $mediaCutoff]);
-
-    $delete = $pdo->prepare('DELETE FROM messages WHERE created_at < :cutoff');
-    $delete->execute(['cutoff' => $messageCutoff]);
-
-    $deleteTyping = $pdo->prepare('DELETE FROM typing_status WHERE updated_at < :cutoff');
-    $deleteTyping->execute(['cutoff' => $typingCutoff]);
 
     $lastRunAt = time();
 }
