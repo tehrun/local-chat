@@ -69,6 +69,9 @@ if ($isGroupConversation) {
     }
     </script>
     <style>
+        @view-transition {
+            navigation: auto;
+        }
         * {
             scrollbar-width: none;
             -ms-overflow-style: none;
@@ -99,6 +102,10 @@ if ($isGroupConversation) {
             --composer-clearance: 6px;
             --composer-wrap-start: rgba(239, 234, 226, 0);
             --composer-wrap-end: rgba(239, 234, 226, 1);
+            --motion-page-duration: 280ms;
+            --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
+            --motion-page-old-x: 18px;
+            --motion-page-new-x: -18px;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -133,6 +140,48 @@ if ($isGroupConversation) {
             font-family: Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
+        }
+        body.route-chat {
+            --motion-page-old-x: 18px;
+            --motion-page-new-x: -18px;
+        }
+        body.is-route-leaving {
+            opacity: 0.94;
+            transform: translateX(var(--motion-page-old-x));
+        }
+        @supports (view-transition-name: none) {
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation-duration: var(--motion-page-duration);
+                animation-timing-function: var(--motion-page-ease);
+                animation-fill-mode: both;
+            }
+            ::view-transition-old(root) {
+                animation-name: route-page-out;
+            }
+            ::view-transition-new(root) {
+                animation-name: route-page-in;
+            }
+            @keyframes route-page-out {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-old-x));
+                }
+            }
+            @keyframes route-page-in {
+                from {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-new-x));
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
         }
         .app {
             min-height: 100vh;
@@ -1622,7 +1671,7 @@ if ($isGroupConversation) {
         }
     </style>
 </head>
-<body>
+<body class="route-chat">
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
@@ -2220,6 +2269,45 @@ const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
+const backLink = document.querySelector('.back-link');
+
+function navigateWithTransition(url) {
+    if (!url) {
+        return;
+    }
+
+    const navigate = () => {
+        window.location.href = url;
+    };
+    const supportsCrossDocumentTransitions = typeof CSS !== 'undefined'
+        && typeof CSS.supports === 'function'
+        && CSS.supports('view-transition-name: none');
+
+    if (supportsCrossDocumentTransitions) {
+        navigate();
+        return;
+    }
+
+    if (typeof document.startViewTransition === 'function') {
+        try {
+            const transition = document.startViewTransition(() => {
+                document.body.classList.add('is-route-leaving');
+            });
+            transition?.finished?.catch(() => {
+                navigate();
+            });
+            transition?.finished?.then(() => {
+                navigate();
+            });
+            return;
+        } catch (error) {
+            navigate();
+            return;
+        }
+    }
+
+    navigate();
+}
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
@@ -5578,6 +5666,10 @@ messagesEl.addEventListener('scroll', () => {
     if (shouldAutoScroll) {
         syncReadStateSoon();
     }
+});
+backLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    navigateWithTransition(backLink.getAttribute('href') || './');
 });
 
 scrollToEndButton?.addEventListener('click', () => {

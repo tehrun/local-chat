@@ -84,6 +84,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
     }
     </script>
     <style>
+        @view-transition {
+            navigation: auto;
+        }
         * {
             scrollbar-width: none;
             -ms-overflow-style: none;
@@ -109,6 +112,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             --shadow: 0 10px 30px rgba(17, 27, 33, 0.12);
             --menu-surface: rgba(255, 255, 255, 0.98);
             --menu-hover: rgba(7, 94, 84, 0.08);
+            --motion-page-duration: 280ms;
+            --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
+            --motion-page-old-x: -18px;
+            --motion-page-new-x: 18px;
             font-family: Arial, sans-serif;
         }
         :root[data-theme="dark"] {
@@ -137,6 +144,48 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             min-height: 100vh;
             background: var(--bg);
             color: var(--text);
+        }
+        body.route-home {
+            --motion-page-old-x: -18px;
+            --motion-page-new-x: 18px;
+        }
+        body.is-route-leaving {
+            opacity: 0.94;
+            transform: translateX(var(--motion-page-old-x));
+        }
+        @supports (view-transition-name: none) {
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation-duration: var(--motion-page-duration);
+                animation-timing-function: var(--motion-page-ease);
+                animation-fill-mode: both;
+            }
+            ::view-transition-old(root) {
+                animation-name: route-page-out;
+            }
+            ::view-transition-new(root) {
+                animation-name: route-page-in;
+            }
+            @keyframes route-page-out {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-old-x));
+                }
+            }
+            @keyframes route-page-in {
+                from {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-new-x));
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
         }
         .app {
             min-height: 100vh;
@@ -791,7 +840,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
     </style>
 </head>
-<body>
+<body class="route-home">
 <div class="app">
     <div class="shell">
         <header class="topbar">
@@ -1690,7 +1739,37 @@ function openChatFromRow(eventTarget) {
         return false;
     }
 
-    window.location.href = url;
+    const navigate = () => {
+        window.location.href = url;
+    };
+    const supportsCrossDocumentTransitions = typeof CSS !== 'undefined'
+        && typeof CSS.supports === 'function'
+        && CSS.supports('view-transition-name: none');
+
+    if (supportsCrossDocumentTransitions) {
+        navigate();
+        return true;
+    }
+
+    if (typeof document.startViewTransition === 'function') {
+        try {
+            const transition = document.startViewTransition(() => {
+                document.body.classList.add('is-route-leaving');
+            });
+            transition?.finished?.catch(() => {
+                navigate();
+            });
+            transition?.finished?.then(() => {
+                navigate();
+            });
+            return true;
+        } catch (error) {
+            navigate();
+            return true;
+        }
+    }
+
+    navigate();
     return true;
 }
 
