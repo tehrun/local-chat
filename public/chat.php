@@ -106,6 +106,7 @@ if ($isGroupConversation) {
             --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
             --motion-page-old-x: 18px;
             --motion-page-new-x: -18px;
+            --chat-pattern-opacity: 0.17;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -183,14 +184,6 @@ if ($isGroupConversation) {
                     transform: translateX(0);
                 }
             }
-            @keyframes topbar-settle {
-                from {
-                    opacity: 0;
-                }
-                to {
-                    opacity: 1;
-                }
-            }
         }
         @media (prefers-reduced-motion: reduce) {
             :root {
@@ -211,8 +204,7 @@ if ($isGroupConversation) {
             .message-reactions.is-new-reaction,
             .message-reactions.is-new-reaction::after,
             .reaction-picker button[data-emoji].is-tapped,
-            .dot,
-            .topbar::before {
+            .dot {
                 animation: none;
                 transition: none;
                 transform: none;
@@ -253,17 +245,6 @@ if ($isGroupConversation) {
             background: var(--header);
             color: #fff;
             box-shadow: var(--shadow);
-            isolation: isolate;
-            transform: translateZ(0);
-        }
-        .topbar::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 36%, rgba(255, 255, 255, 0) 100%);
-            opacity: 0;
-            pointer-events: none;
-            animation: topbar-settle 420ms ease-out forwards;
         }
         .back-link {
             width: 40px;
@@ -642,6 +623,24 @@ if ($isGroupConversation) {
             min-height: 0;
             padding: 14px 12px 0;
             overflow: hidden;
+        }
+        .conversation::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: center / 220px 220px repeat url('icons/main-bg.svg');
+            opacity: var(--chat-pattern-opacity);
+            z-index: 0;
+        }
+        .messages,
+        .conversation-actions {
+            position: relative;
+            z-index: 1;
+        }
+        :root[data-theme="dark"] .conversation::before {
+            filter: brightness(0.88) saturate(0.85);
+            opacity: calc(var(--chat-pattern-opacity) * 0.56);
         }
         .messages {
             flex: 1;
