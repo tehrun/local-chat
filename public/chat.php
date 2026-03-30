@@ -745,6 +745,19 @@ if ($isGroupConversation) {
             cursor: pointer;
             max-width: min(76vw, 220px);
         }
+        .message-reactions.is-new-reaction {
+            animation: reaction-chip-in 180ms cubic-bezier(0.2, 0.85, 0.3, 1);
+            will-change: transform, opacity;
+        }
+        .message-reactions.is-new-reaction::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            background: linear-gradient(110deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.32) 48%, rgba(255, 255, 255, 0) 100%);
+            animation: reaction-chip-shimmer 220ms ease-out;
+        }
         .message-reactions-line {
             white-space: nowrap;
         }
@@ -796,6 +809,10 @@ if ($isGroupConversation) {
             align-items: center;
             justify-content: center;
         }
+        .reaction-picker button[data-emoji].is-tapped {
+            animation: reaction-emoji-tap 170ms cubic-bezier(0.2, 0.9, 0.25, 1);
+            will-change: transform;
+        }
         .reaction-picker button.is-active {
             background: rgba(37, 211, 102, 0.22);
         }
@@ -822,6 +839,20 @@ if ($isGroupConversation) {
             fill: none;
             stroke-linecap: round;
             stroke-linejoin: round;
+        }
+        @keyframes reaction-emoji-tap {
+            0% { transform: scale(1); }
+            45% { transform: scale(1.18); }
+            100% { transform: scale(1.03); }
+        }
+        @keyframes reaction-chip-in {
+            0% { opacity: 0; transform: translateY(6px) scale(0.94); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes reaction-chip-shimmer {
+            0% { opacity: 0; transform: translateX(-16%); }
+            30% { opacity: 1; }
+            100% { opacity: 0; transform: translateX(16%); }
         }
         .message-action-menu {
             position: fixed;
@@ -3789,6 +3820,31 @@ function renderMessageReactions(message) {
     return `<div class="message-reactions" aria-label="Reactions">${reactionLines.map((line) => `<span class="message-reactions-line">${line}</span>`).join('')}</div>`;
 }
 
+function reactionSignatureForMessage(message) {
+    return (Array.isArray(message?.reactions) ? message.reactions : [])
+        .map((reaction) => `${Number(reaction?.user_id || 0)}:${String(reaction?.emoji || '').trim()}`)
+        .filter((entry) => !entry.endsWith(':'))
+        .sort()
+        .join('|');
+}
+
+function changedReactionMessageIds(previousMessages, nextMessages) {
+    const previousMap = new Map(previousMessages.map((message) => [Number(message?.id || 0), reactionSignatureForMessage(message)]));
+    return new Set(nextMessages
+        .map((message) => {
+            const messageId = Number(message?.id || 0);
+            if (!messageId) {
+                return 0;
+            }
+            const nextSignature = reactionSignatureForMessage(message);
+            if (nextSignature === '') {
+                return 0;
+            }
+            return previousMap.get(messageId) !== nextSignature ? messageId : 0;
+        })
+        .filter((messageId) => messageId > 0));
+}
+
 function renderReplyReference(message) {
     const replyRef = message?.reply_reference;
     const replyId = Number(replyRef?.id || message?.reply_to_message_id || 0);
@@ -4142,8 +4198,18 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
             if (!reactionPickerMessageId) {
                 return;
             }
+            buttonEl.classList.add('is-tapped');
+            buttonEl.addEventListener('animationend', () => {
+                buttonEl.classList.remove('is-tapped');
+                hideReactionPicker();
+            }, { once: true });
+            window.setTimeout(() => {
+                buttonEl.classList.remove('is-tapped');
+                if (reactionPickerMessageId) {
+                    hideReactionPicker();
+                }
+            }, 220);
             setMessageReaction(reactionPickerMessageId, emoji);
-            hideReactionPicker();
         });
     });
     picker.querySelector('button[data-action="reply"]')?.addEventListener('click', () => {
@@ -4437,6 +4503,7 @@ function closeImageLightbox() {
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const normalizedMessages = reconcilePendingTextDuplicates(messages);
+    const reactionChangedMessageIds = changedReactionMessageIds(previousMessages, normalizedMessages);
     const shouldPinToBottom = shouldAutoScroll || isNearBottom() || initialScrollPending;
     window.__messagesState = normalizedMessages;
     const availableMessageIds = new Set(normalizedMessages.map((message) => Number(message.id || 0)).filter((id) => id > 0));
@@ -4510,6 +4577,7 @@ function renderMessages(messages) {
                 : '';
             const timeLabel = formatHumanTimestamp(message.created_at);
             const reactions = renderMessageReactions(message);
+            const hasReactionAnimation = reactionChangedMessageIds.has(Number(message.id));
             const myReaction = Array.isArray(message.reactions)
                 ? String((message.reactions.find((reaction) => Number(reaction?.user_id) === currentUserId)?.emoji) || '')
                 : '';
@@ -4538,7 +4606,9 @@ function renderMessages(messages) {
                         ${expiredAttachment}
                         <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span><span>${ticks}</span></div>
                     </div>
-                    ${reactions}
+                    ${reactions !== '' && hasReactionAnimation
+                        ? reactions.replace('class="message-reactions"', 'class="message-reactions is-new-reaction"')
+                        : reactions}
                 </article>`;
         }).join('');
 
@@ -4665,6 +4735,11 @@ function renderMessages(messages) {
                 }
                 showReactionDetails(messageId);
             });
+        });
+        messagesEl.querySelectorAll('.message-reactions.is-new-reaction').forEach((reactionEl) => {
+            reactionEl.addEventListener('animationend', () => {
+                reactionEl.classList.remove('is-new-reaction');
+            }, { once: true });
         });
     }
 
