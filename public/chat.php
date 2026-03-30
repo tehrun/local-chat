@@ -137,6 +137,7 @@ if ($isGroupConversation) {
             height: 100vh;
             height: 100dvh;
             overflow: hidden;
+            overscroll-behavior-y: none;
             font-family: Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
@@ -182,6 +183,14 @@ if ($isGroupConversation) {
                     transform: translateX(0);
                 }
             }
+            @keyframes topbar-settle {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
         }
         @media (prefers-reduced-motion: reduce) {
             :root {
@@ -202,7 +211,8 @@ if ($isGroupConversation) {
             .message-reactions.is-new-reaction,
             .message-reactions.is-new-reaction::after,
             .reaction-picker button[data-emoji].is-tapped,
-            .dot {
+            .dot,
+            .topbar::before {
                 animation: none;
                 transition: none;
                 transform: none;
@@ -243,6 +253,17 @@ if ($isGroupConversation) {
             background: var(--header);
             color: #fff;
             box-shadow: var(--shadow);
+            isolation: isolate;
+            transform: translateZ(0);
+        }
+        .topbar::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 36%, rgba(255, 255, 255, 0) 100%);
+            opacity: 0;
+            pointer-events: none;
+            animation: topbar-settle 420ms ease-out forwards;
         }
         .back-link {
             width: 40px;
