@@ -69,6 +69,9 @@ if ($isGroupConversation) {
     }
     </script>
     <style>
+        @view-transition {
+            navigation: auto;
+        }
         * {
             scrollbar-width: none;
             -ms-overflow-style: none;
@@ -139,21 +142,24 @@ if ($isGroupConversation) {
             color: var(--text);
         }
         body.route-chat {
-            view-transition-name: route-page;
             --motion-page-old-x: 18px;
             --motion-page-new-x: -18px;
         }
-        @supports (view-transition-name: route-page) {
-            ::view-transition-old(route-page),
-            ::view-transition-new(route-page) {
+        body.is-route-leaving {
+            opacity: 0.94;
+            transform: translateX(var(--motion-page-old-x));
+        }
+        @supports (view-transition-name: none) {
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
                 animation-duration: var(--motion-page-duration);
                 animation-timing-function: var(--motion-page-ease);
                 animation-fill-mode: both;
             }
-            ::view-transition-old(route-page) {
+            ::view-transition-old(root) {
                 animation-name: route-page-out;
             }
-            ::view-transition-new(route-page) {
+            ::view-transition-new(root) {
                 animation-name: route-page-in;
             }
             @keyframes route-page-out {
@@ -2270,22 +2276,37 @@ function navigateWithTransition(url) {
         return;
     }
 
+    const navigate = () => {
+        window.location.href = url;
+    };
+    const supportsCrossDocumentTransitions = typeof CSS !== 'undefined'
+        && typeof CSS.supports === 'function'
+        && CSS.supports('view-transition-name: none');
+
+    if (supportsCrossDocumentTransitions) {
+        navigate();
+        return;
+    }
+
     if (typeof document.startViewTransition === 'function') {
         try {
             const transition = document.startViewTransition(() => {
-                window.location.href = url;
+                document.body.classList.add('is-route-leaving');
             });
             transition?.finished?.catch(() => {
-                window.location.href = url;
+                navigate();
+            });
+            transition?.finished?.then(() => {
+                navigate();
             });
             return;
         } catch (error) {
-            window.location.href = url;
+            navigate();
             return;
         }
     }
 
-    window.location.href = url;
+    navigate();
 }
 
 function applyTheme(theme) {
