@@ -99,6 +99,10 @@ if ($isGroupConversation) {
             --composer-clearance: 6px;
             --composer-wrap-start: rgba(239, 234, 226, 0);
             --composer-wrap-end: rgba(239, 234, 226, 1);
+            --motion-page-duration: 280ms;
+            --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
+            --motion-page-old-x: 18px;
+            --motion-page-new-x: -18px;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -133,6 +137,45 @@ if ($isGroupConversation) {
             font-family: Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
+        }
+        body.route-chat {
+            view-transition-name: route-page;
+            --motion-page-old-x: 18px;
+            --motion-page-new-x: -18px;
+        }
+        @supports (view-transition-name: route-page) {
+            ::view-transition-old(route-page),
+            ::view-transition-new(route-page) {
+                animation-duration: var(--motion-page-duration);
+                animation-timing-function: var(--motion-page-ease);
+                animation-fill-mode: both;
+            }
+            ::view-transition-old(route-page) {
+                animation-name: route-page-out;
+            }
+            ::view-transition-new(route-page) {
+                animation-name: route-page-in;
+            }
+            @keyframes route-page-out {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-old-x));
+                }
+            }
+            @keyframes route-page-in {
+                from {
+                    opacity: 0;
+                    transform: translateX(var(--motion-page-new-x));
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
         }
         .app {
             min-height: 100vh;
@@ -1622,7 +1665,7 @@ if ($isGroupConversation) {
         }
     </style>
 </head>
-<body>
+<body class="route-chat">
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
@@ -2220,6 +2263,30 @@ const renameGroupButton = document.getElementById('rename-group-button');
 const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
+const backLink = document.querySelector('.back-link');
+
+function navigateWithTransition(url) {
+    if (!url) {
+        return;
+    }
+
+    if (typeof document.startViewTransition === 'function') {
+        try {
+            const transition = document.startViewTransition(() => {
+                window.location.href = url;
+            });
+            transition?.finished?.catch(() => {
+                window.location.href = url;
+            });
+            return;
+        } catch (error) {
+            window.location.href = url;
+            return;
+        }
+    }
+
+    window.location.href = url;
+}
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
@@ -5578,6 +5645,10 @@ messagesEl.addEventListener('scroll', () => {
     if (shouldAutoScroll) {
         syncReadStateSoon();
     }
+});
+backLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    navigateWithTransition(backLink.getAttribute('href') || './');
 });
 
 scrollToEndButton?.addEventListener('click', () => {
