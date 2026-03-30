@@ -894,30 +894,6 @@ if ($isGroupConversation) {
             height: 10px;
             display: block;
         }
-        .delivery-details-trigger {
-            border: 0;
-            background: transparent;
-            color: var(--muted);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 18px;
-            height: 18px;
-            margin-left: 4px;
-            border-radius: 10px;
-            cursor: pointer;
-        }
-        .delivery-details-trigger:hover,
-        .delivery-details-trigger:focus-visible {
-            color: var(--text);
-            background: rgba(17, 27, 33, 0.08);
-            outline: none;
-        }
-        .delivery-details-trigger svg {
-            width: 13px;
-            height: 13px;
-            display: block;
-        }
         .friendship-card {
             margin: 14px 12px 0;
             border-radius: 18px;
@@ -3641,22 +3617,6 @@ function renderDeliveryTicks(message) {
     return `<span class="delivery-ticks ${state === 'read' ? 'read' : ''}" aria-label="${state}">${icon}</span>`;
 }
 
-function renderDeliveryDetailsTrigger(message) {
-    if (!isGroupConversation || !message || Number(message.sender_id) !== currentUserId || message.pending) {
-        return '';
-    }
-
-    const recipientCount = Number(message.group_delivery?.recipient_count || 0);
-    const deliveredCount = Number(message.group_delivery?.delivered_count || 0);
-    const readCount = Number(message.group_delivery?.read_count || 0);
-    if (recipientCount <= 0 && deliveredCount <= 0 && readCount <= 0) {
-        return '';
-    }
-
-    const label = `Seen by ${readCount} of ${recipientCount}; delivered to ${deliveredCount} of ${recipientCount}`;
-    return `<button type="button" class="delivery-details-trigger" data-delivery-details-id="${Number(message.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>`;
-}
-
 function formatHumanTimestamp(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -3692,6 +3652,11 @@ function formatHumanTimestamp(value) {
     }).format(date);
 
     return `${dateLabel} ${timeLabel}`;
+}
+
+function formatHumanTimestampWithAt(value) {
+    const label = formatHumanTimestamp(value);
+    return label.replace(/^(.*)\s(\d{2}:\d{2})$/, '$1 at $2');
 }
 
 function renderMessageReactions(message) {
@@ -4013,11 +3978,15 @@ function showMessageDeliveryDetails(messageId) {
     const lines = [
         ...readBy.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Seen',
+            status: entry?.read_at
+                ? `Seen ${formatHumanTimestampWithAt(entry.read_at)}`
+                : 'Seen',
         })),
         ...deliveredOnly.map((entry) => ({
             label: String(entry?.username || `User #${Number(entry?.user_id || 0)}`),
-            status: 'Delivered',
+            status: entry?.delivered_at
+                ? `Delivered ${formatHumanTimestampWithAt(entry.delivered_at)}`
+                : 'Delivered',
         })),
     ];
 
@@ -4061,6 +4030,9 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const editButton = actionOptions.edit
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
+    const deliveryDetailsButton = actionOptions.deliveryDetails
+        ? '<button type="button" class="reaction-action" data-action="delivery-details" aria-label="View delivery details" title="Delivery details"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>'
+        : '';
     const deleteButton = actionOptions.delete
         ? '<button type="button" class="reaction-action danger" data-action="delete" aria-label="Delete for me" title="Delete for me"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg></button>'
         : '';
@@ -4070,7 +4042,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         ? ''
         : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
     const reactionsRow = reactionButtons + removeButton;
-    const actionsRow = replyButton + copyButton + pinButton + editButton + deleteButton;
+    const actionsRow = replyButton + copyButton + pinButton + editButton + deliveryDetailsButton + deleteButton;
     const actionRowClasses = reactionsRow !== ''
         ? 'reaction-picker-row reaction-picker-actions with-reaction-row'
         : 'reaction-picker-row reaction-picker-actions';
@@ -4100,6 +4072,10 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     picker.querySelector('button[data-action="edit"]')?.addEventListener('click', async () => {
         hideReactionPicker();
         await editMessageById(messageId);
+    });
+    picker.querySelector('button[data-action="delivery-details"]')?.addEventListener('click', () => {
+        hideReactionPicker();
+        showMessageDeliveryDetails(messageId);
     });
     picker.querySelector('button[data-action="delete"]')?.addEventListener('click', async () => {
         hideReactionPicker();
@@ -4440,7 +4416,6 @@ function renderMessages(messages) {
                 : '';
             const pendingLabel = message.pending ? ' · Sending…' : '';
             const ticks = renderDeliveryTicks(message);
-            const deliveryDetailsTrigger = renderDeliveryDetailsTrigger(message);
             const replyReference = renderReplyReference(message);
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
@@ -4473,7 +4448,7 @@ function renderMessages(messages) {
                         ${audio}
                         ${file}
                         ${expiredAttachment}
-                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span><span>${ticks}${deliveryDetailsTrigger}</span></div>
+                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span><span>${ticks}</span></div>
                     </div>
                     ${reactions}
                 </article>`;
@@ -4535,6 +4510,7 @@ function renderMessages(messages) {
                             pin: true,
                             pinned: isMessagePinned(messageId),
                             edit: true,
+                            deliveryDetails: isGroupConversation,
                             delete: true,
                         });
                         longPressHandled = true;
@@ -4569,6 +4545,7 @@ function renderMessages(messages) {
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: true,
+                        deliveryDetails: isGroupConversation,
                         delete: true,
                     });
                     return;
@@ -4599,15 +4576,6 @@ function renderMessages(messages) {
                     return;
                 }
                 showReactionDetails(messageId);
-            });
-            rowEl.querySelector('[data-delivery-details-id]')?.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                const messageId = Number((event.currentTarget instanceof Element ? event.currentTarget.getAttribute('data-delivery-details-id') : '') || 0);
-                if (!messageId) {
-                    return;
-                }
-                showMessageDeliveryDetails(messageId);
             });
         });
     }
