@@ -106,7 +106,7 @@ if ($isGroupConversation) {
             --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
             --motion-page-old-x: 18px;
             --motion-page-new-x: -18px;
-            --chat-pattern-opacity: 0.18;
+            --chat-pattern-opacity: 0.16;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -660,15 +660,12 @@ if ($isGroupConversation) {
             position: relative;
             z-index: 1;
         }
-        body.chat-group .conversation::before {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23075e54' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='0.34'%3E%3Cpath d='M35 45h34a8 8 0 0 1 8 8v17a8 8 0 0 1-8 8H52l-12 10 3-10h-8a8 8 0 0 1-8-8V53a8 8 0 0 1 8-8z'/%3E%3Ccircle cx='50' cy='61' r='2'/%3E%3Ccircle cx='61' cy='61' r='2'/%3E%3Ccircle cx='72' cy='61' r='2'/%3E%3Cpath d='M114 103c0-7 6-13 13-13s13 6 13 13v7h8l-10 12-10-12h8v-7z'/%3E%3Ccircle cx='109' cy='96' r='10'/%3E%3Cpath d='M95 120c4-6 11-10 19-10'/%3E%3C/g%3E%3C/svg%3E");
-        }
-        body.chat-private .conversation::before {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23075e54' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='0.32'%3E%3Cpath d='M38 50h38a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H57l-13 10 4-10h-10a8 8 0 0 1-8-8V58a8 8 0 0 1 8-8z'/%3E%3Cpath d='M105 52a10 10 0 1 1 20 0v5h4a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6h-24a6 6 0 0 1-6-6V63a6 6 0 0 1 6-6h4z'/%3E%3Ccircle cx='117' cy='72' r='3'/%3E%3Cpath d='M117 75v5'/%3E%3Cpath d='M41 117c4-10 14-16 25-16s21 6 25 16'/%3E%3Ccircle cx='66' cy='93' r='10'/%3E%3C/g%3E%3C/svg%3E");
+        .conversation::before {
+            background-image: url('icons/chat-bg-pattern.svg');
         }
         :root[data-theme="dark"] .conversation::before {
-            filter: brightness(1.2) saturate(0.68);
-            opacity: calc(var(--chat-pattern-opacity) * 0.92);
+            filter: brightness(0.82) saturate(0.8);
+            opacity: calc(var(--chat-pattern-opacity) * 0.52);
         }
         .messages {
             flex: 1;
@@ -1779,7 +1776,7 @@ if ($isGroupConversation) {
         }
     </style>
 </head>
-<body class="route-chat <?= $isGroupConversation ? 'chat-group' : 'chat-private' ?>">
+<body class="route-chat">
 <div class="app">
     <div class="chat-shell">
         <header class="topbar">
