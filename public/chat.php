@@ -106,6 +106,7 @@ if ($isGroupConversation) {
             --motion-page-ease: cubic-bezier(0.22, 1, 0.36, 1);
             --motion-page-old-x: 18px;
             --motion-page-new-x: -18px;
+            --chat-pattern-opacity: 0.17;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -137,6 +138,7 @@ if ($isGroupConversation) {
             height: 100vh;
             height: 100dvh;
             overflow: hidden;
+            overscroll-behavior-y: none;
             font-family: Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
@@ -621,6 +623,24 @@ if ($isGroupConversation) {
             min-height: 0;
             padding: 14px 12px 0;
             overflow: hidden;
+        }
+        .conversation::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: center / 220px 220px repeat url('icons/main-bg.svg');
+            opacity: var(--chat-pattern-opacity);
+            z-index: 0;
+        }
+        .messages,
+        .conversation-actions {
+            position: relative;
+            z-index: 1;
+        }
+        :root[data-theme="dark"] .conversation::before {
+            filter: brightness(0.88) saturate(0.85);
+            opacity: calc(var(--chat-pattern-opacity) * 0.56);
         }
         .messages {
             flex: 1;
