@@ -995,6 +995,57 @@ if ($isGroupConversation) {
             width: 100%;
             margin-top: 6px;
         }
+        .voice-note-player {
+            margin-top: 6px;
+            border-radius: 14px;
+            background: linear-gradient(145deg, rgba(17, 153, 96, 0.14), rgba(17, 153, 96, 0.05));
+            border: 1px solid rgba(17, 153, 96, 0.2);
+            padding: 8px 10px;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+        }
+        .voice-note-toggle {
+            border: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 999px;
+            background: #16a34a;
+            color: #fff;
+            font-size: 14px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+        }
+        .voice-note-wave {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            height: 24px;
+            cursor: pointer;
+            min-width: 0;
+        }
+        .voice-note-bar {
+            width: 3px;
+            border-radius: 999px;
+            background: rgba(22, 163, 74, 0.28);
+            transition: background-color 0.2s ease;
+        }
+        .voice-note-bar.active {
+            background: #16a34a;
+        }
+        .voice-note-time {
+            font-size: 11px;
+            color: #166534;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            min-width: 40px;
+            text-align: right;
+        }
         .meta {
             margin-top: 8px;
             font-size: 11px;
@@ -4588,6 +4639,89 @@ function closeImageLightbox() {
     }
 }
 
+function formatVoiceTime(seconds) {
+    const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+    const minutes = Math.floor(safeSeconds / 60);
+    const remainder = String(safeSeconds % 60).padStart(2, '0');
+    return `${minutes}:${remainder}`;
+}
+
+function createVoiceBars() {
+    const bars = [];
+    for (let index = 0; index < 42; index += 1) {
+        const offset = Math.sin((index + 1) * 0.8) * 0.5 + Math.cos((index + 1) * 0.33) * 0.5;
+        const height = Math.max(18, Math.min(92, Math.round(52 + offset * 40)));
+        bars.push(`<span class="voice-note-bar" style="height:${height}%"></span>`);
+    }
+    return bars.join('');
+}
+
+function setupVoiceNotePlayers(rootEl = messagesEl) {
+    rootEl.querySelectorAll('.voice-note-player').forEach((playerEl) => {
+        if (playerEl.dataset.ready === '1') {
+            return;
+        }
+        playerEl.dataset.ready = '1';
+        const audioEl = playerEl.querySelector('audio');
+        const toggleButton = playerEl.querySelector('.voice-note-toggle');
+        const waveEl = playerEl.querySelector('.voice-note-wave');
+        const timeEl = playerEl.querySelector('.voice-note-time');
+        if (!(audioEl instanceof HTMLAudioElement) || !(toggleButton instanceof HTMLButtonElement) || !(waveEl instanceof HTMLElement) || !(timeEl instanceof HTMLElement)) {
+            return;
+        }
+        const bars = Array.from(waveEl.querySelectorAll('.voice-note-bar'));
+        const updateBars = () => {
+            const duration = audioEl.duration || 0;
+            const progress = duration > 0 ? (audioEl.currentTime / duration) : 0;
+            const activeCount = Math.round(progress * bars.length);
+            bars.forEach((barEl, index) => {
+                barEl.classList.toggle('active', index < activeCount);
+            });
+            timeEl.textContent = formatVoiceTime(duration > 0 ? Math.max(duration - audioEl.currentTime, 0) : 0);
+        };
+        const syncToggle = () => {
+            const isPlaying = !audioEl.paused && !audioEl.ended;
+            toggleButton.textContent = isPlaying ? '❚❚' : '▶';
+        };
+        toggleButton.addEventListener('click', async () => {
+            if (audioEl.paused || audioEl.ended) {
+                try {
+                    await audioEl.play();
+                } catch (error) {
+                    return;
+                }
+            } else {
+                audioEl.pause();
+            }
+            syncToggle();
+        });
+        waveEl.addEventListener('click', (event) => {
+            const rect = waveEl.getBoundingClientRect();
+            if (rect.width <= 0 || !Number.isFinite(audioEl.duration) || audioEl.duration <= 0) {
+                return;
+            }
+            const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+            audioEl.currentTime = ratio * audioEl.duration;
+            updateBars();
+        });
+        audioEl.addEventListener('loadedmetadata', () => {
+            updateBars();
+            if (shouldAutoScroll || isNearBottom()) {
+                scrollMessagesToEnd();
+            }
+        }, { once: true });
+        audioEl.addEventListener('timeupdate', updateBars);
+        audioEl.addEventListener('play', syncToggle);
+        audioEl.addEventListener('pause', syncToggle);
+        audioEl.addEventListener('ended', () => {
+            syncToggle();
+            updateBars();
+        });
+        syncToggle();
+        updateBars();
+    });
+}
+
 function renderMessages(messages) {
     const previousMessages = window.__messagesState || [];
     const normalizedMessages = reconcilePendingTextDuplicates(messages);
@@ -4649,7 +4783,7 @@ function renderMessages(messages) {
                 ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<audio controls preload="none" src="${escapeHtml(mediaUrl)}"></audio>`
+                ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${createVoiceBars()}</div><span class="voice-note-time">0:00</span><audio preload="none" src="${escapeHtml(mediaUrl)}"></audio></div>`
                 : '';
             const file = message.file_path
                 ? `<a class="message-file" href="${escapeHtml(mediaUrl)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
@@ -4708,13 +4842,7 @@ function renderMessages(messages) {
             }, { once: true });
         });
 
-        messagesEl.querySelectorAll('audio').forEach((audioEl) => {
-            audioEl.addEventListener('loadedmetadata', () => {
-                if (shouldAutoScroll || isNearBottom()) {
-                    scrollMessagesToEnd();
-                }
-            }, { once: true });
-        });
+        setupVoiceNotePlayers(messagesEl);
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
             const canReactToRow = () => {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
@@ -4722,7 +4850,7 @@ function renderMessages(messages) {
             };
             const isOwnMessage = () => Number(rowEl.getAttribute('data-sender-id') || 0) === currentUserId;
             const openReactionPickerFromTap = (event) => {
-                if (event.target instanceof HTMLElement && event.target.closest('a, button, audio, input, textarea, label, .message-reactions')) {
+                if (event.target instanceof HTMLElement && event.target.closest('a, button, audio, input, textarea, label, .message-reactions, .voice-note-wave')) {
                     return;
                 }
                 hideReactionPicker();
