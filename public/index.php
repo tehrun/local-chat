@@ -55,6 +55,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ./');
         exit;
     }
+
+    if ($action === 'update_profile' && $user !== null) {
+        $error = updateUserProfile(
+            (int) $user['id'],
+            (string) ($_POST['username'] ?? ''),
+            isset($_POST['name']) ? (string) $_POST['name'] : null,
+            isset($_POST['family_name']) ? (string) $_POST['family_name'] : null
+        );
+
+        if ($error !== null) {
+            $errors[] = $error;
+        } else {
+            $notice = 'Settings updated.';
+        }
+    }
 }
 
 $user = currentUser();
@@ -899,10 +914,31 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                     <circle cx="12" cy="7" r="4"></circle>
                                 </svg>
                                 <span class="header-menu-copy">
-                                    <strong><?= e($user['username']) ?></strong>
+                                    <strong><?= e(trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) !== '' ? trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) : $user['username']) ?></strong>
                                     <span>Your account</span>
                                 </span>
                             </div>
+                            <form method="post" class="header-menu-form">
+                                <input type="hidden" name="action" value="update_profile">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <label>
+                                    Username
+                                    <input type="text" name="username" minlength="3" required value="<?= e((string) $user['username']) ?>">
+                                </label>
+                                <label>
+                                    Name (optional)
+                                    <input type="text" name="name" maxlength="100" value="<?= e((string) ($user['name'] ?? '')) ?>">
+                                </label>
+                                <label>
+                                    Family name (optional)
+                                    <input type="text" name="family_name" maxlength="100" value="<?= e((string) ($user['family_name'] ?? '')) ?>">
+                                </label>
+                                <button class="header-menu-item" type="submit">
+                                    <span class="header-menu-copy">
+                                        <strong>Save profile</strong>
+                                    </span>
+                                </button>
+                            </form>
                             <div class="header-menu-label" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
