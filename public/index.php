@@ -385,6 +385,21 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .header-menu-copy strong {
             font-size: 14px;
         }
+        .profile-name-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .profile-name-inline svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.75;
+        }
         .header-menu-copy span {
             font-size: 12px;
             color: var(--muted);
@@ -397,6 +412,75 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         }
         .header-menu-form .header-menu-item {
             width: 100%;
+        }
+        .profile-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(11, 20, 26, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 50;
+        }
+        .profile-modal-card {
+            width: min(460px, 100%);
+            background: var(--panel);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .profile-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .profile-modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .profile-modal-close {
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            font-size: 24px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+        }
+        .profile-modal-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .profile-modal-form label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+        .profile-modal-form input {
+            border: 1px solid rgba(102, 119, 129, 0.35);
+            border-radius: 10px;
+            background: var(--theirs);
+            color: var(--text);
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+        .profile-modal-form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .profile-modal-form-actions .mini-button {
+            width: auto;
+            min-width: 88px;
         }
         .theme-switch {
             appearance: none;
@@ -908,37 +992,22 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                             </svg>
                         </button>
                         <div id="settings-menu-panel" class="header-menu-panel" role="menu" aria-label="Settings" hidden>
-                            <div class="header-menu-label" role="presentation">
+                            <button class="header-menu-item" id="open-profile-modal-button" type="button" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                                     <circle cx="12" cy="7" r="4"></circle>
                                 </svg>
                                 <span class="header-menu-copy">
-                                    <strong><?= e(trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) !== '' ? trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) : $user['username']) ?></strong>
+                                    <strong class="profile-name-inline">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                            <path d="M12 20h9"></path>
+                                            <path d="m16.5 3.5 4 4L7 21l-4 1 1-4 12.5-14.5Z"></path>
+                                        </svg>
+                                        <?= e(trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) !== '' ? trim(($user['name'] ?? '') . ' ' . ($user['family_name'] ?? '')) : $user['username']) ?>
+                                    </strong>
                                     <span>Your account</span>
                                 </span>
-                            </div>
-                            <form method="post" class="header-menu-form">
-                                <input type="hidden" name="action" value="update_profile">
-                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
-                                <label>
-                                    Username
-                                    <input type="text" name="username" minlength="3" required value="<?= e((string) $user['username']) ?>">
-                                </label>
-                                <label>
-                                    Name (optional)
-                                    <input type="text" name="name" maxlength="100" value="<?= e((string) ($user['name'] ?? '')) ?>">
-                                </label>
-                                <label>
-                                    Family name (optional)
-                                    <input type="text" name="family_name" maxlength="100" value="<?= e((string) ($user['family_name'] ?? '')) ?>">
-                                </label>
-                                <button class="header-menu-item" type="submit">
-                                    <span class="header-menu-copy">
-                                        <strong>Save profile</strong>
-                                    </span>
-                                </button>
-                            </form>
+                            </button>
                             <div class="header-menu-label" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
@@ -1146,6 +1215,34 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             <p class="chat-switcher-empty" id="chat-switcher-empty" hidden>No users match your search.</p>
         </div>
     </div>
+    <div class="profile-modal" id="profile-modal" hidden>
+        <div class="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+            <div class="profile-modal-header">
+                <h3 id="profile-modal-title">Edit profile</h3>
+                <button class="profile-modal-close" id="profile-modal-close" type="button" aria-label="Close profile form">×</button>
+            </div>
+            <form method="post" class="profile-modal-form">
+                <input type="hidden" name="action" value="update_profile">
+                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                <label>
+                    Username
+                    <input type="text" name="username" minlength="3" required value="<?= e((string) $user['username']) ?>">
+                </label>
+                <label>
+                    Name (optional)
+                    <input type="text" name="name" maxlength="100" value="<?= e((string) ($user['name'] ?? '')) ?>">
+                </label>
+                <label>
+                    Family name (optional)
+                    <input type="text" name="family_name" maxlength="100" value="<?= e((string) ($user['family_name'] ?? '')) ?>">
+                </label>
+                <div class="profile-modal-form-actions">
+                    <button class="mini-button secondary" id="profile-modal-cancel" type="button">Cancel</button>
+                    <button class="mini-button primary" type="submit">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
 <?php endif; ?>
 <script>
 const currentUserId = <?= $user !== null ? (int) $user['id'] : 'null' ?>;
@@ -1188,6 +1285,10 @@ const themeStorageKey = 'localchat:theme';
 const rootEl = document.documentElement;
 const settingsMenuButton = document.getElementById('settings-menu-button');
 const settingsMenuPanel = document.getElementById('settings-menu-panel');
+const openProfileModalButton = document.getElementById('open-profile-modal-button');
+const profileModal = document.getElementById('profile-modal');
+const profileModalCloseButton = document.getElementById('profile-modal-close');
+const profileModalCancelButton = document.getElementById('profile-modal-cancel');
 const themeToggle = document.getElementById('theme-toggle');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -1248,6 +1349,17 @@ function setSettingsMenuOpen(isOpen) {
             settingsMenuPanel.hidden = true;
         }
     }, 180);
+}
+
+function setProfileModalOpen(isOpen) {
+    if (!profileModal) {
+        return;
+    }
+
+    profileModal.hidden = !isOpen;
+    if (isOpen) {
+        profileModal.querySelector('input[name="username"]')?.focus();
+    }
 }
 
 loadStoredTheme();
@@ -2121,6 +2233,11 @@ settingsMenuButton?.addEventListener('click', () => {
     setSettingsMenuOpen(settingsMenuButton.getAttribute('aria-expanded') !== 'true');
 });
 
+openProfileModalButton?.addEventListener('click', () => {
+    setSettingsMenuOpen(false);
+    setProfileModalOpen(true);
+});
+
 themeToggle?.addEventListener('change', () => {
     const nextTheme = themeToggle.checked ? 'dark' : 'light';
     applyTheme(nextTheme);
@@ -2144,7 +2261,21 @@ document.addEventListener('click', (event) => {
     setSettingsMenuOpen(false);
 });
 
+profileModal?.addEventListener('click', (event) => {
+    if (event.target === profileModal) {
+        setProfileModalOpen(false);
+    }
+});
+
+profileModalCloseButton?.addEventListener('click', () => setProfileModalOpen(false));
+profileModalCancelButton?.addEventListener('click', () => setProfileModalOpen(false));
+
 document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && profileModal && !profileModal.hidden) {
+        setProfileModalOpen(false);
+        return;
+    }
+
     if (event.key === 'Escape') {
         setSettingsMenuOpen(false);
     }
