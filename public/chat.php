@@ -387,6 +387,33 @@ if ($isGroupConversation) {
             min-width: 0;
             flex: 1;
         }
+        .topbar-peer-profile {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        .topbar-peer-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.24);
+            color: #f0fffb;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+        .topbar-peer-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
         .topbar-meta h1 {
             margin: 0;
             font-size: 18px;
@@ -1821,11 +1848,20 @@ if ($isGroupConversation) {
                         </div>
                     </button>
                 <?php else: ?>
-                    <div id="group-members-button" class="header-members-trigger hidden">
-                        <h1 id="header-title"><?= e($otherUser['username']) ?></h1>
-                        <div class="presence-row">
-                            <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                            <span id="header-presence-label">Offline</span>
+                    <div class="topbar-peer-profile">
+                        <div class="topbar-peer-avatar" aria-hidden="true">
+                            <?php if (!empty($otherUser['avatar_path'])): ?>
+                                <img src="avatar.php?user=<?= (int) $otherUser['id'] ?>" alt="">
+                            <?php else: ?>
+                                <?= e(strtoupper(substr((string) $otherUser['username'], 0, 2))) ?>
+                            <?php endif; ?>
+                        </div>
+                        <div id="group-members-button" class="header-members-trigger hidden">
+                            <h1 id="header-title"><?= e($otherUser['username']) ?></h1>
+                            <div class="presence-row">
+                                <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                                <span id="header-presence-label">Offline</span>
+                            </div>
                         </div>
                     </div>
                 <?php endif; ?>
