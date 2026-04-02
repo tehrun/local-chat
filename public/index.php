@@ -427,52 +427,41 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         .profile-modal {
             position: fixed;
             inset: 0;
-            background: rgba(11, 20, 26, 0.45);
+            background: rgba(0, 0, 0, 0.86);
             display: flex;
-            align-items: flex-start;
+            align-items: flex-end;
             justify-content: center;
-            padding: 20px;
-            z-index: 50;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
+            padding: 16px;
+            z-index: 25;
         }
         .profile-modal-card {
-            width: min(460px, 100%);
-            background: var(--panel);
-            border-radius: 18px;
+            width: min(100%, 420px);
+            max-height: min(70vh, 560px);
+            background: #fff;
+            color: #111b21;
+            border-radius: 24px;
             box-shadow: var(--shadow);
-            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            margin-top: clamp(8px, 6vh, 64px);
-            margin-bottom: max(8px, env(safe-area-inset-bottom));
-            max-height: calc(100dvh - 32px);
-            overflow-y: auto;
+            overflow: hidden;
         }
         .profile-modal-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
+            padding: 18px 18px 12px;
         }
         .profile-modal-header h3 {
             margin: 0;
             font-size: 18px;
         }
-        .profile-modal-close {
-            border: none;
-            background: transparent;
-            color: var(--muted);
-            font-size: 24px;
-            line-height: 1;
-            cursor: pointer;
-            padding: 0;
-        }
         .profile-modal-form {
             display: flex;
             flex-direction: column;
             gap: 10px;
+            padding: 0 18px 16px;
+            overflow-y: auto;
         }
         .profile-modal-form label {
             display: flex;
@@ -1239,7 +1228,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
         <div class="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
             <div class="profile-modal-header">
                 <h3 id="profile-modal-title">Edit profile</h3>
-                <button class="profile-modal-close" id="profile-modal-close" type="button" aria-label="Close profile form">×</button>
+                <button class="chat-switcher-close" id="profile-modal-close" type="button" aria-label="Close profile form">×</button>
             </div>
             <form method="post" class="profile-modal-form">
                 <input type="hidden" name="action" value="update_profile">
