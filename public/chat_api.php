@@ -278,6 +278,20 @@ if ($isGroupConversation) {
         ]);
     }
 
+    if ($action === 'update_group_avatar') {
+        $error = updateGroupAvatar($groupId, (int) $user['id'], $_FILES['avatar_file'] ?? []);
+        if ($error !== null) {
+            jsonResponse(['error' => $error], 422);
+        }
+        jsonResponse([
+            'ok' => true,
+            'payload' => array_merge(
+                groupConversationPayload($groupId, (int) $user['id']),
+                ['signature' => groupConversationStateSignature($groupId, (int) $user['id'])]
+            ),
+        ]);
+    }
+
     jsonResponse(['error' => 'Unsupported action.'], 400);
 }
 

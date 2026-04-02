@@ -6,6 +6,7 @@ define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
 define('TMP_UPLOAD_PATH', STORAGE_PATH . '/tmp');
+define('AVATAR_UPLOAD_PATH', STORAGE_PATH . '/avatars');
 define('DB_PATH', STORAGE_PATH . '/db/chat.sqlite');
 define('DEFAULT_DB_HOST', '127.0.0.1');
 define('DEFAULT_DB_PORT', '3306');
@@ -41,6 +42,10 @@ function ensureStorageDirectories(): void
 
     if (!is_dir(TMP_UPLOAD_PATH)) {
         mkdir(TMP_UPLOAD_PATH, 0777, true);
+    }
+
+    if (!is_dir(AVATAR_UPLOAD_PATH)) {
+        mkdir(AVATAR_UPLOAD_PATH, 0777, true);
     }
 
     if (!is_dir(WEB_PUSH_KEY_PATH)) {
@@ -542,6 +547,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             username TEXT NOT NULL UNIQUE,
             name TEXT,
             family_name TEXT,
+            avatar_path TEXT,
             password_hash TEXT NOT NULL,
             created_at TEXT NOT NULL
         )'
@@ -558,6 +564,10 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('family_name', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN family_name TEXT');
+    }
+
+    if (!in_array('avatar_path', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path TEXT');
     }
 
     $pdo->exec(
@@ -791,10 +801,20 @@ function initializeSqliteDatabase(PDO $pdo): void
             name TEXT NOT NULL,
             creator_user_id INTEGER NOT NULL,
             created_at TEXT NOT NULL,
+            avatar_path TEXT,
             deleted_at TEXT,
             FOREIGN KEY(creator_user_id) REFERENCES users(id)
         )'
     );
+
+    $groupColumns = array_map(
+        static fn (array $column): string => (string) $column['name'],
+        $pdo->query('PRAGMA table_info(groups)')->fetchAll()
+    );
+
+    if (!in_array('avatar_path', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE groups ADD COLUMN avatar_path TEXT');
+    }
 
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_groups_creator_created
@@ -1040,6 +1060,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             username VARCHAR(255) NOT NULL UNIQUE,
             name VARCHAR(255) NULL,
             family_name VARCHAR(255) NULL,
+            avatar_path VARCHAR(255) NULL,
             password_hash VARCHAR(255) NOT NULL,
             created_at DATETIME NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
@@ -1051,6 +1072,9 @@ function initializeMysqlDatabase(PDO $pdo): void
     }
     if (!in_array('family_name', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN family_name VARCHAR(255) NULL AFTER name');
+    }
+    if (!in_array('avatar_path', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL AFTER family_name');
     }
 
     $pdo->exec(
@@ -1225,11 +1249,17 @@ function initializeMysqlDatabase(PDO $pdo): void
             name VARCHAR(255) NOT NULL,
             creator_user_id INT UNSIGNED NOT NULL,
             created_at DATETIME NOT NULL,
+            avatar_path VARCHAR(255) NULL,
             deleted_at DATETIME NULL,
             INDEX idx_groups_creator_created (creator_user_id, created_at),
             CONSTRAINT fk_groups_creator FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $groupColumns = mysqlTableColumns($pdo, 'groups');
+    if (!in_array('avatar_path', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE groups ADD COLUMN avatar_path VARCHAR(255) NULL AFTER created_at');
+    }
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS group_members (
@@ -2108,7 +2138,7 @@ function currentUser(): ?array
         return null;
     }
 
-    $stmt = db()->prepare('SELECT id, username, name, family_name, created_at FROM users WHERE id = :id');
+    $stmt = db()->prepare('SELECT id, username, name, family_name, avatar_path, created_at FROM users WHERE id = :id');
     $stmt->execute(['id' => $_SESSION['user_id']]);
 
     $user = $stmt->fetch() ?: null;
@@ -2588,6 +2618,7 @@ function incomingFriendRequests(int $currentUserId): array
                 fr.created_at,
                 fr.responded_at,
                 u.username AS sender_name,
+                u.avatar_path AS sender_avatar_path,
                 up.updated_at AS presence_updated_at
          FROM friend_requests fr
          JOIN users u ON u.id = fr.sender_id
@@ -2692,6 +2723,7 @@ function allOtherUsers(int $currentUserId): array
                 u.username,
                 u.name,
                 u.family_name,
+                u.avatar_path,
                 u.created_at,
                 up.updated_at AS presence_updated_at,
                 COUNT(DISTINCT m_unseen.id) AS unseen_count,
@@ -2722,7 +2754,7 @@ function allOtherUsers(int $currentUserId): array
             AND m_unseen.read_at IS NULL
             AND (cc.cleared_at IS NULL OR m_unseen.created_at > cc.cleared_at)
          WHERE u.id != :id
-         GROUP BY u.id, u.username, u.name, u.family_name, u.created_at, up.updated_at, cc.cleared_at,
+         GROUP BY u.id, u.username, u.name, u.family_name, u.avatar_path, u.created_at, up.updated_at, cc.cleared_at,
                   m_last.created_at, m_last.id, m_last.body, m_last.audio_path, m_last.image_path
          ORDER BY CASE WHEN m_last.created_at IS NULL THEN 1 ELSE 0 END ASC,
                   m_last.created_at DESC,
@@ -2946,7 +2978,7 @@ function findUserByUsername(string $username): ?array
 function findUserById(int $id): ?array
 {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.name, u.family_name, u.created_at, up.updated_at AS presence_updated_at
+        'SELECT u.id, u.username, u.name, u.family_name, u.avatar_path, u.created_at, up.updated_at AS presence_updated_at
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          WHERE u.id = :id
@@ -2964,6 +2996,15 @@ function findUserById(int $id): ?array
     }
 
     return $user;
+}
+
+function avatarPathForUser(int $userId): ?string
+{
+    $stmt = db()->prepare('SELECT avatar_path FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute(['id' => $userId]);
+    $row = $stmt->fetch();
+
+    return is_array($row) && !empty($row['avatar_path']) ? (string) $row['avatar_path'] : null;
 }
 
 function ensureAuthChallenge(): array
@@ -3148,7 +3189,7 @@ function userDisplayName(array $user): string
     return trim((string) ($user['username'] ?? ''));
 }
 
-function updateUserProfile(int $userId, string $username, ?string $name, ?string $familyName): ?string
+function updateUserProfile(int $userId, string $username, ?string $name, ?string $familyName, ?array $avatarFile = null): ?string
 {
     $normalizedUsername = trim($username);
     if ($normalizedUsername === '' || strlen($normalizedUsername) < 3) {
@@ -3178,19 +3219,36 @@ function updateUserProfile(int $userId, string $username, ?string $name, ?string
         return 'Family name must be 100 characters or fewer.';
     }
 
-    $stmt = db()->prepare(
-        'UPDATE users
-         SET username = :username,
-             name = :name,
-             family_name = :family_name
-         WHERE id = :id'
-    );
-    $stmt->execute([
+    $avatarPath = null;
+    if ($avatarFile !== null && ($avatarFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $avatarUpload = saveUploadedAvatar($avatarFile, 'user', $userId);
+        if (isset($avatarUpload['error'])) {
+            return (string) $avatarUpload['error'];
+        }
+        $avatarPath = (string) ($avatarUpload['path'] ?? '');
+    }
+
+    $sql = 'UPDATE users
+            SET username = :username,
+                name = :name,
+                family_name = :family_name';
+
+    $params = [
         'id' => $userId,
         'username' => $normalizedUsername,
         'name' => $normalizedName,
         'family_name' => $normalizedFamilyName,
-    ]);
+    ];
+
+    if ($avatarPath !== null) {
+        $sql .= ', avatar_path = :avatar_path';
+        $params['avatar_path'] = $avatarPath;
+    }
+
+    $sql .= ' WHERE id = :id';
+
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
 
     return null;
 }
@@ -4253,6 +4311,60 @@ function detectUploadedImageExtension(array $file, ?string $mime): ?string
     return null;
 }
 
+
+function saveUploadedAvatar(array $file, string $entityType, int $entityId): array
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return ['error' => 'Image upload failed. Please attach a photo or image file.'];
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedImageExtension($file, $mime);
+
+    if ($extension === null) {
+        return ['error' => 'Unsupported image type. Use jpg, png, gif, webp, heic, or heif.'];
+    }
+
+    if (($file['size'] ?? 0) > 8 * 1024 * 1024) {
+        return ['error' => 'Profile image must be 8MB or smaller.'];
+    }
+
+    $filename = sprintf('avatar_%s_%s_%s.%s', $entityType, $entityId, bin2hex(random_bytes(8)), $extension);
+    $target = AVATAR_UPLOAD_PATH . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $target)) {
+        return ['error' => 'Could not save the image.'];
+    }
+
+    return ['path' => 'storage/avatars/' . $filename];
+}
+
+function updateGroupAvatar(int $groupId, int $actorUserId, array $file): ?string
+{
+    $group = findGroupById($groupId);
+    if ($group === null) {
+        return 'Group not found.';
+    }
+
+    if ((int) $group['creator_user_id'] !== $actorUserId) {
+        return 'Only the group creator can update the group photo.';
+    }
+
+    $avatarUpload = saveUploadedAvatar($file, 'group', $groupId);
+    if (isset($avatarUpload['error'])) {
+        return (string) $avatarUpload['error'];
+    }
+    $avatarPath = (string) ($avatarUpload['path'] ?? '');
+
+    $stmt = db()->prepare('UPDATE groups SET avatar_path = :avatar_path WHERE id = :id');
+    $stmt->execute([
+        'id' => $groupId,
+        'avatar_path' => $avatarPath,
+    ]);
+
+    return null;
+}
 function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
 {
     purgeExpiredMessages();
@@ -5921,11 +6033,13 @@ function groupConversationPayload(int $groupId, int $userId, int $limit = 0, ?in
             'id' => (int) $group['id'],
             'name' => (string) $group['name'],
             'creator_user_id' => (int) $group['creator_user_id'],
+            'avatar_path' => $group['avatar_path'] ?? null,
             'creator_name' => (string) $group['creator_name'],
             'member_count' => count($members),
             'members' => $members,
             'can_delete' => (int) $group['creator_user_id'] === $userId,
             'can_rename' => (int) $group['creator_user_id'] === $userId,
+            'can_update_avatar' => (int) $group['creator_user_id'] === $userId,
         ],
         'messages' => $messages,
         'has_more_messages' => $oldestLoadedId !== null && $oldestLoadedId > 0
@@ -5975,6 +6089,7 @@ function groupConversationStateSignature(int $groupId, int $userId): string
             'id' => (int) $group['id'],
             'name' => (string) $group['name'],
             'creator_user_id' => (int) $group['creator_user_id'],
+            'avatar_path' => $group['avatar_path'] ?? null,
         ],
         'members' => array_map(static fn (array $member): array => [
             'user_id' => (int) $member['user_id'],
@@ -5990,6 +6105,7 @@ function groupChats(int $currentUserId): array
         'SELECT g.id,
                 g.name,
                 g.creator_user_id,
+                g.avatar_path,
                 MAX(gm.created_at) AS last_message_at,
                 MAX(gm.id) AS last_message_id,
                 (
@@ -6016,7 +6132,7 @@ function groupChats(int $currentUserId): array
           AND membership.status = :status
          LEFT JOIN group_messages gm ON gm.group_id = g.id
          WHERE g.deleted_at IS NULL
-         GROUP BY g.id, g.name, g.creator_user_id
+         GROUP BY g.id, g.name, g.creator_user_id, g.avatar_path
          ORDER BY CASE WHEN MAX(gm.created_at) IS NULL THEN 1 ELSE 0 END ASC,
                   MAX(gm.created_at) DESC,
                   MAX(gm.id) DESC,
@@ -6036,6 +6152,7 @@ function groupChats(int $currentUserId): array
             'group_id' => $groupId,
             'name' => (string) $group['name'],
             'creator_user_id' => (int) $group['creator_user_id'],
+            'avatar_path' => $group['avatar_path'] ?? null,
             'username' => (string) $group['name'],
             'last_message_at' => $group['last_message_at'],
             'last_message_id' => (int) ($group['last_message_id'] ?? 0),
