@@ -429,10 +429,12 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             inset: 0;
             background: rgba(11, 20, 26, 0.45);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             padding: 20px;
             z-index: 50;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .profile-modal-card {
             width: min(460px, 100%);
@@ -443,6 +445,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             display: flex;
             flex-direction: column;
             gap: 12px;
+            margin-top: clamp(8px, 6vh, 64px);
+            margin-bottom: max(8px, env(safe-area-inset-bottom));
+            max-height: calc(100dvh - 32px);
+            overflow-y: auto;
         }
         .profile-modal-header {
             display: flex;
@@ -1372,7 +1378,11 @@ function setProfileModalOpen(isOpen) {
 
     profileModal.hidden = !isOpen;
     if (isOpen) {
-        profileModal.querySelector('input[name="username"]')?.focus();
+        const usernameInput = profileModal.querySelector('input[name="username"]');
+        window.setTimeout(() => {
+            usernameInput?.focus();
+            usernameInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 60);
     }
 }
 
@@ -2283,6 +2293,13 @@ profileModal?.addEventListener('click', (event) => {
 
 profileModalCloseButton?.addEventListener('click', () => setProfileModalOpen(false));
 profileModalCancelButton?.addEventListener('click', () => setProfileModalOpen(false));
+profileModal?.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('focus', () => {
+        window.setTimeout(() => {
+            input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 80);
+    });
+});
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && profileModal && !profileModal.hidden) {
