@@ -387,6 +387,33 @@ if ($isGroupConversation) {
             min-width: 0;
             flex: 1;
         }
+        .topbar-peer-profile {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        .topbar-peer-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.24);
+            color: #f0fffb;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+        .topbar-peer-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
         .topbar-meta h1 {
             margin: 0;
             font-size: 18px;
@@ -1821,11 +1848,20 @@ if ($isGroupConversation) {
                         </div>
                     </button>
                 <?php else: ?>
-                    <div id="group-members-button" class="header-members-trigger hidden">
-                        <h1 id="header-title"><?= e($otherUser['username']) ?></h1>
-                        <div class="presence-row">
-                            <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
-                            <span id="header-presence-label">Offline</span>
+                    <div class="topbar-peer-profile">
+                        <div class="topbar-peer-avatar" aria-hidden="true">
+                            <?php if (!empty($otherUser['avatar_path'])): ?>
+                                <img src="avatar.php?user=<?= (int) $otherUser['id'] ?>" alt="">
+                            <?php else: ?>
+                                <?= e(strtoupper(substr((string) $otherUser['username'], 0, 2))) ?>
+                            <?php endif; ?>
+                        </div>
+                        <div id="group-members-button" class="header-members-trigger hidden">
+                            <h1 id="header-title"><?= e($otherUser['username']) ?></h1>
+                            <div class="presence-row">
+                                <span class="presence-light <?= !empty($otherUser['is_online']) ? 'online' : '' ?>" id="header-presence-light" aria-hidden="true"></span>
+                                <span id="header-presence-label">Offline</span>
+                            </div>
                         </div>
                     </div>
                 <?php endif; ?>
@@ -1886,6 +1922,19 @@ if ($isGroupConversation) {
                             <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>
                         </svg>
                         <span>Edit group name</span>
+                    </button>
+                    <button
+                        id="edit-group-avatar-button"
+                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
+                            <circle cx="9" cy="9" r="1.25"></circle>
+                            <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
+                        </svg>
+                        <span>Edit group photo</span>
                     </button>
                     <button
                         id="add-group-member-button"
@@ -2283,6 +2332,7 @@ if ($isGroupConversation) {
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                     <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
+                    <input id="group-avatar-file-input" type="file" accept="image/*" style="display:none">
                     <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
                     <div class="attachment-menu-wrap">
                         <button id="attachment-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open attachment options" aria-expanded="false" aria-controls="attachment-menu"<?= $canChat ? '' : ' disabled' ?>>
@@ -2397,6 +2447,8 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
+const editGroupAvatarButton = document.getElementById('edit-group-avatar-button');
+const groupAvatarFileInput = document.getElementById('group-avatar-file-input');
 const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
@@ -5085,6 +5137,7 @@ function applyConversationPayload(payload, options = {}) {
         updatePresence(false, `${groupState.member_count || 0} members`);
         deleteGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_delete));
         renameGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_rename));
+        editGroupAvatarButton?.classList.toggle('hidden', !Boolean(groupState.can_update_avatar));
     }
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.updated_at || null);
@@ -6352,6 +6405,77 @@ renameGroupButton?.addEventListener('click', async () => {
         showError(error.message || 'Could not rename the group right now.');
     } finally {
         renameGroupButton.disabled = false;
+    }
+});
+
+editGroupAvatarButton?.addEventListener('click', () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    groupAvatarFileInput?.click();
+});
+
+groupAvatarFileInput?.addEventListener('change', async () => {
+    const [file] = groupAvatarFileInput.files || [];
+    if (!file) {
+        return;
+    }
+
+    if (!String(file.type || '').startsWith('image/')) {
+        showError('Please choose an image file.');
+        groupAvatarFileInput.value = '';
+        return;
+    }
+
+    if (Number(file.size || 0) > (8 * 1024 * 1024)) {
+        showError('Group photo must be 8MB or smaller.');
+        groupAvatarFileInput.value = '';
+        return;
+    }
+
+    editGroupAvatarButton.disabled = true;
+    showHint('Uploading group photo…');
+    try {
+        const formData = new FormData();
+        formData.append('action', 'update_group_avatar');
+        formData.append('csrf_token', csrfToken);
+        formData.append('avatar_file', file, file.name || 'group-photo.jpg');
+        const payload = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', conversationApiUrl(), true);
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+            xhr.upload.onprogress = (event) => {
+                if (!event.lengthComputable) {
+                    return;
+                }
+                const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+                showHint(`Uploading group photo… ${percent}%`);
+            };
+            xhr.onerror = () => reject(new Error('Could not update the group photo right now.'));
+            xhr.onload = () => {
+                try {
+                    const json = JSON.parse(xhr.responseText || '{}');
+                    if (xhr.status < 200 || xhr.status >= 300 || json.error) {
+                        reject(new Error(json.error || 'Could not update the group photo right now.'));
+                        return;
+                    }
+                    resolve(json);
+                } catch (error) {
+                    reject(new Error('Could not update the group photo right now.'));
+                }
+            };
+            xhr.send(formData);
+        });
+
+        applyConversationPayload(payload.payload || payload);
+        showHint('Group photo updated.');
+    } catch (error) {
+        showError(error.message || 'Could not update the group photo right now.');
+    } finally {
+        if (groupAvatarFileInput) {
+            groupAvatarFileInput.value = '';
+        }
+        editGroupAvatarButton.disabled = false;
     }
 });
 
