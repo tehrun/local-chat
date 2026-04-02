@@ -1002,10 +1002,9 @@ if ($isGroupConversation) {
             border: 1px solid rgba(17, 153, 96, 0.2);
             padding: 8px 10px;
             display: grid;
-            grid-template-columns: auto minmax(0, 1fr);
-            grid-template-rows: auto auto;
-            align-items: end;
-            gap: 10px;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
         }
         .voice-note-toggle {
             border: 0;
@@ -1021,7 +1020,6 @@ if ($isGroupConversation) {
             justify-content: center;
             cursor: pointer;
             padding: 0;
-            grid-row: 1 / span 2;
         }
         .voice-note-wave {
             display: flex;
@@ -1029,7 +1027,6 @@ if ($isGroupConversation) {
             gap: 2px;
             height: 24px;
             cursor: pointer;
-            grid-column: 2;
             min-width: 0;
         }
         .voice-note-bar {
@@ -1046,10 +1043,8 @@ if ($isGroupConversation) {
             color: #166534;
             font-weight: 600;
             font-variant-numeric: tabular-nums;
-            grid-column: 2;
-            justify-self: end;
-            padding-right: 2px;
-            margin-top: -2px;
+            min-width: 40px;
+            text-align: right;
         }
         .meta {
             margin-top: 8px;
