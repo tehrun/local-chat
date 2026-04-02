@@ -6420,6 +6420,18 @@ groupAvatarFileInput?.addEventListener('change', async () => {
         return;
     }
 
+    if (!String(file.type || '').startsWith('image/')) {
+        showError('Please choose an image file.');
+        groupAvatarFileInput.value = '';
+        return;
+    }
+
+    if (Number(file.size || 0) > (8 * 1024 * 1024)) {
+        showError('Group photo must be 8MB or smaller.');
+        groupAvatarFileInput.value = '';
+        return;
+    }
+
     editGroupAvatarButton.disabled = true;
     showHint('Uploading group photo…');
     try {
@@ -6427,15 +6439,34 @@ groupAvatarFileInput?.addEventListener('change', async () => {
         formData.append('action', 'update_group_avatar');
         formData.append('csrf_token', csrfToken);
         formData.append('avatar_file', file, file.name || 'group-photo.jpg');
-        const response = await fetch(conversationApiUrl(), {
-            method: 'POST',
-            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
-            body: formData,
+        const payload = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', conversationApiUrl(), true);
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+            xhr.upload.onprogress = (event) => {
+                if (!event.lengthComputable) {
+                    return;
+                }
+                const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+                showHint(`Uploading group photo… ${percent}%`);
+            };
+            xhr.onerror = () => reject(new Error('Could not update the group photo right now.'));
+            xhr.onload = () => {
+                try {
+                    const json = JSON.parse(xhr.responseText || '{}');
+                    if (xhr.status < 200 || xhr.status >= 300 || json.error) {
+                        reject(new Error(json.error || 'Could not update the group photo right now.'));
+                        return;
+                    }
+                    resolve(json);
+                } catch (error) {
+                    reject(new Error('Could not update the group photo right now.'));
+                }
+            };
+            xhr.send(formData);
         });
-        const payload = await response.json();
-        if (!response.ok || payload.error) {
-            throw new Error(payload.error || 'Could not update the group photo right now.');
-        }
+
         applyConversationPayload(payload.payload || payload);
         showHint('Group photo updated.');
     } catch (error) {

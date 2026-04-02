@@ -479,6 +479,59 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             padding: 10px 12px;
             font-size: 14px;
         }
+        .profile-avatar-upload {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border: 1px solid rgba(102, 119, 129, 0.24);
+            border-radius: 14px;
+            background: rgba(7, 94, 84, 0.04);
+        }
+        .profile-avatar-preview {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            overflow: hidden;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: #244047;
+            background: #dfe5e7;
+            transition: transform 0.18s ease, opacity 0.18s ease;
+        }
+        .profile-avatar-preview.is-updating {
+            transform: scale(0.96);
+            opacity: 0.85;
+        }
+        .profile-avatar-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .profile-avatar-copy {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .profile-avatar-copy p {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+        .profile-avatar-file {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
         .profile-modal-form-actions {
             display: flex;
             justify-content: flex-end;
@@ -1253,10 +1306,22 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             <form method="post" class="profile-modal-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
-                <label>
-                    Profile photo
-                    <input type="file" name="avatar_file" accept="image/*">
-                </label>
+                <div class="profile-avatar-upload">
+                    <div class="profile-avatar-preview" id="profile-avatar-preview" aria-hidden="true">
+                        <?php if (!empty($user['avatar_path'])): ?>
+                            <img src="avatar.php?user=<?= (int) $user['id'] ?>" alt="">
+                        <?php else: ?>
+                            <?= e(strtoupper(substr((string) $user['username'], 0, 2))) ?>
+                        <?php endif; ?>
+                    </div>
+                    <div class="profile-avatar-copy">
+                        <div>
+                            <button class="mini-button secondary" id="profile-avatar-choose" type="button">Choose photo</button>
+                            <input id="profile-avatar-file-input" type="file" name="avatar_file" accept="image/*" hidden>
+                        </div>
+                        <p class="profile-avatar-file" id="profile-avatar-file-name">JPG, PNG, GIF, WEBP, HEIC/HEIF • up to 8MB.</p>
+                    </div>
+                </div>
                 <label>
                     Username
                     <input type="text" name="username" minlength="3" required value="<?= e((string) $user['username']) ?>">
@@ -1271,7 +1336,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                 </label>
                 <div class="profile-modal-form-actions">
                     <button class="mini-button secondary" id="profile-modal-cancel" type="button">Cancel</button>
-                    <button class="mini-button primary" type="submit">Save</button>
+                    <button class="mini-button primary" id="profile-modal-save" type="submit">Save</button>
                 </div>
             </form>
         </div>
@@ -1322,6 +1387,12 @@ const openProfileModalButton = document.getElementById('open-profile-modal-butto
 const profileModal = document.getElementById('profile-modal');
 const profileModalCloseButton = document.getElementById('profile-modal-close');
 const profileModalCancelButton = document.getElementById('profile-modal-cancel');
+const profileModalForm = profileModal?.querySelector('form') || null;
+const profileAvatarChooseButton = document.getElementById('profile-avatar-choose');
+const profileAvatarFileInput = document.getElementById('profile-avatar-file-input');
+const profileAvatarPreview = document.getElementById('profile-avatar-preview');
+const profileAvatarFileName = document.getElementById('profile-avatar-file-name');
+const profileModalSaveButton = document.getElementById('profile-modal-save');
 const themeToggle = document.getElementById('theme-toggle');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -1397,6 +1468,30 @@ function setProfileModalOpen(isOpen) {
             usernameInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }, 60);
     }
+}
+
+function updateProfileAvatarPreview(file) {
+    if (!profileAvatarPreview || !profileAvatarFileName) {
+        return;
+    }
+
+    profileAvatarPreview.classList.add('is-updating');
+    const initials = String(profileModalForm?.querySelector('input[name="username"]')?.value || '').slice(0, 2).toUpperCase();
+
+    if (!file) {
+        profileAvatarPreview.innerHTML = initials ? escapeHtml(initials) : '??';
+        profileAvatarFileName.textContent = 'JPG, PNG, GIF, WEBP, HEIC/HEIF • up to 8MB.';
+        window.setTimeout(() => profileAvatarPreview.classList.remove('is-updating'), 150);
+        return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    profileAvatarPreview.innerHTML = `<img src="${objectUrl}" alt="">`;
+    profileAvatarFileName.textContent = `${file.name} • ${(file.size / (1024 * 1024)).toFixed(2)}MB`;
+    window.setTimeout(() => {
+        profileAvatarPreview.classList.remove('is-updating');
+        URL.revokeObjectURL(objectUrl);
+    }, 2800);
 }
 
 loadStoredTheme();
@@ -2322,6 +2417,36 @@ profileModal?.addEventListener('click', (event) => {
 
 profileModalCloseButton?.addEventListener('click', () => setProfileModalOpen(false));
 profileModalCancelButton?.addEventListener('click', () => setProfileModalOpen(false));
+profileAvatarChooseButton?.addEventListener('click', () => profileAvatarFileInput?.click());
+profileAvatarFileInput?.addEventListener('change', () => {
+    const [file] = profileAvatarFileInput.files || [];
+    if (!file) {
+        updateProfileAvatarPreview(null);
+        return;
+    }
+
+    if (!String(file.type || '').startsWith('image/')) {
+        window.alert('Please choose an image file.');
+        profileAvatarFileInput.value = '';
+        updateProfileAvatarPreview(null);
+        return;
+    }
+
+    if (Number(file.size || 0) > (8 * 1024 * 1024)) {
+        window.alert('Profile photo must be 8MB or smaller.');
+        profileAvatarFileInput.value = '';
+        updateProfileAvatarPreview(null);
+        return;
+    }
+
+    updateProfileAvatarPreview(file);
+});
+profileModalForm?.addEventListener('submit', () => {
+    if (profileModalSaveButton) {
+        profileModalSaveButton.disabled = true;
+        profileModalSaveButton.textContent = 'Saving…';
+    }
+});
 profileModal?.querySelectorAll('input').forEach((input) => {
     input.addEventListener('focus', () => {
         window.setTimeout(() => {
