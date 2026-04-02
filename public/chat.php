@@ -1888,6 +1888,19 @@ if ($isGroupConversation) {
                         <span>Edit group name</span>
                     </button>
                     <button
+                        id="edit-group-avatar-button"
+                        class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
+                        type="button"
+                        role="menuitem"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"></path>
+                            <circle cx="9" cy="9" r="1.25"></circle>
+                            <path d="m8 15 2.5-2.5L13 15l2.5-3 2.5 3"></path>
+                        </svg>
+                        <span>Edit group photo</span>
+                    </button>
+                    <button
                         id="add-group-member-button"
                         class="header-menu-item<?= $isGroupConversation ? '' : ' hidden' ?>"
                         type="button"
@@ -2283,6 +2296,7 @@ if ($isGroupConversation) {
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                     <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
+                    <input id="group-avatar-file-input" type="file" accept="image/*" style="display:none">
                     <input id="voice-file-input" type="file" accept="audio/*" capture="microphone" style="display:none">
                     <div class="attachment-menu-wrap">
                         <button id="attachment-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Open attachment options" aria-expanded="false" aria-controls="attachment-menu"<?= $canChat ? '' : ' disabled' ?>>
@@ -2397,6 +2411,8 @@ const addGroupMemberButton = document.getElementById('add-group-member-button');
 const leaveGroupButton = document.getElementById('leave-group-button');
 const deleteGroupButton = document.getElementById('delete-group-button');
 const renameGroupButton = document.getElementById('rename-group-button');
+const editGroupAvatarButton = document.getElementById('edit-group-avatar-button');
+const groupAvatarFileInput = document.getElementById('group-avatar-file-input');
 const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
@@ -5085,6 +5101,7 @@ function applyConversationPayload(payload, options = {}) {
         updatePresence(false, `${groupState.member_count || 0} members`);
         deleteGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_delete));
         renameGroupButton?.classList.toggle('hidden', !Boolean(groupState.can_rename));
+        editGroupAvatarButton?.classList.toggle('hidden', !Boolean(groupState.can_update_avatar));
     }
     if (payload.presence) {
         updatePresence(payload.presence.is_online, payload.presence.updated_at || null);
@@ -6352,6 +6369,46 @@ renameGroupButton?.addEventListener('click', async () => {
         showError(error.message || 'Could not rename the group right now.');
     } finally {
         renameGroupButton.disabled = false;
+    }
+});
+
+editGroupAvatarButton?.addEventListener('click', () => {
+    markUserInteraction();
+    setHeaderMenuOpen(false);
+    groupAvatarFileInput?.click();
+});
+
+groupAvatarFileInput?.addEventListener('change', async () => {
+    const [file] = groupAvatarFileInput.files || [];
+    if (!file) {
+        return;
+    }
+
+    editGroupAvatarButton.disabled = true;
+    showHint('Uploading group photo…');
+    try {
+        const formData = new FormData();
+        formData.append('action', 'update_group_avatar');
+        formData.append('csrf_token', csrfToken);
+        formData.append('avatar_file', file, file.name || 'group-photo.jpg');
+        const response = await fetch(conversationApiUrl(), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: formData,
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+            throw new Error(payload.error || 'Could not update the group photo right now.');
+        }
+        applyConversationPayload(payload.payload || payload);
+        showHint('Group photo updated.');
+    } catch (error) {
+        showError(error.message || 'Could not update the group photo right now.');
+    } finally {
+        if (groupAvatarFileInput) {
+            groupAvatarFileInput.value = '';
+        }
+        editGroupAvatarButton.disabled = false;
     }
 });
 

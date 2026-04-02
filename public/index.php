@@ -69,7 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             (int) $user['id'],
             (string) ($_POST['username'] ?? ''),
             isset($_POST['name']) ? (string) $_POST['name'] : null,
-            isset($_POST['family_name']) ? (string) $_POST['family_name'] : null
+            isset($_POST['family_name']) ? (string) $_POST['family_name'] : null,
+            $_FILES['avatar_file'] ?? null
         );
 
         if ($error !== null) {
@@ -693,6 +694,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             justify-content: center;
             font-weight: 700;
             flex-shrink: 0;
+            overflow: hidden;
+        }
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
         .presence-badge {
             display: inline-flex;
@@ -1133,7 +1141,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                     <?php if ($incomingRequests !== []): ?>
                         <?php foreach ($incomingRequests as $request): ?>
                             <div class="request-card" data-request-user-id="<?= (int) $request['sender_id'] ?>">
-                                <div class="avatar"><?= e(strtoupper(substr((string) $request['sender_name'], 0, 2))) ?></div>
+                                <div class="avatar">
+                                    <?php if (!empty($request['sender_avatar_path'])): ?>
+                                        <img src="avatar.php?user=<?= (int) $request['sender_id'] ?>" alt="">
+                                    <?php else: ?>
+                                        <?= e(strtoupper(substr((string) $request['sender_name'], 0, 2))) ?>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="request-meta">
                                     <strong><?= e($request['sender_name']) ?></strong>
                                     <span class="presence-badge">
@@ -1170,7 +1184,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                         <?php foreach ($chatUsers as $chatUser): ?>
                             <?php $unseenCount = (int) ($chatUser['unseen_count'] ?? 0); ?>
                             <a class="chat-item" data-chat-user-id="<?= (int) $chatUser['id'] ?>" href="<?= e((string) ($chatUser['url'] ?? ('chat.php?user=' . (int) $chatUser['id']))) ?>">
-                                <div class="avatar"><?= e(strtoupper(substr((string) ($chatUser['name'] ?? $chatUser['username']), 0, 2))) ?></div>
+                                <div class="avatar">
+                                    <?php if (!empty($chatUser['avatar_path'])): ?>
+                                        <img src="<?= !empty($chatUser['is_group']) ? 'avatar.php?group=' . (int) $chatUser['group_id'] : 'avatar.php?user=' . (int) $chatUser['id'] ?>" alt="">
+                                    <?php else: ?>
+                                        <?= e(strtoupper(substr((string) ($chatUser['name'] ?? $chatUser['username']), 0, 2))) ?>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="chat-copy">
                                     <div class="chat-copy-head">
                                         <span class="chat-name-row">
@@ -1230,9 +1250,13 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                 <h3 id="profile-modal-title">Edit profile</h3>
                 <button class="chat-switcher-close" id="profile-modal-close" type="button" aria-label="Close profile form">×</button>
             </div>
-            <form method="post" class="profile-modal-form">
+            <form method="post" class="profile-modal-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                <label>
+                    Profile photo
+                    <input type="file" name="avatar_file" accept="image/*">
+                </label>
                 <label>
                     Username
                     <input type="text" name="username" minlength="3" required value="<?= e((string) $user['username']) ?>">
@@ -1663,6 +1687,22 @@ function friendshipActionMarkup(chatUser) {
         <button class="mini-button danger icon-button" type="button" data-request-action="block_user" data-user-id="${userId}" aria-label="Block user" title="Block user">${rejectIcon}</button>`;
 }
 
+function buildAvatarMarkup(chatUser, displayName, mode = 'user') {
+    const label = escapeHtml(String(displayName || '').slice(0, 2).toUpperCase());
+    const userId = Number(chatUser?.id || 0);
+    const groupId = Number(chatUser?.group_id || chatUser?.id || 0);
+    const hasAvatar = Boolean(chatUser?.avatar_path);
+    const avatarSrc = mode === 'group'
+        ? `avatar.php?group=${groupId}`
+        : `avatar.php?user=${userId}`;
+
+    if (!hasAvatar) {
+        return `<div class="avatar">${label}</div>`;
+    }
+
+    return `<div class="avatar"><img loading="lazy" src="${avatarSrc}" alt=""></div>`;
+}
+
 function renderDirectoryEntries(users, includeUnseenCount) {
     if (!Array.isArray(users) || users.length === 0) {
         return '';
@@ -1671,7 +1711,7 @@ function renderDirectoryEntries(users, includeUnseenCount) {
     return users.map((chatUser) => {
         const userId = Number(chatUser.id);
         const unseenCount = Number(chatUser.unseen_count || 0);
-        const avatar = escapeHtml(String(chatUser.username || '').slice(0, 2).toUpperCase());
+        const avatar = buildAvatarMarkup(chatUser, String(chatUser.username || ''), 'user');
         const presenceLabel = escapeHtml(formatPresenceLabel(Boolean(chatUser.is_online), chatUser.presence_updated_at || null));
         const username = escapeHtml(chatUser.username || '');
         const presenceClass = chatUser.is_online ? ' online' : '';
@@ -1686,7 +1726,7 @@ function renderDirectoryEntries(users, includeUnseenCount) {
 
         return `
             <div class="chat-item" data-chat-user-id="${userId}"${openChatAttrs}>
-                <div class="avatar">${avatar}</div>
+                ${avatar}
                 <div class="chat-copy">
                     <div class="chat-copy-head">
                         <strong class="chat-name">${username}</strong>
@@ -1712,7 +1752,7 @@ function renderChatListEntries(users) {
         const userId = Number(chatUser.id);
         const unseenCount = Number(chatUser.unseen_count || 0);
         const displayName = String(chatUser.name || chatUser.username || '');
-        const avatar = escapeHtml(displayName.slice(0, 2).toUpperCase());
+        const avatar = buildAvatarMarkup(chatUser, displayName, chatUser.is_group ? 'group' : 'user');
         const username = escapeHtml(displayName);
         const preview = escapeHtml(chatUser.chat_list_preview || 'Start chatting');
         const chatTime = escapeHtml(formatClockTime(chatUser.last_message_at || chatUser.chat_list_time || ''));
@@ -1722,7 +1762,7 @@ function renderChatListEntries(users) {
 
         return `
             <a class="chat-item" data-chat-user-id="${userId}" href="${href}">
-                <div class="avatar">${avatar}</div>
+                ${avatar}
                 <div class="chat-copy">
                     <div class="chat-copy-head">
                         <span class="chat-name-row">
@@ -1761,13 +1801,13 @@ function renderIncomingRequests(requests) {
 
     friendRequestListEl.innerHTML = requests.map((request) => {
         const userId = Number(request.sender_id);
-        const avatar = escapeHtml(String(request.sender_name || '').slice(0, 2).toUpperCase());
+        const avatar = buildAvatarMarkup({ id: request.sender_id, avatar_path: request.sender_avatar_path }, String(request.sender_name || ''), 'user');
         const presenceLabel = escapeHtml(formatPresenceLabel(Boolean(request.is_online), request.presence_updated_at || null));
         const senderName = escapeHtml(request.sender_name || 'Unknown');
         const presenceClass = request.is_online ? ' online' : '';
         return `
             <div class="request-card" data-request-user-id="${userId}">
-                <div class="avatar">${avatar}</div>
+                ${avatar}
                 <div class="request-meta">
                     <strong>${senderName}</strong>
                     <span class="presence-badge">
