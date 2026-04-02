@@ -540,10 +540,25 @@ function initializeSqliteDatabase(PDO $pdo): void
         'CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
+            name TEXT,
+            family_name TEXT,
             password_hash TEXT NOT NULL,
             created_at TEXT NOT NULL
         )'
     );
+
+    $userColumns = array_map(
+        static fn (array $column): string => (string) $column['name'],
+        $pdo->query('PRAGMA table_info(users)')->fetchAll()
+    );
+
+    if (!in_array('name', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN name TEXT');
+    }
+
+    if (!in_array('family_name', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN family_name TEXT');
+    }
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -1023,10 +1038,20 @@ function initializeMysqlDatabase(PDO $pdo): void
         'CREATE TABLE IF NOT EXISTS users (
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(255) NOT NULL UNIQUE,
+            name VARCHAR(255) NULL,
+            family_name VARCHAR(255) NULL,
             password_hash VARCHAR(255) NOT NULL,
             created_at DATETIME NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    $userColumns = mysqlTableColumns($pdo, 'users');
+    if (!in_array('name', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL AFTER username');
+    }
+    if (!in_array('family_name', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN family_name VARCHAR(255) NULL AFTER name');
+    }
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -2083,7 +2108,7 @@ function currentUser(): ?array
         return null;
     }
 
-    $stmt = db()->prepare('SELECT id, username, created_at FROM users WHERE id = :id');
+    $stmt = db()->prepare('SELECT id, username, name, family_name, created_at FROM users WHERE id = :id');
     $stmt->execute(['id' => $_SESSION['user_id']]);
 
     $user = $stmt->fetch() ?: null;
@@ -2665,6 +2690,8 @@ function allOtherUsers(int $currentUserId): array
     $stmt = db()->prepare(
         'SELECT u.id,
                 u.username,
+                u.name,
+                u.family_name,
                 u.created_at,
                 up.updated_at AS presence_updated_at,
                 COUNT(DISTINCT m_unseen.id) AS unseen_count,
@@ -2695,7 +2722,7 @@ function allOtherUsers(int $currentUserId): array
             AND m_unseen.read_at IS NULL
             AND (cc.cleared_at IS NULL OR m_unseen.created_at > cc.cleared_at)
          WHERE u.id != :id
-         GROUP BY u.id, u.username, u.created_at, up.updated_at, cc.cleared_at,
+         GROUP BY u.id, u.username, u.name, u.family_name, u.created_at, up.updated_at, cc.cleared_at,
                   m_last.created_at, m_last.id, m_last.body, m_last.audio_path, m_last.image_path
          ORDER BY CASE WHEN m_last.created_at IS NULL THEN 1 ELSE 0 END ASC,
                   m_last.created_at DESC,
@@ -2919,7 +2946,7 @@ function findUserByUsername(string $username): ?array
 function findUserById(int $id): ?array
 {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.created_at, up.updated_at AS presence_updated_at
+        'SELECT u.id, u.username, u.name, u.family_name, u.created_at, up.updated_at AS presence_updated_at
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          WHERE u.id = :id
@@ -3104,6 +3131,66 @@ function registerUser(
 
     recordAuthAttempt('register', true);
     refreshAuthChallenge();
+
+    return null;
+}
+
+function userDisplayName(array $user): string
+{
+    $fullName = trim(
+        trim((string) ($user['name'] ?? '')) . ' ' . trim((string) ($user['family_name'] ?? ''))
+    );
+
+    if ($fullName !== '') {
+        return $fullName;
+    }
+
+    return trim((string) ($user['username'] ?? ''));
+}
+
+function updateUserProfile(int $userId, string $username, ?string $name, ?string $familyName): ?string
+{
+    $normalizedUsername = trim($username);
+    if ($normalizedUsername === '' || strlen($normalizedUsername) < 3) {
+        return 'Username must be at least 3 characters.';
+    }
+
+    $existingUser = findUserByUsername($normalizedUsername);
+    if ($existingUser !== null && (int) $existingUser['id'] !== $userId) {
+        return 'Username is already taken.';
+    }
+
+    $normalizedName = $name === null ? null : trim($name);
+    if ($normalizedName === '') {
+        $normalizedName = null;
+    }
+
+    $normalizedFamilyName = $familyName === null ? null : trim($familyName);
+    if ($normalizedFamilyName === '') {
+        $normalizedFamilyName = null;
+    }
+
+    if ($normalizedName !== null && mb_strlen($normalizedName) > 100) {
+        return 'Name must be 100 characters or fewer.';
+    }
+
+    if ($normalizedFamilyName !== null && mb_strlen($normalizedFamilyName) > 100) {
+        return 'Family name must be 100 characters or fewer.';
+    }
+
+    $stmt = db()->prepare(
+        'UPDATE users
+         SET username = :username,
+             name = :name,
+             family_name = :family_name
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'id' => $userId,
+        'username' => $normalizedUsername,
+        'name' => $normalizedName,
+        'family_name' => $normalizedFamilyName,
+    ]);
 
     return null;
 }
@@ -5970,7 +6057,7 @@ function combinedChatList(int $currentUserId): array
         $chat['type'] = 'direct';
         $chat['is_group'] = false;
         $chat['url'] = 'chat.php?user=' . (int) $chat['id'];
-        $chat['name'] = (string) $chat['username'];
+        $chat['name'] = userDisplayName($chat);
 
         return $chat;
     }, chattedUsers($currentUserId));
