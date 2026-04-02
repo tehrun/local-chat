@@ -482,6 +482,9 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             width: auto;
             min-width: 88px;
         }
+        .profile-modal[hidden] {
+            display: none !important;
+        }
         .theme-switch {
             appearance: none;
             width: 42px;
