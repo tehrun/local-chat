@@ -8,6 +8,14 @@ purgeExpiredMessages();
 
 $errors = [];
 $notice = null;
+if (isset($_SESSION['flash_errors']) && is_array($_SESSION['flash_errors'])) {
+    $errors = array_values(array_filter($_SESSION['flash_errors'], static fn ($error): bool => is_string($error) && $error !== ''));
+    unset($_SESSION['flash_errors']);
+}
+if (isset($_SESSION['flash_notice']) && is_string($_SESSION['flash_notice']) && $_SESSION['flash_notice'] !== '') {
+    $notice = $_SESSION['flash_notice'];
+    unset($_SESSION['flash_notice']);
+}
 $user = currentUser();
 $authMode = (isset($_GET['auth']) && $_GET['auth'] === 'register') ? 'register' : 'login';
 $authChallengePrompt = authChallengePrompt();
@@ -65,10 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
         if ($error !== null) {
-            $errors[] = $error;
+            $_SESSION['flash_errors'] = [$error];
         } else {
-            $notice = 'Settings updated.';
+            $_SESSION['flash_notice'] = 'Settings updated.';
         }
+
+        header('Location: ./');
+        exit;
     }
 }
 
