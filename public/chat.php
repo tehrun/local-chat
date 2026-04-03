@@ -1866,34 +1866,6 @@ if ($isGroupConversation) {
                     </div>
                 <?php endif; ?>
             </div>
-            <button
-                id="pinned-toggle-button"
-                class="header-icon-button hidden"
-                type="button"
-                aria-label="Pinned messages"
-                aria-expanded="false"
-                aria-controls="pinned-panel"
-                title="Pinned messages"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M12 17v5"></path>
-                    <path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path>
-                </svg>
-            </button>
-            <button
-                id="search-toggle-button"
-                class="header-icon-button"
-                type="button"
-                aria-label="Search messages"
-                aria-expanded="false"
-                aria-controls="search-panel"
-                title="Search messages"
-            >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <circle cx="11" cy="11" r="7"></circle>
-                    <path d="m20 20-3.5-3.5"></path>
-                </svg>
-            </button>
             <div class="header-menu">
                 <button
                     id="header-menu-button"
@@ -1911,6 +1883,34 @@ if ($isGroupConversation) {
                     </svg>
                 </button>
                 <div id="header-menu-panel" class="header-menu-panel" role="menu" aria-label="Conversation actions" hidden>
+                    <button
+                        id="menu-search-button"
+                        class="header-menu-item"
+                        type="button"
+                        role="menuitem"
+                        aria-expanded="false"
+                        aria-controls="search-panel"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="m20 20-3.5-3.5"></path>
+                        </svg>
+                        <span>Search messages</span>
+                    </button>
+                    <button
+                        id="menu-pinned-button"
+                        class="header-menu-item hidden"
+                        type="button"
+                        role="menuitem"
+                        aria-expanded="false"
+                        aria-controls="pinned-panel"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 17v5"></path>
+                            <path d="m15 3 2 2-3 6v3H10v-3L7 5l2-2z"></path>
+                        </svg>
+                        <span>Pinned messages</span>
+                    </button>
                     <button
                         id="rename-group-button"
                         class="header-menu-item<?= $isGroupConversation && (int) $group['creator_user_id'] === (int) $user['id'] ? '' : ' hidden' ?>"
@@ -2425,11 +2425,11 @@ const headerPresenceLabel = document.getElementById('header-presence-label');
 const headerTitle = document.getElementById('header-title');
 const headerMenuButton = document.getElementById('header-menu-button');
 const headerMenuPanel = document.getElementById('header-menu-panel');
-const pinnedToggleButton = document.getElementById('pinned-toggle-button');
+const pinnedMenuButton = document.getElementById('menu-pinned-button');
 const pinnedPanelEl = document.getElementById('pinned-panel');
 const pinnedPanelListEl = document.getElementById('pinned-panel-list');
 const pinnedPanelCountEl = document.getElementById('pinned-panel-count');
-const searchToggleButton = document.getElementById('search-toggle-button');
+const searchMenuButton = document.getElementById('menu-search-button');
 const searchPanelEl = document.getElementById('search-panel');
 const messageSearchInput = document.getElementById('message-search-input');
 const messageSearchSubmit = document.getElementById('message-search-submit');
@@ -2721,7 +2721,7 @@ function conversationApiUrl(action = '') {
 
 function setSearchPanelOpen(isOpen) {
     searchPanelOpen = Boolean(isOpen);
-    if (!searchPanelEl || !searchToggleButton) {
+    if (!searchPanelEl || !searchMenuButton) {
         return;
     }
     if (searchPanelCloseTimer !== null) {
@@ -2729,7 +2729,7 @@ function setSearchPanelOpen(isOpen) {
         searchPanelCloseTimer = null;
     }
 
-    searchToggleButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
+    searchMenuButton.setAttribute('aria-expanded', searchPanelOpen ? 'true' : 'false');
 
     if (searchPanelOpen) {
         setPinnedPanelOpen(false);
@@ -2761,7 +2761,7 @@ function setSearchPanelOpen(isOpen) {
 
 function setPinnedPanelOpen(isOpen) {
     pinnedPanelOpen = Boolean(isOpen);
-    if (!pinnedPanelEl || !pinnedToggleButton) {
+    if (!pinnedPanelEl || !pinnedMenuButton) {
         return;
     }
     if (pinnedPanelCloseTimer !== null) {
@@ -2769,7 +2769,7 @@ function setPinnedPanelOpen(isOpen) {
         pinnedPanelCloseTimer = null;
     }
 
-    pinnedToggleButton.setAttribute('aria-expanded', pinnedPanelOpen ? 'true' : 'false');
+    pinnedMenuButton.setAttribute('aria-expanded', pinnedPanelOpen ? 'true' : 'false');
 
     if (pinnedPanelOpen) {
         setSearchPanelOpen(false);
@@ -2798,11 +2798,11 @@ function setPinnedPanelOpen(isOpen) {
 }
 
 function renderPinnedPanel(messages) {
-    if (!pinnedPanelEl || !pinnedPanelListEl || !pinnedPanelCountEl || !pinnedToggleButton) {
+    if (!pinnedPanelEl || !pinnedPanelListEl || !pinnedPanelCountEl || !pinnedMenuButton) {
         return;
     }
     const pinnedMessages = Array.isArray(messages) ? messages : [];
-    pinnedToggleButton.classList.toggle('hidden', pinnedMessages.length === 0);
+    pinnedMenuButton.classList.toggle('hidden', pinnedMessages.length === 0);
     if (pinnedMessages.length === 0) {
         pinnedPanelCountEl.textContent = '0';
         pinnedPanelListEl.innerHTML = '';
@@ -6033,12 +6033,12 @@ headerMenuButton?.addEventListener('click', (event) => {
     const isOpen = headerMenuButton.getAttribute('aria-expanded') === 'true';
     setHeaderMenuOpen(!isOpen);
 });
-pinnedToggleButton?.addEventListener('click', (event) => {
+pinnedMenuButton?.addEventListener('click', (event) => {
     event.preventDefault();
     setHeaderMenuOpen(false);
     setPinnedPanelOpen(!pinnedPanelOpen);
 });
-searchToggleButton?.addEventListener('click', (event) => {
+searchMenuButton?.addEventListener('click', (event) => {
     event.preventDefault();
     setHeaderMenuOpen(false);
     setSearchPanelOpen(!searchPanelOpen);
@@ -6592,21 +6592,21 @@ document.addEventListener('click', (event) => {
     setHeaderMenuOpen(false);
 });
 document.addEventListener('click', (event) => {
-    if (!pinnedPanelEl || !pinnedToggleButton || !pinnedPanelOpen) {
+    if (!pinnedPanelEl || !pinnedMenuButton || !pinnedPanelOpen) {
         return;
     }
     const target = event.target;
-    if (target instanceof Node && (pinnedPanelEl.contains(target) || pinnedToggleButton.contains(target))) {
+    if (target instanceof Node && (pinnedPanelEl.contains(target) || pinnedMenuButton.contains(target))) {
         return;
     }
     setPinnedPanelOpen(false);
 });
 document.addEventListener('click', (event) => {
-    if (!searchPanelEl || !searchToggleButton || !searchPanelOpen) {
+    if (!searchPanelEl || !searchMenuButton || !searchPanelOpen) {
         return;
     }
     const target = event.target;
-    if (target instanceof Node && (searchPanelEl.contains(target) || searchToggleButton.contains(target))) {
+    if (target instanceof Node && (searchPanelEl.contains(target) || searchMenuButton.contains(target))) {
         return;
     }
     setSearchPanelOpen(false);
