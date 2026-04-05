@@ -4698,14 +4698,114 @@ function formatVoiceTime(seconds) {
     return `${minutes}:${remainder}`;
 }
 
-function createVoiceBars() {
+const voiceWaveformCache = new Map();
+
+function seededValue(seedText, index) {
+    let hash = 2166136261;
+    const source = `${seedText}:${index}`;
+    for (let offset = 0; offset < source.length; offset += 1) {
+        hash ^= source.charCodeAt(offset);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) / 4294967295;
+}
+
+function seededVoiceBarHeight(seedText, index) {
+    const random = seededValue(seedText, index);
+    const wave = Math.sin((index + 1) * 0.55 + random * 2.4) * 0.5 + 0.5;
+    return Math.max(18, Math.min(92, Math.round(24 + wave * 62)));
+}
+
+function setVoiceBarHeights(bars, heights) {
+    bars.forEach((barEl, index) => {
+        const height = Number.isFinite(heights[index]) ? heights[index] : heights[heights.length - 1];
+        barEl.style.height = `${Math.max(18, Math.min(92, Math.round(height || 18)))}%`;
+    });
+}
+
+function createVoiceBars(seedText = '') {
     const bars = [];
     for (let index = 0; index < 42; index += 1) {
-        const offset = Math.sin((index + 1) * 0.8) * 0.5 + Math.cos((index + 1) * 0.33) * 0.5;
-        const height = Math.max(18, Math.min(92, Math.round(52 + offset * 40)));
+        const height = seededVoiceBarHeight(seedText || 'voice', index);
         bars.push(`<span class="voice-note-bar" style="height:${height}%"></span>`);
     }
     return bars.join('');
+}
+
+async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText, onDurationResolved = null) {
+    const sourceUrl = String(audioEl.currentSrc || audioEl.src || '');
+    if (!sourceUrl || bars.length === 0) {
+        return;
+    }
+
+    const cacheKey = sourceUrl;
+    const cached = voiceWaveformCache.get(cacheKey);
+    if (cached && typeof cached === 'object' && Array.isArray(cached.heights) && cached.heights.length === bars.length) {
+        setVoiceBarHeights(bars, cached.heights);
+        if (typeof onDurationResolved === 'function' && Number.isFinite(cached.duration) && cached.duration > 0) {
+            onDurationResolved(cached.duration);
+        }
+        return;
+    }
+
+    const pendingPromise = cached instanceof Promise ? cached : (async () => {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+            return null;
+        }
+        const response = await fetch(sourceUrl, { credentials: 'same-origin' });
+        if (!response.ok) {
+            return null;
+        }
+        const buffer = await response.arrayBuffer();
+        const context = new AudioContextClass();
+        try {
+            const audioBuffer = await context.decodeAudioData(buffer.slice(0));
+            const channelData = audioBuffer.getChannelData(0);
+            if (!(channelData instanceof Float32Array) || channelData.length === 0) {
+                return null;
+            }
+            const samplesPerBar = Math.max(1, Math.floor(channelData.length / bars.length));
+            const computedHeights = Array.from({ length: bars.length }, (_, index) => {
+                const start = index * samplesPerBar;
+                const end = Math.min(channelData.length, start + samplesPerBar);
+                let peak = 0;
+                for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+                    peak = Math.max(peak, Math.abs(channelData[sampleIndex]));
+                }
+                return 18 + Math.min(74, Math.round(peak * 82));
+            });
+            return {
+                heights: computedHeights,
+                duration: Number.isFinite(audioBuffer.duration) ? audioBuffer.duration : 0,
+            };
+        } finally {
+            context.close().catch(() => {
+                // Ignore AudioContext close errors.
+            });
+        }
+    })();
+
+    voiceWaveformCache.set(cacheKey, pendingPromise);
+
+    try {
+        const payload = await pendingPromise;
+        if (payload && Array.isArray(payload.heights) && payload.heights.length === bars.length) {
+            voiceWaveformCache.set(cacheKey, payload);
+            setVoiceBarHeights(bars, payload.heights);
+            if (typeof onDurationResolved === 'function' && Number.isFinite(payload.duration) && payload.duration > 0) {
+                onDurationResolved(payload.duration);
+            }
+            return;
+        }
+    } catch (error) {
+        // Ignore waveform extraction errors and keep seeded bars.
+    }
+
+    const fallbackHeights = bars.map((_, index) => seededVoiceBarHeight(seedText || sourceUrl, index));
+    const fallbackPayload = { heights: fallbackHeights, duration: 0 };
+    voiceWaveformCache.set(cacheKey, fallbackPayload);
+    setVoiceBarHeights(bars, fallbackHeights);
 }
 
 function setupVoiceNotePlayers(rootEl = messagesEl) {
@@ -4722,8 +4822,16 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
             return;
         }
         const bars = Array.from(waveEl.querySelectorAll('.voice-note-bar'));
+        const waveSeed = String(waveEl.dataset.waveSeed || audioEl.currentSrc || audioEl.src || 'voice');
+        setVoiceBarHeights(bars, bars.map((_, index) => seededVoiceBarHeight(waveSeed, index)));
+        let estimatedDuration = 0;
+        const updateEstimatedDuration = (duration) => {
+            if (Number.isFinite(duration) && duration > 0) {
+                estimatedDuration = duration;
+            }
+        };
         const updateBars = () => {
-            const duration = audioEl.duration || 0;
+            const duration = Number.isFinite(audioEl.duration) && audioEl.duration > 0 ? audioEl.duration : estimatedDuration;
             const progress = duration > 0 ? (audioEl.currentTime / duration) : 0;
             const activeCount = Math.round(progress * bars.length);
             bars.forEach((barEl, index) => {
@@ -4757,11 +4865,17 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
             updateBars();
         });
         audioEl.addEventListener('loadedmetadata', () => {
+            updateEstimatedDuration(audioEl.duration);
             updateBars();
             if (shouldAutoScroll || isNearBottom()) {
                 scrollMessagesToEnd();
             }
         }, { once: true });
+        audioEl.addEventListener('durationchange', () => {
+            updateEstimatedDuration(audioEl.duration);
+            updateBars();
+        });
+        audioEl.addEventListener('loadeddata', updateBars);
         audioEl.addEventListener('timeupdate', updateBars);
         audioEl.addEventListener('play', syncToggle);
         audioEl.addEventListener('pause', syncToggle);
@@ -4771,6 +4885,13 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
         });
         syncToggle();
         updateBars();
+        hydrateVoiceBarsFromAudio(audioEl, bars, waveSeed, (duration) => {
+            updateEstimatedDuration(duration);
+            updateBars();
+        });
+        if (audioEl.preload !== 'none') {
+            audioEl.load();
+        }
     });
 }
 
@@ -4835,7 +4956,7 @@ function renderMessages(messages) {
                 ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${createVoiceBars()}</div><span class="voice-note-time">0:00</span><audio preload="none" src="${escapeHtml(mediaUrl)}"></audio></div>`
+                ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-wave-seed="${escapeHtml(String(message.id || mediaUrl))}">${createVoiceBars(String(message.id || mediaUrl))}</div><span class="voice-note-time">0:00</span><audio preload="auto" src="${escapeHtml(mediaUrl)}"></audio></div>`
                 : '';
             const file = message.file_path
                 ? `<a class="message-file" href="${escapeHtml(mediaUrl)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
