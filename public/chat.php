@@ -836,7 +836,7 @@ if ($isGroupConversation) {
         .message-reactions {
             position: absolute;
             bottom: -10px;
-            left: 10px;
+            right: 10px;
             display: inline-flex;
             flex-direction: column;
             align-items: flex-start;
@@ -869,8 +869,8 @@ if ($isGroupConversation) {
             white-space: nowrap;
         }
         .message-row.mine .message-reactions {
-            right: 10px;
-            left: auto;
+            left: 10px;
+            right: auto;
             background: rgba(220, 248, 198, 0.95);
         }
         .reaction-picker {
