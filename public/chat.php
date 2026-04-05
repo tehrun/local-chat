@@ -2404,6 +2404,8 @@ const FAST_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 12000;
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
 const MAX_HOME_POLL_INTERVAL_MS = 15000;
+const TEXT_SEND_TIMEOUT_MS = 15000;
+const TEXT_SEND_RETRY_DELAY_MS = 1200;
 const AUTO_SCROLL_THRESHOLD_PX = 72;
 const SCROLL_TO_END_VISIBILITY_THRESHOLD_PX = 280;
 const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😢', '🙏'];
@@ -2642,6 +2644,7 @@ let longPressHandled = false;
 let replyTarget = null;
 let editTarget = null;
 let textSendInFlight = false;
+let textSendRetryTimer = null;
 let mediaRecorder = null;
 let mediaStream = null;
 let recordingChunks = [];
@@ -5532,6 +5535,11 @@ async function flushPendingTextQueue() {
         return;
     }
 
+    if (textSendRetryTimer !== null) {
+        window.clearTimeout(textSendRetryTimer);
+        textSendRetryTimer = null;
+    }
+
     textSendInFlight = true;
     isSending = true;
     updateFriendshipUi();
@@ -5540,15 +5548,24 @@ async function flushPendingTextQueue() {
         const nextMessage = pendingTextQueue[0];
 
         try {
+            const controller = typeof AbortController === 'function' ? new AbortController() : null;
+            const timeoutId = controller
+                ? window.setTimeout(() => controller.abort(), TEXT_SEND_TIMEOUT_MS)
+                : null;
             const response = await fetch(conversationApiUrl(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+                signal: controller ? controller.signal : undefined,
                 body: new URLSearchParams({
                     action: 'send_text',
                     body: nextMessage.body,
                     reply_to_message_id: String(Number(nextMessage.replyToMessageId || 0)),
                     csrf_token: csrfToken,
                 }),
+            }).finally(() => {
+                if (timeoutId !== null) {
+                    window.clearTimeout(timeoutId);
+                }
             });
             const payload = await response.json();
 
@@ -5570,7 +5587,17 @@ async function flushPendingTextQueue() {
             }
             clearStatus();
         } catch (error) {
-            showError('Could not send message right now. Please try again.');
+            const sendError = error instanceof Error ? error : null;
+            const timedOut = sendError?.name === 'AbortError';
+            showError(timedOut
+                ? 'Message send timed out. Retrying…'
+                : 'Could not send message right now. Retrying…');
+            if (textSendRetryTimer === null) {
+                textSendRetryTimer = window.setTimeout(() => {
+                    textSendRetryTimer = null;
+                    flushPendingTextQueue();
+                }, TEXT_SEND_RETRY_DELAY_MS);
+            }
             break;
         }
     }
