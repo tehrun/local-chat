@@ -1528,7 +1528,7 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: calc(20px + env(safe-area-inset-top, 0px)) 18px calc(20px + env(safe-area-inset-bottom, 0px));
+            padding: 0;
             background: rgba(11, 20, 26, 0.0);
             opacity: 0;
             pointer-events: none;
@@ -1541,16 +1541,17 @@ if ($isGroupConversation) {
         }
         .lightbox-inner {
             position: relative;
-            width: min(100%, 980px);
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
+            max-height: none;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 16px;
-            padding: 18px;
-            border-radius: 28px;
-            background: #fff;
-            color: #111b21;
+            justify-content: center;
+            gap: 0;
+            padding: calc(14px + env(safe-area-inset-top, 0px)) 0 calc(14px + env(safe-area-inset-bottom, 0px));
+            background: transparent;
+            color: #fff;
             transform: translateY(24px) scale(0.94);
             transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
@@ -1559,9 +1560,9 @@ if ($isGroupConversation) {
         }
         .lightbox-toolbar {
             position: absolute;
-            top: 12px;
-            left: 12px;
-            right: 12px;
+            top: calc(8px + env(safe-area-inset-top, 0px));
+            left: 10px;
+            right: 10px;
             display: flex;
             align-items: center;
             justify-content: flex-end;
@@ -1611,20 +1612,21 @@ if ($isGroupConversation) {
         }
         .lightbox-figure {
             margin: 0;
-            max-width: 100%;
-            max-height: calc(100vh - 120px);
-            max-height: calc(100dvh - 120px);
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            max-height: none;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         .lightbox-image {
             display: block;
-            max-width: 100%;
-            max-height: calc(100vh - 120px);
-            max-height: calc(100dvh - 120px);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+            width: 100%;
+            max-width: none;
+            max-height: 100%;
+            border-radius: 0;
+            box-shadow: none;
             object-fit: contain;
         }
         .action-button {
