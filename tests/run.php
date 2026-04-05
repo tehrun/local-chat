@@ -242,6 +242,15 @@ $tests['decryptStoredMessageText handles malformed encrypted payloads'] = static
     assertSameValue(decryptStoredMessageText('enc::xchacha20:not-base64'), '[encrypted message]');
 };
 
+$tests['detectUploadedAudioExtension accepts uppercase file extensions'] = static function (): void {
+    $file = [
+        'name' => 'VOICE-NOTE.M4A',
+        'type' => '',
+    ];
+
+    assertSameValue(detectUploadedAudioExtension($file, 'application/octet-stream'), 'm4a');
+};
+
 $passed = 0;
 $failed = 0;
 

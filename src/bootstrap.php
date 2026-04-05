@@ -4291,7 +4291,7 @@ function detectUploadedAudioExtension(array $file, ?string $mime): ?string
         }
     }
 
-    $extension = pathinfo($clientName, PATHINFO_EXTENSION);
+    $extension = strtolower((string) pathinfo($clientName, PATHINFO_EXTENSION));
     $allowedExtensions = ['mp3', 'wav', 'ogg', 'webm', 'm4a', 'mp4'];
     if (in_array($extension, $allowedExtensions, true)) {
         return $extension === 'mp4' ? 'm4a' : $extension;
