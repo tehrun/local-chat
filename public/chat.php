@@ -5762,6 +5762,11 @@ async function uploadImageFile(file) {
     }
 
     try {
+        let imageToUpload = file;
+        if (file.size > 4.5 * 1024 * 1024) {
+            imageToUpload = await maybeCompressImageForUpload(file);
+        }
+
         const formData = new FormData();
         const replyToMessageId = Number(replyTarget?.id || 0);
         formData.append('action', 'send_image');
@@ -5769,7 +5774,7 @@ async function uploadImageFile(file) {
         if (replyToMessageId > 0) {
             formData.append('reply_to_message_id', String(replyToMessageId));
         }
-        formData.append('image_file', file, file.name || 'photo.jpg');
+        formData.append('image_file', imageToUpload, imageToUpload.name || file.name || 'photo.jpg');
 
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
@@ -5796,6 +5801,51 @@ async function uploadImageFile(file) {
         showError('Could not send image right now. Please try again.');
         return false;
     }
+}
+
+async function maybeCompressImageForUpload(file) {
+    if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
+        return file;
+    }
+
+    const nonCanvasFriendlyTypes = ['image/heic', 'image/heif'];
+    if (nonCanvasFriendlyTypes.includes(String(file.type || '').toLowerCase())) {
+        return file;
+    }
+
+    if (typeof createImageBitmap !== 'function') {
+        return file;
+    }
+
+    try {
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext('2d', { alpha: false });
+        if (!context) {
+            bitmap.close();
+            return file;
+        }
+        context.drawImage(bitmap, 0, 0);
+        bitmap.close();
+
+        const qualityCandidates = [0.9, 0.82, 0.74, 0.66, 0.58];
+        for (const quality of qualityCandidates) {
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+            if (!(blob instanceof Blob)) {
+                continue;
+            }
+            if (blob.size < file.size && blob.size <= 4.5 * 1024 * 1024) {
+                const nameWithoutExt = String(file.name || 'photo').replace(/\.[^/.]+$/, '');
+                return new File([blob], `${nameWithoutExt}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+            }
+        }
+    } catch (error) {
+        return file;
+    }
+
+    return file;
 }
 
 async function sendSelectedImageFile(file) {
