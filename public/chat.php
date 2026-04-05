@@ -5015,8 +5015,9 @@ function renderMessages(messages) {
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
-            const timeLabel = formatHumanTimestamp(message.created_at);
-            const editedLabel = message.edited_at ? ' · edited' : '';
+            const hasEditedTimestamp = Boolean(message.edited_at);
+            const timeLabel = formatHumanTimestamp(hasEditedTimestamp ? message.edited_at : message.created_at);
+            const editedLabel = hasEditedTimestamp ? ' · edited' : '';
             const reactions = renderMessageReactions(message);
             const hasReactionAnimation = !prefersReducedMotion() && reactionChangedMessageIds.has(Number(message.id));
             const myReaction = Array.isArray(message.reactions)
