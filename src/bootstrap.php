@@ -21,6 +21,7 @@ define('WEB_PUSH_KEY_PATH', STORAGE_PATH . '/webpush');
 define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
+define('IMAGE_UPLOAD_TARGET_MAX_BYTES', 5 * 1024 * 1024);
 
 ensureStorageDirectories();
 configureSession();
@@ -4365,6 +4366,79 @@ function convertHeicUploadToJpeg(string $sourcePath): ?string
     return $tmpPath;
 }
 
+function compressImageKeepingResolution(string $sourcePath, string $extension, int $targetBytes = IMAGE_UPLOAD_TARGET_MAX_BYTES): ?string
+{
+    if (!class_exists('Imagick') || !is_file($sourcePath) || filesize($sourcePath) <= $targetBytes) {
+        return null;
+    }
+
+    $tmpPath = tempnam(sys_get_temp_dir(), 'chatimg_cmp_');
+    if ($tmpPath === false) {
+        return null;
+    }
+
+    $extension = strtolower($extension);
+    $format = $extension === 'jpeg' ? 'jpg' : $extension;
+    if (!in_array($format, ['jpg', 'png', 'gif', 'webp'], true)) {
+        @unlink($tmpPath);
+        return null;
+    }
+
+    try {
+        $image = new Imagick();
+        $image->readImage($sourcePath);
+
+        if ($format === 'jpg') {
+            $image->setImageFormat('jpeg');
+            $image->stripImage();
+            $qualityCandidates = [88, 82, 76, 70, 64, 58];
+            foreach ($qualityCandidates as $quality) {
+                $image->setImageCompressionQuality($quality);
+                $image->writeImage($tmpPath);
+                if (is_file($tmpPath) && filesize($tmpPath) <= $targetBytes) {
+                    break;
+                }
+            }
+        } elseif ($format === 'webp') {
+            $image->setImageFormat('webp');
+            $image->stripImage();
+            $qualityCandidates = [86, 80, 74, 68, 62, 56];
+            foreach ($qualityCandidates as $quality) {
+                $image->setImageCompressionQuality($quality);
+                $image->writeImage($tmpPath);
+                if (is_file($tmpPath) && filesize($tmpPath) <= $targetBytes) {
+                    break;
+                }
+            }
+        } elseif ($format === 'png') {
+            $image->setImageFormat('png');
+            $image->setOption('png:compression-level', '9');
+            $image->setImageCompressionQuality(90);
+            $image->writeImage($tmpPath);
+        } else {
+            $image->setImageFormat('gif');
+            $image->writeImage($tmpPath);
+        }
+
+        $image->clear();
+        $image->destroy();
+    } catch (Throwable $exception) {
+        @unlink($tmpPath);
+        return null;
+    }
+
+    if (!is_file($tmpPath)) {
+        return null;
+    }
+
+    if (filesize($tmpPath) >= filesize($sourcePath)) {
+        @unlink($tmpPath);
+        return null;
+    }
+
+    return $tmpPath;
+}
+
 function persistUploadedImageFile(array $file, int $ownerId): array
 {
     $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -4388,6 +4462,15 @@ function persistUploadedImageFile(array $file, int $ownerId): array
         }
         $sourcePath = $convertedPath;
         $extension = 'jpg';
+        $removeSourceAfterMove = true;
+    }
+
+    $compressedPath = compressImageKeepingResolution($sourcePath, $extension);
+    if ($compressedPath !== null) {
+        if ($removeSourceAfterMove) {
+            @unlink($sourcePath);
+        }
+        $sourcePath = $compressedPath;
         $removeSourceAfterMove = true;
     }
 
@@ -4477,10 +4560,6 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
         return 'Image upload failed. Please attach a photo or image file.';
     }
 
-    if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
-        return 'Image must be 12MB or smaller.';
-    }
-
     $storedImage = persistUploadedImageFile($file, $senderId);
     if (isset($storedImage['error'])) {
         return (string) $storedImage['error'];
@@ -4532,10 +4611,6 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
         return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a (including browser-recorded webm/ogg notes).';
     }
 
-    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
-        return 'Voice note must be 10MB or smaller.';
-    }
-
     $filename = sprintf('%s_%s.%s', $senderId, bin2hex(random_bytes(8)), $extension);
     $target = UPLOAD_PATH . '/' . $filename;
 
@@ -4579,10 +4654,6 @@ function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $rep
 
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return 'File upload failed. Please choose a file to share.';
-    }
-
-    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
-        return 'File must be 10MB or smaller.';
     }
 
     $originalName = trim((string) ($file['name'] ?? ''));
@@ -5842,10 +5913,6 @@ function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $rep
     if ($extension === null) {
         return 'Unsupported audio type. Use mp3, wav, ogg, webm, or m4a (including browser-recorded webm/ogg notes).';
     }
-    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
-        return 'Voice note must be 10MB or smaller.';
-    }
-
     $filename = sprintf('%s_%s.%s', $userId, bin2hex(random_bytes(8)), $extension);
     $target = UPLOAD_PATH . '/' . $filename;
     if (!move_uploaded_file($file['tmp_name'], $target)) {
@@ -5882,10 +5949,6 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
         return 'Image upload failed. Please attach a photo or image file.';
     }
 
-    if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
-        return 'Image must be 12MB or smaller.';
-    }
-
     $storedImage = persistUploadedImageFile($file, $userId);
     if (isset($storedImage['error'])) {
         return (string) $storedImage['error'];
@@ -5920,10 +5983,6 @@ function sendGroupFileMessage(int $groupId, int $userId, array $file, ?int $repl
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return 'File upload failed. Please choose a file to share.';
     }
-    if (($file['size'] ?? 0) > 10 * 1024 * 1024) {
-        return 'File must be 10MB or smaller.';
-    }
-
     $originalName = trim((string) ($file['name'] ?? ''));
     if ($originalName === '') {
         $originalName = 'shared-file';

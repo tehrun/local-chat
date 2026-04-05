@@ -5830,11 +5830,6 @@ async function uploadSharedFile(file) {
         return false;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-        showError('Files must be 10MB or smaller.');
-        return false;
-    }
-
     try {
         const formData = new FormData();
         const replyToMessageId = Number(replyTarget?.id || 0);
