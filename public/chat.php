@@ -4813,9 +4813,12 @@ function openImageLightbox(src, filename, messageId = 0) {
     lightboxDownloadHref = src;
     lightboxDownloadFilename = filename || 'chat-image';
     lightboxActiveMessageId = Number(messageId || 0);
+    const lightboxMessage = (window.__messagesState || []).find((item) => Number(item.id) === lightboxActiveMessageId);
+    const canReactToLightboxImage = Boolean(lightboxMessage) && Number(lightboxMessage.sender_id) !== currentUserId;
     setLightboxMenuOpen(false);
     if (lightboxReact instanceof HTMLButtonElement) {
-        lightboxReact.disabled = lightboxActiveMessageId <= 0;
+        lightboxReact.hidden = !canReactToLightboxImage;
+        lightboxReact.disabled = !canReactToLightboxImage;
     }
     if (lightboxReply instanceof HTMLButtonElement) {
         lightboxReply.disabled = lightboxActiveMessageId <= 0;
