@@ -897,7 +897,7 @@ if ($isGroupConversation) {
             padding-top: 0;
         }
         .reaction-picker-actions.with-reaction-row {
-            border-top: 1px solid rgba(17, 27, 33, 0.08);
+            border-top: none;
             padding-top: 4px;
         }
         .reaction-picker[hidden] {
