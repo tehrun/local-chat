@@ -1558,24 +1558,28 @@ if ($isGroupConversation) {
             transform: translateY(0) scale(1);
         }
         .lightbox-toolbar {
-            width: 100%;
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
             display: flex;
             align-items: center;
             justify-content: flex-end;
-            gap: 10px;
+            gap: 8px;
+            z-index: 2;
         }
         .lightbox-button {
             border: none;
             border-radius: 999px;
-            background: #111b21;
+            background: rgba(17, 27, 33, 0.88);
             color: #fff;
-            min-height: 44px;
-            padding: 12px 16px;
+            width: 40px;
+            height: 40px;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
             font: inherit;
-            font-weight: 700;
             text-decoration: none;
             cursor: pointer;
             backdrop-filter: blur(8px);
@@ -1597,6 +1601,13 @@ if ($isGroupConversation) {
             fill: none;
             stroke-linecap: round;
             stroke-linejoin: round;
+        }
+        .lightbox-button--close svg {
+            width: 20px;
+            height: 20px;
+        }
+        .lightbox-button--download {
+            margin-right: auto;
         }
         .lightbox-figure {
             margin: 0;
@@ -2128,20 +2139,18 @@ if ($isGroupConversation) {
         <div id="image-lightbox" class="lightbox" aria-hidden="true" hidden>
             <div class="lightbox-inner" role="dialog" aria-modal="true" aria-label="Image viewer">
                 <div class="lightbox-toolbar">
-                    <a id="lightbox-download" class="lightbox-button" href="#" download>
+                    <a id="lightbox-download" class="lightbox-button lightbox-button--download" href="#" download aria-label="Download image">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M12 3v12"></path>
                             <path d="m7 10 5 5 5-5"></path>
                             <path d="M5 21h14"></path>
                         </svg>
-                        <span>Download</span>
                     </a>
-                    <button id="lightbox-close" class="lightbox-button" type="button" aria-label="Close full screen image">
+                    <button id="lightbox-close" class="lightbox-button lightbox-button--close" type="button" aria-label="Close full screen image">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M18 6 6 18"></path>
                             <path d="m6 6 12 12"></path>
                         </svg>
-                        <span>Close</span>
                     </button>
                 </div>
                 <figure class="lightbox-figure">
