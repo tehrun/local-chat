@@ -217,6 +217,14 @@ $tests['chatListPreview prioritizes body then attachment indicators'] = static f
     assertSameValue(chatListPreview(['last_message_body' => '']), 'Start chatting');
 };
 
+$tests['groupChatListPreview prioritizes body then attachment indicators'] = static function (): void {
+    assertSameValue(groupChatListPreview(['last_message_body' => 'hello group']), 'hello group');
+    assertSameValue(groupChatListPreview(['last_message_body' => '', 'last_message_image_path' => 'storage/tmp/1.jpg']), '📷 Photo');
+    assertSameValue(groupChatListPreview(['last_message_body' => '', 'last_message_audio_path' => 'storage/uploads/1.m4a']), '🎤 Voice message');
+    assertSameValue(groupChatListPreview(['last_message_body' => '', 'last_message_file_path' => 'storage/uploads/1.pdf']), '📎 File');
+    assertSameValue(groupChatListPreview(['last_message_body' => '']), 'Group created');
+};
+
 $tests['message encryption round-trips plaintext and leaves empty untouched'] = static function (): void {
     assertSameValue(encryptStoredMessageText(''), '');
 

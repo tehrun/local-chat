@@ -2816,6 +2816,29 @@ function chatListPreview(array $user): string
     return 'Start chatting';
 }
 
+function groupChatListPreview(array $group): string
+{
+    $body = trim((string) decryptStoredMessageText($group['last_message_body'] ?? ''));
+
+    if ($body !== '') {
+        return $body;
+    }
+
+    if (!empty($group['last_message_image_path'])) {
+        return '📷 Photo';
+    }
+
+    if (!empty($group['last_message_audio_path'])) {
+        return '🎤 Voice message';
+    }
+
+    if (!empty($group['last_message_file_path'])) {
+        return '📎 File';
+    }
+
+    return 'Group created';
+}
+
 function chatListPayload(int $currentUserId): array
 {
     purgeExpiredMessages();
@@ -6116,6 +6139,27 @@ function groupChats(int $currentUserId): array
                     LIMIT 1
                 ) AS last_message_body,
                 (
+                    SELECT gm2.audio_path
+                    FROM group_messages gm2
+                    WHERE gm2.group_id = g.id
+                    ORDER BY gm2.created_at DESC, gm2.id DESC
+                    LIMIT 1
+                ) AS last_message_audio_path,
+                (
+                    SELECT gm2.image_path
+                    FROM group_messages gm2
+                    WHERE gm2.group_id = g.id
+                    ORDER BY gm2.created_at DESC, gm2.id DESC
+                    LIMIT 1
+                ) AS last_message_image_path,
+                (
+                    SELECT gm2.file_path
+                    FROM group_messages gm2
+                    WHERE gm2.group_id = g.id
+                    ORDER BY gm2.created_at DESC, gm2.id DESC
+                    LIMIT 1
+                ) AS last_message_file_path,
+                (
                     SELECT COUNT(*)
                     FROM group_messages gm3
                     LEFT JOIN group_message_reads gmr
@@ -6157,11 +6201,12 @@ function groupChats(int $currentUserId): array
             'last_message_at' => $group['last_message_at'],
             'last_message_id' => (int) ($group['last_message_id'] ?? 0),
             'last_message_body' => $group['last_message_body'],
+            'last_message_audio_path' => $group['last_message_audio_path'] ?? null,
+            'last_message_image_path' => $group['last_message_image_path'] ?? null,
+            'last_message_file_path' => $group['last_message_file_path'] ?? null,
             'unseen_count' => (int) ($group['unseen_count'] ?? 0),
             'chat_list_time' => formatChatListTime($group['last_message_at'] ?? null),
-            'chat_list_preview' => trim((string) decryptStoredMessageText($group['last_message_body'] ?? '')) !== ''
-                ? (string) decryptStoredMessageText($group['last_message_body'] ?? '')
-                : 'Group created',
+            'chat_list_preview' => groupChatListPreview($group),
             'member_count' => count(groupMembers($groupId)),
             'url' => 'chat.php?group=' . $groupId,
         ];
