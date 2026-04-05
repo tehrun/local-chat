@@ -5712,6 +5712,7 @@ async function uploadVoiceBlob(blob, filename) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
@@ -5773,6 +5774,7 @@ async function uploadImageFile(file) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
@@ -5846,6 +5848,7 @@ async function uploadSharedFile(file) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
