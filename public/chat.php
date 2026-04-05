@@ -5712,6 +5712,7 @@ async function uploadVoiceBlob(blob, filename) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
@@ -5773,6 +5774,7 @@ async function uploadImageFile(file) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
@@ -5783,6 +5785,9 @@ async function uploadImageFile(file) {
         }
 
         applyConversationPayload(payload);
+        if (!payload?.message?.image_path && !Array.isArray(payload?.messages)) {
+            await refreshConversation();
+        }
         scrollMessagesToEnd();
         clearReplyTarget();
         showHint('Image sent.');
@@ -5825,11 +5830,6 @@ async function uploadSharedFile(file) {
         return false;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-        showError('Files must be 10MB or smaller.');
-        return false;
-    }
-
     try {
         const formData = new FormData();
         const replyToMessageId = Number(replyTarget?.id || 0);
@@ -5843,6 +5843,7 @@ async function uploadSharedFile(file) {
         const response = await fetch(conversationApiUrl(), {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
             body: formData,
         });
         const payload = await response.json();
@@ -5853,6 +5854,9 @@ async function uploadSharedFile(file) {
         }
 
         applyConversationPayload(payload);
+        if (!payload?.message?.file_path && !Array.isArray(payload?.messages)) {
+            await refreshConversation();
+        }
         scrollMessagesToEnd();
         clearReplyTarget();
         showHint('File sent.');

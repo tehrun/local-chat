@@ -6,7 +6,7 @@ A lightweight PHP private chat app using SQLite by default, with optional MySQL 
 - one-to-one text messaging with live updates (no manual refresh needed)
 - mobile-first chat layout inspired by messaging apps, with the composer fixed below the conversation
 - typing indicator between private chat participants
-- share files up to 10MB from the device file picker
+- share files from the device file picker (large images are automatically compressed on upload while keeping resolution)
 - share images from the file picker or directly from the iPhone/Android camera flow
 - hold-to-record private voice note uploads using the device microphone
 - browser notifications and alert sounds for new messages and friend requests after the first user interaction
