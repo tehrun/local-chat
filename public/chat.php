@@ -17,6 +17,37 @@ $typingMembers = [];
 $pinnedMessageIds = [];
 $availableInviteUsers = allOtherUsers((int) $user['id']);
 
+function parseIniSizeToBytes(string $value): int
+{
+    $trimmed = trim($value);
+    if ($trimmed === '') {
+        return 0;
+    }
+
+    $unit = strtolower(substr($trimmed, -1));
+    $number = (float) $trimmed;
+    $multiplier = match ($unit) {
+        'g' => 1024 ** 3,
+        'm' => 1024 ** 2,
+        'k' => 1024,
+        default => 1,
+    };
+
+    return (int) max(0, round($number * $multiplier));
+}
+
+$uploadMaxFilesizeBytes = parseIniSizeToBytes((string) ini_get('upload_max_filesize'));
+$postMaxSizeBytes = parseIniSizeToBytes((string) ini_get('post_max_size'));
+$serverUploadLimitBytes = min(
+    $uploadMaxFilesizeBytes > 0 ? $uploadMaxFilesizeBytes : PHP_INT_MAX,
+    $postMaxSizeBytes > 0 ? $postMaxSizeBytes : PHP_INT_MAX
+);
+if ($serverUploadLimitBytes === PHP_INT_MAX) {
+    $serverUploadLimitBytes = 5 * 1024 * 1024;
+}
+$clientImageTargetBytes = (int) floor($serverUploadLimitBytes * 0.7);
+$clientImageTargetBytes = max(350 * 1024, min($clientImageTargetBytes, 4_500_000));
+
 if ($isGroupConversation) {
     $group = findGroupById($groupId);
 
@@ -2400,6 +2431,7 @@ const initialPresence = <?= !$isGroupConversation && !empty($otherUser['is_onlin
 const initialPresenceUpdatedAt = <?= jsonScriptValue($isGroupConversation ? null : ($otherUser['presence_updated_at'] ?? null)) ?>;
 const preferPolling = <?= PHP_SAPI === 'cli-server' ? 'true' : 'false' ?>;
 const initialConversationSignature = <?= jsonScriptValue($initialConversationSignature) ?>;
+const imageUploadTargetBytes = <?= (int) $clientImageTargetBytes ?>;
 const FAST_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 12000;
 const FAST_HOME_POLL_INTERVAL_MS = 4000;
@@ -5763,8 +5795,9 @@ async function uploadImageFile(file) {
 
     try {
         let imageToUpload = file;
-        if (file.size > 4.5 * 1024 * 1024) {
-            imageToUpload = await maybeCompressImageForUpload(file);
+        const targetBytes = Math.max(350 * 1024, Number(imageUploadTargetBytes) || (4.5 * 1024 * 1024));
+        if (file.size > targetBytes) {
+            imageToUpload = await maybeCompressImageForUpload(file, targetBytes);
         }
 
         const formData = new FormData();
@@ -5803,7 +5836,7 @@ async function uploadImageFile(file) {
     }
 }
 
-async function maybeCompressImageForUpload(file) {
+async function maybeCompressImageForUpload(file, maxBytes) {
     if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
         return file;
     }
@@ -5813,36 +5846,69 @@ async function maybeCompressImageForUpload(file) {
         return file;
     }
 
-    if (typeof createImageBitmap !== 'function') {
-        return file;
-    }
-
+    const targetBytes = Math.max(350 * 1024, Number(maxBytes) || (4.5 * 1024 * 1024));
+    let sourceUrl = '';
     try {
-        const bitmap = await createImageBitmap(file);
+        sourceUrl = URL.createObjectURL(file);
+        const image = await new Promise((resolve, reject) => {
+            const imageEl = new Image();
+            imageEl.decoding = 'async';
+            imageEl.onload = () => resolve(imageEl);
+            imageEl.onerror = () => reject(new Error('Could not decode image.'));
+            imageEl.src = sourceUrl;
+        });
+
         const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
         const context = canvas.getContext('2d', { alpha: false });
         if (!context) {
-            bitmap.close();
             return file;
         }
-        context.drawImage(bitmap, 0, 0);
-        bitmap.close();
 
-        const qualityCandidates = [0.9, 0.82, 0.74, 0.66, 0.58];
-        for (const quality of qualityCandidates) {
-            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-            if (!(blob instanceof Blob)) {
-                continue;
+        const baseWidth = Number(image.naturalWidth || image.width || 0);
+        const baseHeight = Number(image.naturalHeight || image.height || 0);
+        if (baseWidth <= 0 || baseHeight <= 0) {
+            return file;
+        }
+
+        const scaleCandidates = [1, 0.92, 0.84, 0.76, 0.68, 0.6, 0.52];
+        const qualityCandidates = [0.86, 0.78, 0.7, 0.62, 0.54, 0.46];
+        let smallestBlob = null;
+
+        for (const scale of scaleCandidates) {
+            const width = Math.max(320, Math.round(baseWidth * scale));
+            const height = Math.max(320, Math.round(baseHeight * scale));
+            canvas.width = width;
+            canvas.height = height;
+            context.clearRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+
+            for (const quality of qualityCandidates) {
+                const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+                if (!(blob instanceof Blob)) {
+                    continue;
+                }
+
+                if (!(smallestBlob instanceof Blob) || blob.size < smallestBlob.size) {
+                    smallestBlob = blob;
+                }
+
+                if (blob.size <= targetBytes && blob.size < file.size) {
+                    const nameWithoutExt = String(file.name || 'photo').replace(/\.[^/.]+$/, '');
+                    return new File([blob], `${nameWithoutExt}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+                }
             }
-            if (blob.size < file.size && blob.size <= 4.5 * 1024 * 1024) {
-                const nameWithoutExt = String(file.name || 'photo').replace(/\.[^/.]+$/, '');
-                return new File([blob], `${nameWithoutExt}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
-            }
+        }
+
+        if (smallestBlob instanceof Blob && smallestBlob.size < file.size) {
+            const nameWithoutExt = String(file.name || 'photo').replace(/\.[^/.]+$/, '');
+            return new File([smallestBlob], `${nameWithoutExt}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
         }
     } catch (error) {
         return file;
+    } finally {
+        if (sourceUrl) {
+            URL.revokeObjectURL(sourceUrl);
+        }
     }
 
     return file;
