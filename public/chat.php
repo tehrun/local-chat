@@ -897,7 +897,7 @@ if ($isGroupConversation) {
             padding-top: 0;
         }
         .reaction-picker-actions.with-reaction-row {
-            border-top: 1px solid rgba(17, 27, 33, 0.08);
+            border-top: none;
             padding-top: 4px;
         }
         .reaction-picker[hidden] {
@@ -1528,7 +1528,7 @@ if ($isGroupConversation) {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: calc(20px + env(safe-area-inset-top, 0px)) 18px calc(20px + env(safe-area-inset-bottom, 0px));
+            padding: 0;
             background: rgba(11, 20, 26, 0.0);
             opacity: 0;
             pointer-events: none;
@@ -1541,16 +1541,17 @@ if ($isGroupConversation) {
         }
         .lightbox-inner {
             position: relative;
-            width: min(100%, 980px);
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
+            max-height: none;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 16px;
-            padding: 18px;
-            border-radius: 28px;
-            background: #fff;
-            color: #111b21;
+            justify-content: center;
+            gap: 0;
+            padding: calc(14px + env(safe-area-inset-top, 0px)) 0 calc(14px + env(safe-area-inset-bottom, 0px));
+            background: transparent;
+            color: #fff;
             transform: translateY(24px) scale(0.94);
             transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
@@ -1559,12 +1560,12 @@ if ($isGroupConversation) {
         }
         .lightbox-toolbar {
             position: absolute;
-            top: 12px;
-            left: 12px;
-            right: 12px;
+            top: calc(8px + env(safe-area-inset-top, 0px));
+            left: 10px;
+            right: 10px;
             display: flex;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: space-between;
             gap: 8px;
             z-index: 2;
         }
@@ -1593,6 +1594,10 @@ if ($isGroupConversation) {
         .lightbox-button:active {
             transform: scale(0.97);
         }
+        .lightbox-button:disabled {
+            opacity: 0.55;
+            cursor: default;
+        }
         .lightbox-button svg {
             width: 18px;
             height: 18px;
@@ -1606,26 +1611,82 @@ if ($isGroupConversation) {
             width: 20px;
             height: 20px;
         }
-        .lightbox-button--download {
-            margin-right: auto;
+        .lightbox-button--menu {
+            position: relative;
         }
         .lightbox-figure {
             margin: 0;
-            max-width: 100%;
-            max-height: calc(100vh - 120px);
-            max-height: calc(100dvh - 120px);
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            max-height: none;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         .lightbox-image {
             display: block;
-            max-width: 100%;
-            max-height: calc(100vh - 120px);
-            max-height: calc(100dvh - 120px);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+            width: 100%;
+            max-width: none;
+            max-height: 100%;
+            border-radius: 0;
+            box-shadow: none;
             object-fit: contain;
+        }
+        .lightbox-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 130px;
+            background: rgba(17, 27, 33, 0.96);
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+            padding: 6px;
+            z-index: 3;
+        }
+        .lightbox-menu[hidden] {
+            display: none;
+        }
+        .lightbox-menu-item {
+            width: 100%;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: #fff;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+        .lightbox-menu-item:hover,
+        .lightbox-menu-item:focus-visible {
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .lightbox-menu-item svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        .lightbox-footer {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .lightbox-footer .lightbox-button {
+            pointer-events: auto;
         }
         .action-button {
             border: none;
@@ -2139,23 +2200,47 @@ if ($isGroupConversation) {
         <div id="image-lightbox" class="lightbox" aria-hidden="true" hidden>
             <div class="lightbox-inner" role="dialog" aria-modal="true" aria-label="Image viewer">
                 <div class="lightbox-toolbar">
-                    <a id="lightbox-download" class="lightbox-button lightbox-button--download" href="#" download aria-label="Download image">
+                    <button id="lightbox-back" class="lightbox-button lightbox-button--close" type="button" aria-label="Back from full screen image">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M12 3v12"></path>
-                            <path d="m7 10 5 5 5-5"></path>
-                            <path d="M5 21h14"></path>
-                        </svg>
-                    </a>
-                    <button id="lightbox-close" class="lightbox-button lightbox-button--close" type="button" aria-label="Close full screen image">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M18 6 6 18"></path>
-                            <path d="m6 6 12 12"></path>
+                            <path d="M15 6l-6 6 6 6"></path>
                         </svg>
                     </button>
+                    <div class="lightbox-button--menu">
+                        <button id="lightbox-menu-button" class="lightbox-button" type="button" aria-label="Image actions" aria-haspopup="menu" aria-expanded="false" aria-controls="lightbox-menu">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="5" r="1.8"></circle>
+                                <circle cx="12" cy="12" r="1.8"></circle>
+                                <circle cx="12" cy="19" r="1.8"></circle>
+                            </svg>
+                        </button>
+                        <div id="lightbox-menu" class="lightbox-menu" role="menu" hidden>
+                            <button id="lightbox-save" class="lightbox-menu-item" type="button" role="menuitem">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M12 3v12"></path>
+                                    <path d="m7 10 5 5 5-5"></path>
+                                    <path d="M5 21h14"></path>
+                                </svg>
+                                <span>Save</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <figure class="lightbox-figure">
                     <img id="lightbox-image" class="lightbox-image" src="" alt="Full screen shared image">
                 </figure>
+                <div class="lightbox-footer">
+                    <button id="lightbox-react" class="lightbox-button" type="button" aria-label="React to image">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.6-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8.3 8.5Z"></path>
+                        </svg>
+                    </button>
+                    <button id="lightbox-reply" class="lightbox-button" type="button" aria-label="Reply to image">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m9 14-5-5 5-5"></path>
+                            <path d="M4 9h9a7 7 0 0 1 7 7v1"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -2662,8 +2747,12 @@ const editPreviewTextEl = document.getElementById('edit-preview-text');
 const editPreviewCancelEl = document.getElementById('edit-preview-cancel');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
-const lightboxDownload = document.getElementById('lightbox-download');
-const lightboxClose = document.getElementById('lightbox-close');
+const lightboxBack = document.getElementById('lightbox-back');
+const lightboxMenuButton = document.getElementById('lightbox-menu-button');
+const lightboxMenu = document.getElementById('lightbox-menu');
+const lightboxSave = document.getElementById('lightbox-save');
+const lightboxReact = document.getElementById('lightbox-react');
+const lightboxReply = document.getElementById('lightbox-reply');
 const scrollToEndButton = document.getElementById('scroll-to-end-button');
 let lastFocusedElement = null;
 let renderedSignature = '';
@@ -2709,6 +2798,13 @@ let searchPanelOpen = false;
 let searchPanelCloseTimer = null;
 let pinnedPanelOpen = false;
 let pinnedPanelCloseTimer = null;
+let lightboxDownloadHref = '#';
+let lightboxDownloadFilename = 'chat-image';
+let lightboxActiveMessageId = 0;
+let lightboxHistoryEntryActive = false;
+let lightboxSwipeStartX = null;
+let lightboxSwipeStartY = null;
+let lightboxSwipeTracking = false;
 const personMinusIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
@@ -4401,7 +4497,9 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const replyButton = actionOptions.reply !== false
         ? '<button type="button" class="reaction-action" data-action="reply" aria-label="Reply to message" title="Reply"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"></path><path d="M4 9h9a7 7 0 0 1 7 7v1"></path></svg></button>'
         : '';
-    const copyButton = '<button type="button" class="reaction-action" data-action="copy" aria-label="Copy message" title="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
+    const copyButton = actionOptions.copy === false
+        ? ''
+        : '<button type="button" class="reaction-action" data-action="copy" aria-label="Copy message" title="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
     const editButton = actionOptions.edit
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
@@ -4696,30 +4794,57 @@ function removeMessage(messageId) {
 }
 
 
-function openImageLightbox(src, filename) {
-    if (!src || !imageLightbox || !lightboxImage || !lightboxDownload) {
+function setLightboxMenuOpen(isOpen) {
+    if (!lightboxMenu || !lightboxMenuButton) {
+        return;
+    }
+    const nextOpen = Boolean(isOpen);
+    lightboxMenu.hidden = !nextOpen;
+    lightboxMenuButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+}
+
+function openImageLightbox(src, filename, messageId = 0) {
+    if (!src || !imageLightbox || !lightboxImage) {
         return;
     }
 
     lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     lightboxImage.src = src;
-    lightboxDownload.href = src;
-    lightboxDownload.setAttribute('download', filename || 'chat-image');
+    lightboxDownloadHref = src;
+    lightboxDownloadFilename = filename || 'chat-image';
+    lightboxActiveMessageId = Number(messageId || 0);
+    const lightboxMessage = (window.__messagesState || []).find((item) => Number(item.id) === lightboxActiveMessageId);
+    const canReactToLightboxImage = Boolean(lightboxMessage) && Number(lightboxMessage.sender_id) !== currentUserId;
+    setLightboxMenuOpen(false);
+    if (lightboxReact instanceof HTMLButtonElement) {
+        lightboxReact.hidden = !canReactToLightboxImage;
+        lightboxReact.disabled = !canReactToLightboxImage;
+    }
+    if (lightboxReply instanceof HTMLButtonElement) {
+        lightboxReply.disabled = lightboxActiveMessageId <= 0;
+    }
     imageLightbox.hidden = false;
     imageLightbox.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
+    if (!lightboxHistoryEntryActive) {
+        const nextState = Object.assign({}, window.history.state || {}, { imageLightboxOpen: true });
+        window.history.pushState(nextState, document.title);
+        lightboxHistoryEntryActive = true;
+    }
 
     requestAnimationFrame(() => {
         imageLightbox.classList.add('is-visible');
-        lightboxClose?.focus();
+        lightboxBack?.focus();
     });
 }
 
-function closeImageLightbox() {
+function closeImageLightbox(options = {}) {
     if (!imageLightbox || imageLightbox.hidden) {
         return;
     }
+    const viaHistory = Boolean(options && options.viaHistory);
 
+    setLightboxMenuOpen(false);
     imageLightbox.classList.remove('is-visible');
     imageLightbox.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
@@ -4727,8 +4852,20 @@ function closeImageLightbox() {
     window.setTimeout(() => {
         imageLightbox.hidden = true;
         lightboxImage.src = '';
-        lightboxDownload.href = '#';
+        lightboxDownloadHref = '#';
+        lightboxDownloadFilename = 'chat-image';
+        lightboxActiveMessageId = 0;
     }, 240);
+
+    if (lightboxHistoryEntryActive) {
+        if (viaHistory) {
+            lightboxHistoryEntryActive = false;
+        } else if (window.history.state && window.history.state.imageLightboxOpen) {
+            window.history.back();
+        } else {
+            lightboxHistoryEntryActive = false;
+        }
+    }
 
     if (lastFocusedElement) {
         lastFocusedElement.focus();
@@ -4998,7 +5135,7 @@ function renderMessages(messages) {
                 : '';
             const mediaUrl = mediaUrlForMessage(message.id);
             const image = message.image_path
-                ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
+                ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" data-image-message-id="${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
                 ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-wave-seed="${escapeHtml(String(message.id || mediaUrl))}">${createVoiceBars(String(message.id || mediaUrl))}</div><span class="voice-note-time">0:00</span><audio preload="auto" src="${escapeHtml(mediaUrl)}"></audio></div>`
@@ -6278,7 +6415,11 @@ messagesEl.addEventListener('click', (event) => {
     }
 
     event.preventDefault();
-    openImageLightbox(trigger.getAttribute('data-image-src') || '', trigger.getAttribute('data-image-download') || 'chat-image');
+    openImageLightbox(
+        trigger.getAttribute('data-image-src') || '',
+        trigger.getAttribute('data-image-download') || 'chat-image',
+        Number(trigger.getAttribute('data-image-message-id') || 0)
+    );
 });
 
 messagesEl.addEventListener('scroll', () => {
@@ -6811,13 +6952,93 @@ actionButton.addEventListener('click', async (event) => {
     await toggleRecording();
 });
 
-lightboxClose?.addEventListener('click', () => {
+lightboxBack?.addEventListener('click', () => {
     closeImageLightbox();
+});
+lightboxMenuButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isOpen = lightboxMenuButton.getAttribute('aria-expanded') === 'true';
+    setLightboxMenuOpen(!isOpen);
+});
+lightboxSave?.addEventListener('click', () => {
+    if (!lightboxDownloadHref || lightboxDownloadHref === '#') {
+        return;
+    }
+    const link = document.createElement('a');
+    link.href = lightboxDownloadHref;
+    link.download = lightboxDownloadFilename || 'chat-image';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setLightboxMenuOpen(false);
+});
+lightboxReact?.addEventListener('click', () => {
+    if (!lightboxActiveMessageId) {
+        return;
+    }
+    showReactionPicker(lightboxReact, lightboxActiveMessageId, '', true, {
+        reply: false,
+        copy: false,
+        edit: false,
+        delete: false,
+        deliveryDetails: false,
+        pin: false,
+    });
+});
+lightboxReply?.addEventListener('click', () => {
+    if (!lightboxActiveMessageId) {
+        return;
+    }
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === lightboxActiveMessageId);
+    if (message) {
+        setReplyTargetByMessage(message);
+        closeImageLightbox();
+        keepComposerFocused(true);
+    }
 });
 
 imageLightbox?.addEventListener('click', (event) => {
     if (event.target === imageLightbox) {
         closeImageLightbox();
+    }
+});
+imageLightbox?.addEventListener('touchstart', (event) => {
+    const touch = event.touches && event.touches[0];
+    if (!touch) {
+        return;
+    }
+    lightboxSwipeStartX = touch.clientX;
+    lightboxSwipeStartY = touch.clientY;
+    lightboxSwipeTracking = touch.clientX <= 40;
+}, { passive: true });
+imageLightbox?.addEventListener('touchmove', (event) => {
+    if (!lightboxSwipeTracking || lightboxSwipeStartX === null || lightboxSwipeStartY === null) {
+        return;
+    }
+    const touch = event.touches && event.touches[0];
+    if (!touch) {
+        return;
+    }
+    const deltaX = touch.clientX - lightboxSwipeStartX;
+    const deltaY = Math.abs(touch.clientY - lightboxSwipeStartY);
+    if (deltaX > 80 && deltaY < 60) {
+        lightboxSwipeTracking = false;
+        closeImageLightbox();
+    }
+}, { passive: true });
+imageLightbox?.addEventListener('touchend', () => {
+    lightboxSwipeStartX = null;
+    lightboxSwipeStartY = null;
+    lightboxSwipeTracking = false;
+}, { passive: true });
+window.addEventListener('popstate', () => {
+    if (imageLightbox && !imageLightbox.hidden) {
+        closeImageLightbox({ viaHistory: true });
+        return;
+    }
+    if (lightboxHistoryEntryActive && (!window.history.state || !window.history.state.imageLightboxOpen)) {
+        lightboxHistoryEntryActive = false;
     }
 });
 
@@ -6859,6 +7080,16 @@ document.addEventListener('keydown', (event) => {
         hideMessageActionMenu();
     }
 }, { passive: true });
+document.addEventListener('click', (event) => {
+    if (!lightboxMenu || !lightboxMenuButton || lightboxMenu.hidden) {
+        return;
+    }
+    const target = event.target;
+    if (target instanceof Node && (lightboxMenu.contains(target) || lightboxMenuButton.contains(target))) {
+        return;
+    }
+    setLightboxMenuOpen(false);
+});
 document.addEventListener('click', (event) => {
     if (!headerMenuPanel || !headerMenuButton) {
         return;
