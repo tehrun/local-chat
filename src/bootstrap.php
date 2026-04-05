@@ -4334,6 +4334,75 @@ function detectUploadedImageExtension(array $file, ?string $mime): ?string
     return null;
 }
 
+function convertHeicUploadToJpeg(string $sourcePath): ?string
+{
+    if (!class_exists('Imagick')) {
+        return null;
+    }
+
+    $tmpPath = tempnam(sys_get_temp_dir(), 'chatimg_');
+    if ($tmpPath === false) {
+        return null;
+    }
+
+    try {
+        $image = new Imagick();
+        $image->readImage($sourcePath);
+        $image->setImageFormat('jpeg');
+        $image->setImageCompressionQuality(88);
+        $image->writeImage($tmpPath);
+        $image->clear();
+        $image->destroy();
+    } catch (Throwable $exception) {
+        @unlink($tmpPath);
+        return null;
+    }
+
+    return $tmpPath;
+}
+
+function persistUploadedImageFile(array $file, int $ownerId): array
+{
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']) ?: null;
+    $extension = detectUploadedImageExtension($file, $mime);
+
+    if ($extension === null) {
+        return ['error' => 'Unsupported image type. Use jpg, png, gif, or webp.'];
+    }
+
+    $sourcePath = (string) ($file['tmp_name'] ?? '');
+    $removeSourceAfterMove = false;
+    if ($sourcePath === '' || !is_file($sourcePath)) {
+        return ['error' => 'Could not read the uploaded image.'];
+    }
+
+    if (in_array($extension, ['heic', 'heif'], true)) {
+        $convertedPath = convertHeicUploadToJpeg($sourcePath);
+        if ($convertedPath === null) {
+            return ['error' => 'HEIC/HEIF photos are not supported on this server. Please upload JPG, PNG, GIF, or WEBP.'];
+        }
+        $sourcePath = $convertedPath;
+        $extension = 'jpg';
+        $removeSourceAfterMove = true;
+    }
+
+    $filename = sprintf('img_%s_%s.%s', $ownerId, bin2hex(random_bytes(8)), $extension);
+    $target = TMP_UPLOAD_PATH . '/' . $filename;
+    $moved = $removeSourceAfterMove
+        ? rename($sourcePath, $target)
+        : move_uploaded_file($sourcePath, $target);
+
+    if (!$moved) {
+        if ($removeSourceAfterMove) {
+            @unlink($sourcePath);
+        }
+        return ['error' => 'Could not save the image.'];
+    }
+
+    return ['path' => 'storage/tmp/' . $filename];
+}
+
 
 function saveUploadedAvatar(array $file, string $entityType, int $entityId): array
 {
@@ -4404,26 +4473,16 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
         return 'Image upload failed. Please attach a photo or image file.';
     }
 
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']) ?: null;
-    $extension = detectUploadedImageExtension($file, $mime);
-
-    if ($extension === null) {
-        return 'Unsupported image type. Use jpg, png, gif, webp, heic, or heif.';
-    }
-
     if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
         return 'Image must be 12MB or smaller.';
     }
 
-    $filename = sprintf('img_%s_%s.%s', $senderId, bin2hex(random_bytes(8)), $extension);
-    $target = TMP_UPLOAD_PATH . '/' . $filename;
-
-    if (!move_uploaded_file($file['tmp_name'], $target)) {
-        return 'Could not save the image.';
+    $storedImage = persistUploadedImageFile($file, $senderId);
+    if (isset($storedImage['error'])) {
+        return (string) $storedImage['error'];
     }
 
-    $relativePath = 'storage/tmp/' . $filename;
+    $relativePath = (string) ($storedImage['path'] ?? '');
 
     $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
 
@@ -5819,20 +5878,13 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
         return 'Image upload failed. Please attach a photo or image file.';
     }
 
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']) ?: null;
-    $extension = detectUploadedImageExtension($file, $mime);
-    if ($extension === null) {
-        return 'Unsupported image type. Use jpg, png, gif, webp, heic, or heif.';
-    }
     if (($file['size'] ?? 0) > 12 * 1024 * 1024) {
         return 'Image must be 12MB or smaller.';
     }
 
-    $filename = sprintf('img_%s_%s.%s', $userId, bin2hex(random_bytes(8)), $extension);
-    $target = TMP_UPLOAD_PATH . '/' . $filename;
-    if (!move_uploaded_file($file['tmp_name'], $target)) {
-        return 'Could not save the image.';
+    $storedImage = persistUploadedImageFile($file, $userId);
+    if (isset($storedImage['error'])) {
+        return (string) $storedImage['error'];
     }
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
@@ -5843,7 +5895,7 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
-        'image_path' => 'storage/tmp/' . $filename,
+        'image_path' => (string) ($storedImage['path'] ?? ''),
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
