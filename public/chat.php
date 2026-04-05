@@ -5783,6 +5783,9 @@ async function uploadImageFile(file) {
         }
 
         applyConversationPayload(payload);
+        if (!payload?.message?.image_path && !Array.isArray(payload?.messages)) {
+            await refreshConversation();
+        }
         scrollMessagesToEnd();
         clearReplyTarget();
         showHint('Image sent.');
@@ -5853,6 +5856,9 @@ async function uploadSharedFile(file) {
         }
 
         applyConversationPayload(payload);
+        if (!payload?.message?.file_path && !Array.isArray(payload?.messages)) {
+            await refreshConversation();
+        }
         scrollMessagesToEnd();
         clearReplyTarget();
         showHint('File sent.');
