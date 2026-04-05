@@ -4304,9 +4304,13 @@ function detectUploadedImageExtension(array $file, ?string $mime): ?string
 {
     $allowedMimeTypes = [
         'image/jpeg' => 'jpg',
+        'image/jpg' => 'jpg',
+        'image/pjpeg' => 'jpg',
         'image/png' => 'png',
+        'image/x-png' => 'png',
         'image/gif' => 'gif',
         'image/webp' => 'webp',
+        'image/x-webp' => 'webp',
         'image/heic' => 'heic',
         'image/heif' => 'heif',
         'application/octet-stream' => null,

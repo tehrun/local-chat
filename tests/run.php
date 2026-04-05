@@ -191,6 +191,14 @@ $tests['normalizeReactionEmoji trims and limits grapheme payload length'] = stat
     assertSameValue(mb_strlen(normalizeReactionEmoji(str_repeat('😀', 25))), 16);
 };
 
+$tests['detectUploadedImageExtension supports common jpg/png/webp mime aliases'] = static function (): void {
+    assertSameValue(detectUploadedImageExtension(['name' => 'photo.jpg', 'type' => 'image/jpeg'], 'image/jpeg'), 'jpg');
+    assertSameValue(detectUploadedImageExtension(['name' => 'photo', 'type' => 'image/jpg'], 'image/jpg'), 'jpg');
+    assertSameValue(detectUploadedImageExtension(['name' => 'photo', 'type' => 'image/pjpeg'], 'image/pjpeg'), 'jpg');
+    assertSameValue(detectUploadedImageExtension(['name' => 'photo', 'type' => 'image/x-png'], 'image/x-png'), 'png');
+    assertSameValue(detectUploadedImageExtension(['name' => 'photo', 'type' => 'image/x-webp'], 'image/x-webp'), 'webp');
+};
+
 $tests['presenceLabel reports online, offline and formatted offline time states'] = static function (): void {
     assertSameValue(presenceLabel(null), 'Offline');
     assertSameValue(presenceLabel('not-a-date'), 'Offline');
