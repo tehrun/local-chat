@@ -4732,7 +4732,7 @@ function createVoiceBars(seedText = '') {
     return bars.join('');
 }
 
-async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText) {
+async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText, onDurationResolved = null) {
     const sourceUrl = String(audioEl.currentSrc || audioEl.src || '');
     if (!sourceUrl || bars.length === 0) {
         return;
@@ -4740,8 +4740,11 @@ async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText) {
 
     const cacheKey = sourceUrl;
     const cached = voiceWaveformCache.get(cacheKey);
-    if (Array.isArray(cached) && cached.length === bars.length) {
-        setVoiceBarHeights(bars, cached);
+    if (cached && typeof cached === 'object' && Array.isArray(cached.heights) && cached.heights.length === bars.length) {
+        setVoiceBarHeights(bars, cached.heights);
+        if (typeof onDurationResolved === 'function' && Number.isFinite(cached.duration) && cached.duration > 0) {
+            onDurationResolved(cached.duration);
+        }
         return;
     }
 
@@ -4772,7 +4775,10 @@ async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText) {
                 }
                 return 18 + Math.min(74, Math.round(peak * 82));
             });
-            return computedHeights;
+            return {
+                heights: computedHeights,
+                duration: Number.isFinite(audioBuffer.duration) ? audioBuffer.duration : 0,
+            };
         } finally {
             context.close().catch(() => {
                 // Ignore AudioContext close errors.
@@ -4783,10 +4789,13 @@ async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText) {
     voiceWaveformCache.set(cacheKey, pendingPromise);
 
     try {
-        const computedHeights = await pendingPromise;
-        if (Array.isArray(computedHeights) && computedHeights.length === bars.length) {
-            voiceWaveformCache.set(cacheKey, computedHeights);
-            setVoiceBarHeights(bars, computedHeights);
+        const payload = await pendingPromise;
+        if (payload && Array.isArray(payload.heights) && payload.heights.length === bars.length) {
+            voiceWaveformCache.set(cacheKey, payload);
+            setVoiceBarHeights(bars, payload.heights);
+            if (typeof onDurationResolved === 'function' && Number.isFinite(payload.duration) && payload.duration > 0) {
+                onDurationResolved(payload.duration);
+            }
             return;
         }
     } catch (error) {
@@ -4794,7 +4803,8 @@ async function hydrateVoiceBarsFromAudio(audioEl, bars, seedText) {
     }
 
     const fallbackHeights = bars.map((_, index) => seededVoiceBarHeight(seedText || sourceUrl, index));
-    voiceWaveformCache.set(cacheKey, fallbackHeights);
+    const fallbackPayload = { heights: fallbackHeights, duration: 0 };
+    voiceWaveformCache.set(cacheKey, fallbackPayload);
     setVoiceBarHeights(bars, fallbackHeights);
 }
 
@@ -4814,8 +4824,14 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
         const bars = Array.from(waveEl.querySelectorAll('.voice-note-bar'));
         const waveSeed = String(waveEl.dataset.waveSeed || audioEl.currentSrc || audioEl.src || 'voice');
         setVoiceBarHeights(bars, bars.map((_, index) => seededVoiceBarHeight(waveSeed, index)));
+        let estimatedDuration = 0;
+        const updateEstimatedDuration = (duration) => {
+            if (Number.isFinite(duration) && duration > 0) {
+                estimatedDuration = duration;
+            }
+        };
         const updateBars = () => {
-            const duration = audioEl.duration || 0;
+            const duration = Number.isFinite(audioEl.duration) && audioEl.duration > 0 ? audioEl.duration : estimatedDuration;
             const progress = duration > 0 ? (audioEl.currentTime / duration) : 0;
             const activeCount = Math.round(progress * bars.length);
             bars.forEach((barEl, index) => {
@@ -4849,12 +4865,16 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
             updateBars();
         });
         audioEl.addEventListener('loadedmetadata', () => {
+            updateEstimatedDuration(audioEl.duration);
             updateBars();
             if (shouldAutoScroll || isNearBottom()) {
                 scrollMessagesToEnd();
             }
         }, { once: true });
-        audioEl.addEventListener('durationchange', updateBars);
+        audioEl.addEventListener('durationchange', () => {
+            updateEstimatedDuration(audioEl.duration);
+            updateBars();
+        });
         audioEl.addEventListener('loadeddata', updateBars);
         audioEl.addEventListener('timeupdate', updateBars);
         audioEl.addEventListener('play', syncToggle);
@@ -4865,7 +4885,10 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
         });
         syncToggle();
         updateBars();
-        hydrateVoiceBarsFromAudio(audioEl, bars, waveSeed);
+        hydrateVoiceBarsFromAudio(audioEl, bars, waveSeed, (duration) => {
+            updateEstimatedDuration(duration);
+            updateBars();
+        });
         if (audioEl.preload !== 'none') {
             audioEl.load();
         }
