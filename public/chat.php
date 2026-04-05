@@ -4762,6 +4762,8 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
                 scrollMessagesToEnd();
             }
         }, { once: true });
+        audioEl.addEventListener('durationchange', updateBars);
+        audioEl.addEventListener('loadeddata', updateBars);
         audioEl.addEventListener('timeupdate', updateBars);
         audioEl.addEventListener('play', syncToggle);
         audioEl.addEventListener('pause', syncToggle);
@@ -4771,6 +4773,9 @@ function setupVoiceNotePlayers(rootEl = messagesEl) {
         });
         syncToggle();
         updateBars();
+        if (audioEl.preload !== 'none') {
+            audioEl.load();
+        }
     });
 }
 
@@ -4835,7 +4840,7 @@ function renderMessages(messages) {
                 ? `<button class="message-photo-button" type="button" data-image-src="${escapeHtml(mediaUrl)}" data-image-download="chat-image-${Number(message.id)}" aria-label="Open shared image full screen"><img class="message-photo" loading="lazy" src="${escapeHtml(mediaUrl)}" alt="Shared image"></button>`
                 : '';
             const audio = message.audio_path
-                ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${createVoiceBars()}</div><span class="voice-note-time">0:00</span><audio preload="metadata" src="${escapeHtml(mediaUrl)}"></audio></div>`
+                ? `<div class="voice-note-player"><button class="voice-note-toggle" type="button" aria-label="Play voice note">▶</button><div class="voice-note-wave" role="slider" aria-label="Voice note waveform seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${createVoiceBars()}</div><span class="voice-note-time">0:00</span><audio preload="auto" src="${escapeHtml(mediaUrl)}"></audio></div>`
                 : '';
             const file = message.file_path
                 ? `<a class="message-file" href="${escapeHtml(mediaUrl)}" download="${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}"><span class="message-file-icon">📎</span><span class="message-file-copy"><strong>${escapeHtml(message.file_name || `shared-file-${Number(message.id)}`)}</strong><span>Download file</span></span></a>`
