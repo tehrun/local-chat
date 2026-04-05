@@ -585,6 +585,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             reply_to_message_id INTEGER,
             delivered_at TEXT,
             read_at TEXT,
+            edited_at TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY(sender_id) REFERENCES users(id),
             FOREIGN KEY(recipient_id) REFERENCES users(id)
@@ -622,6 +623,10 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('read_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN read_at TEXT');
+    }
+
+    if (!in_array('edited_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN edited_at TEXT');
     }
 
     $pdo->exec(
@@ -855,6 +860,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             file_path TEXT,
             file_name TEXT,
             reply_to_message_id INTEGER,
+            edited_at TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY(group_id) REFERENCES groups(id),
             FOREIGN KEY(sender_id) REFERENCES users(id)
@@ -873,6 +879,9 @@ function initializeSqliteDatabase(PDO $pdo): void
     }
     if (!in_array('file_name', $groupMessageColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name TEXT');
+    }
+    if (!in_array('edited_at', $groupMessageColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN edited_at TEXT');
     }
 
     $pdo->exec(
@@ -1092,6 +1101,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             reply_to_message_id BIGINT UNSIGNED NULL,
             delivered_at DATETIME NULL,
             read_at DATETIME NULL,
+            edited_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             INDEX idx_messages_conversation_time (sender_id, recipient_id, created_at, id),
             INDEX idx_messages_pending_delivery (recipient_id, sender_id, delivered_at, read_at, created_at, id),
@@ -1128,6 +1138,9 @@ function initializeMysqlDatabase(PDO $pdo): void
 
     if (!in_array('read_at', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN read_at DATETIME NULL AFTER delivered_at');
+    }
+    if (!in_array('edited_at', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN edited_at DATETIME NULL AFTER read_at');
     }
     ensureMysqlFullTextIndex($pdo, 'messages', 'idx_messages_body_fulltext', 'body');
 
@@ -1291,6 +1304,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             file_path VARCHAR(255) NULL,
             file_name VARCHAR(255) NULL,
             reply_to_message_id BIGINT UNSIGNED NULL,
+            edited_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             INDEX idx_group_messages_timeline (group_id, created_at, id),
             CONSTRAINT fk_group_messages_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
@@ -1307,6 +1321,9 @@ function initializeMysqlDatabase(PDO $pdo): void
     }
     if (!in_array('file_name', $groupColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
+    }
+    if (!in_array('edited_at', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN edited_at DATETIME NULL AFTER reply_to_message_id');
     }
     ensureMysqlFullTextIndex($pdo, 'group_messages', 'idx_group_messages_body_fulltext', 'body');
     $pdo->exec(
@@ -3549,6 +3566,7 @@ function formatMessage(array $message): array
         'delivered_at' => $message['delivered_at'] ?? null,
         'read_at' => $message['read_at'] ?? null,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
+        'edited_at' => $message['edited_at'] ?? null,
         'created_at' => $message['created_at'],
         'created_at_label' => gmdate('Y-m-d H:i:s', strtotime($message['created_at'])) . ' UTC',
     ];
@@ -4096,13 +4114,15 @@ function editPrivateMessage(int $currentUserId, int $otherUserId, int $messageId
 
     $stmt = db()->prepare(
         'UPDATE messages
-         SET body = :body
+         SET body = :body,
+             edited_at = :edited_at
          WHERE id = :message_id
            AND sender_id = :current_user_id
            AND recipient_id = :other_user_id'
     );
     $stmt->execute([
         'body' => encryptStoredMessageText($trimmedBody),
+        'edited_at' => gmdate('c'),
         'message_id' => $messageId,
         'current_user_id' => $currentUserId,
         'other_user_id' => $otherUserId,
@@ -4223,13 +4243,15 @@ function editGroupMessage(int $groupId, int $currentUserId, int $messageId, stri
 
     $stmt = db()->prepare(
         'UPDATE group_messages
-         SET body = :body
+         SET body = :body,
+             edited_at = :edited_at
          WHERE id = :message_id
            AND group_id = :group_id
            AND sender_id = :current_user_id'
     );
     $stmt->execute([
         'body' => encryptStoredMessageText($trimmedBody),
+        'edited_at' => gmdate('c'),
         'message_id' => $messageId,
         'group_id' => $groupId,
         'current_user_id' => $currentUserId,
@@ -5509,6 +5531,7 @@ function formatGroupMessage(array $message): array
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
         'delivered_at' => null,
         'read_at' => null,
+        'edited_at' => $message['edited_at'] ?? null,
         'group_delivery' => [
             'recipient_count' => 0,
             'delivered_count' => 0,

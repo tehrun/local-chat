@@ -4953,6 +4953,7 @@ function renderMessages(messages) {
     const signature = JSON.stringify(normalizedMessages.map((message) => [
         message.id,
         message.created_at,
+        message.edited_at || '',
         message.delivered_at || '',
         message.read_at || '',
         Number(message.group_delivery?.recipient_count || 0),
@@ -5014,7 +5015,9 @@ function renderMessages(messages) {
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
-            const timeLabel = formatHumanTimestamp(message.created_at);
+            const hasEditedTimestamp = Boolean(message.edited_at);
+            const timeLabel = formatHumanTimestamp(hasEditedTimestamp ? message.edited_at : message.created_at);
+            const editedLabel = hasEditedTimestamp ? ' · edited' : '';
             const reactions = renderMessageReactions(message);
             const hasReactionAnimation = !prefersReducedMotion() && reactionChangedMessageIds.has(Number(message.id));
             const myReaction = Array.isArray(message.reactions)
@@ -5043,7 +5046,7 @@ function renderMessages(messages) {
                         ${audio}
                         ${file}
                         ${expiredAttachment}
-                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${pendingLabel}</span><span>${ticks}</span></div>
+                        <div class="meta"><span class="meta-label">${pinBadge}${escapeHtml(timeLabel)}${editedLabel}${pendingLabel}</span><span>${ticks}</span></div>
                     </div>
                     ${reactions !== '' && hasReactionAnimation
                         ? reactions.replace('class="message-reactions"', 'class="message-reactions is-new-reaction"')
