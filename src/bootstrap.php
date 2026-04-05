@@ -4490,11 +4490,32 @@ function persistUploadedImageFile(array $file, int $ownerId): array
     return ['path' => 'storage/tmp/' . $filename];
 }
 
+function uploadedFileErrorMessage(array $file, string $kind): ?string
+{
+    $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($errorCode === UPLOAD_ERR_OK) {
+        return null;
+    }
+
+    $kindLabel = $kind === 'audio'
+        ? ['noun' => 'audio file', 'name' => 'Voice upload']
+        : ['noun' => 'photo or image file', 'name' => 'Image upload'];
+
+    return match ($errorCode) {
+        UPLOAD_ERR_NO_FILE => $kindLabel['name'] . ' failed. Please attach a ' . $kindLabel['noun'] . '.',
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => $kindLabel['name'] . ' failed because the file is too large for this server. Please choose a smaller file and try again.',
+        UPLOAD_ERR_PARTIAL => $kindLabel['name'] . ' was interrupted. Please retry.',
+        UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE, UPLOAD_ERR_EXTENSION => $kindLabel['name'] . ' failed due to a server storage issue. Please try again later.',
+        default => $kindLabel['name'] . ' failed. Please attach a ' . $kindLabel['noun'] . '.',
+    };
+}
+
 
 function saveUploadedAvatar(array $file, string $entityType, int $entityId): array
 {
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        return ['error' => 'Image upload failed. Please attach a photo or image file.'];
+    $uploadError = uploadedFileErrorMessage($file, 'image');
+    if ($uploadError !== null) {
+        return ['error' => $uploadError];
     }
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -4556,8 +4577,9 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
         return 'You can only message users after they accept your friend request.';
     }
 
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        return 'Image upload failed. Please attach a photo or image file.';
+    $uploadError = uploadedFileErrorMessage($file, 'image');
+    if ($uploadError !== null) {
+        return $uploadError;
     }
 
     $storedImage = persistUploadedImageFile($file, $senderId);
@@ -4599,8 +4621,9 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
         return 'You can only message users after they accept your friend request.';
     }
 
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        return 'Voice upload failed. Please attach an audio file.';
+    $uploadError = uploadedFileErrorMessage($file, 'audio');
+    if ($uploadError !== null) {
+        return $uploadError;
     }
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -5903,8 +5926,9 @@ function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $rep
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
     }
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        return 'Voice upload failed. Please attach an audio file.';
+    $uploadError = uploadedFileErrorMessage($file, 'audio');
+    if ($uploadError !== null) {
+        return $uploadError;
     }
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -5945,8 +5969,9 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
     }
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        return 'Image upload failed. Please attach a photo or image file.';
+    $uploadError = uploadedFileErrorMessage($file, 'image');
+    if ($uploadError !== null) {
+        return $uploadError;
     }
 
     $storedImage = persistUploadedImageFile($file, $userId);
