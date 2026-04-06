@@ -5384,6 +5384,14 @@ function renderMessages(messages) {
 
         setupVoiceNotePlayers(messagesEl);
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
+            const messageForRow = () => {
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return null;
+                }
+                return (window.__messagesState || []).find((item) => Number(item.id) === messageId) || null;
+            };
+            const hasImageMessage = () => Boolean(messageForRow()?.image_path);
             const canReactToRow = () => {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
@@ -5424,7 +5432,8 @@ function renderMessages(messages) {
                             forward: true,
                             pin: true,
                             pinned: isMessagePinned(messageId),
-                            edit: true,
+                            copy: !hasImageMessage(),
+                            edit: !hasImageMessage(),
                             deliveryDetails: isGroupConversation,
                             delete: true,
                         });
@@ -5439,6 +5448,7 @@ function renderMessages(messages) {
                     showReactionPicker(rowEl, messageId, existingEmoji, true, {
                         reply: true,
                         forward: true,
+                        copy: !hasImageMessage(),
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: false,
@@ -5461,7 +5471,8 @@ function renderMessages(messages) {
                         forward: true,
                         pin: true,
                         pinned: isMessagePinned(messageId),
-                        edit: true,
+                        copy: !hasImageMessage(),
+                        edit: !hasImageMessage(),
                         deliveryDetails: isGroupConversation,
                         delete: true,
                     });
@@ -5470,6 +5481,7 @@ function renderMessages(messages) {
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                 showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
                     forward: true,
+                    copy: !hasImageMessage(),
                     pin: true,
                     pinned: isMessagePinned(messageId),
                     delete: true,
