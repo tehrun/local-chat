@@ -2242,8 +2242,10 @@ if ($isGroupConversation) {
                     </button>
                     <button id="lightbox-forward" class="lightbox-button" type="button" aria-label="Forward image">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="m14 6 6 6-6 6"></path>
-                            <path d="M4 12h16"></path>
+                            <path d="m10 14-5-5 5-5"></path>
+                            <path d="M5 9h8a6 6 0 0 1 6 6v1"></path>
+                            <path d="m14 14-5-5 5-5"></path>
+                            <path d="M9 9h4"></path>
                         </svg>
                     </button>
                 </div>
@@ -2321,13 +2323,6 @@ if ($isGroupConversation) {
                         <span id="edit-preview-text"></span>
                     </div>
                     <button id="edit-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel edit">×</button>
-                </div>
-                <div id="forward-preview" class="reply-preview" hidden>
-                    <div class="reply-preview-copy">
-                        <strong id="forward-preview-author">Forwarding image</strong>
-                        <span id="forward-preview-text"></span>
-                    </div>
-                    <button id="forward-preview-cancel" class="reply-preview-cancel" type="button" aria-label="Cancel forward">×</button>
                 </div>
                 <div class="composer">
                     <div class="quick-grid-wrap">
@@ -2467,12 +2462,6 @@ if ($isGroupConversation) {
                             </section>
                         </div>
                     </div>
-                    <button id="forward-image-button" class="composer-icon-button attachment-trigger" type="button" aria-label="Forward selected image" title="Forward image" hidden<?= $canChat ? '' : ' disabled' ?>>
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="m14 6 6 6-6 6"></path>
-                            <path d="M4 12h16"></path>
-                        </svg>
-                    </button>
                     <textarea id="message-body" rows="1" placeholder="Message"<?= $canChat ? '' : ' disabled' ?>></textarea>
                     <input id="file-input" type="file" style="display:none">
                     <input id="image-file-input" type="file" accept="image/*" style="display:none">
@@ -2819,6 +2808,7 @@ async function toggleMessagePin(messageId) {
 })();
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
+const memberPickerTitleEl = document.getElementById('member-picker-title');
 const memberPickerListEl = document.getElementById('member-picker-list');
 const memberPickerSearchInput = document.getElementById('member-picker-search-input');
 const memberPickerEmptyEl = document.getElementById('member-picker-empty');
@@ -2842,10 +2832,6 @@ const replyPreviewCancelEl = document.getElementById('reply-preview-cancel');
 const editPreviewEl = document.getElementById('edit-preview');
 const editPreviewTextEl = document.getElementById('edit-preview-text');
 const editPreviewCancelEl = document.getElementById('edit-preview-cancel');
-const forwardPreviewEl = document.getElementById('forward-preview');
-const forwardPreviewTextEl = document.getElementById('forward-preview-text');
-const forwardPreviewCancelEl = document.getElementById('forward-preview-cancel');
-const forwardImageButton = document.getElementById('forward-image-button');
 const imageLightbox = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
 const lightboxBack = document.getElementById('lightbox-back');
@@ -2875,7 +2861,8 @@ let longPressTimer = null;
 let longPressHandled = false;
 let replyTarget = null;
 let editTarget = null;
-let forwardTarget = null;
+let pendingForwardMessage = null;
+let memberPickerMode = 'group-invite';
 let textSendInFlight = false;
 let textSendRetryTimer = null;
 let mediaRecorder = null;
@@ -3203,8 +3190,41 @@ function availableGroupInviteCandidates() {
     });
 }
 
+function availableForwardCandidates() {
+    const query = String(memberPickerSearchInput?.value || '').trim().toLowerCase();
+    return directoryUsersState.filter((user) => {
+        if (!user || !user.can_chat || Number(user.id) === currentUserId) {
+            return false;
+        }
+        if (query === '') {
+            return true;
+        }
+        return String(user.username || '').toLowerCase().includes(query);
+    });
+}
+
 function renderMemberPicker() {
     if (!memberPickerListEl || !memberPickerEmptyEl) {
+        return;
+    }
+
+    if (memberPickerMode === 'forward') {
+        const candidates = availableForwardCandidates();
+        memberPickerListEl.innerHTML = candidates.map((user) => `
+            <button class="member-picker-item" type="button" data-forward-user-id="${Number(user.id)}">
+                <div class="member-picker-copy">
+                    <strong>${escapeHtml(user.username || '')}</strong>
+                    <span>${escapeHtml(user.presence_label || 'Friend')}</span>
+                </div>
+                <span class="mini-button primary">Send</span>
+            </button>
+        `).join('');
+
+        const query = String(memberPickerSearchInput?.value || '').trim();
+        memberPickerEmptyEl.textContent = query === ''
+            ? 'Pick a friend to forward this message.'
+            : 'No friends match your search.';
+        memberPickerEmptyEl.hidden = candidates.length > 0;
         return;
     }
 
@@ -3291,10 +3311,19 @@ function setMemberPickerOpen(isOpen) {
     document.body.style.overflow = isOpen ? 'hidden' : '';
 
     if (isOpen) {
+        if (memberPickerTitleEl) {
+            memberPickerTitleEl.textContent = memberPickerMode === 'forward' ? 'Forward to' : 'Add friends';
+        }
+        if (memberPickerSearchInput) {
+            memberPickerSearchInput.placeholder = memberPickerMode === 'forward' ? 'Search friends by name' : 'Search friends by name';
+            memberPickerSearchInput.setAttribute('aria-label', memberPickerSearchInput.placeholder);
+        }
         renderMemberPicker();
         memberPickerSearchInput?.focus();
     } else if (memberPickerSearchInput) {
         memberPickerSearchInput.value = '';
+        memberPickerMode = 'group-invite';
+        pendingForwardMessage = null;
     }
 }
 
@@ -3418,9 +3447,6 @@ function updateFriendshipUi() {
         attachmentButton.disabled = activeUploadCount > 0;
         attachmentGalleryOption.disabled = activeUploadCount > 0;
         attachmentDocumentOption.disabled = activeUploadCount > 0;
-        if (forwardImageButton instanceof HTMLButtonElement) {
-            forwardImageButton.disabled = activeUploadCount > 0 || !forwardTarget;
-        }
         if (activeUploadCount > 0) {
             setQuickGridOpen(false);
             setAttachmentMenuOpen(false);
@@ -3444,9 +3470,6 @@ function updateFriendshipUi() {
     attachmentButton.disabled = !canChat || activeUploadCount > 0;
     attachmentGalleryOption.disabled = !canChat || activeUploadCount > 0;
     attachmentDocumentOption.disabled = !canChat || activeUploadCount > 0;
-    if (forwardImageButton instanceof HTMLButtonElement) {
-        forwardImageButton.disabled = !canChat || activeUploadCount > 0 || !forwardTarget;
-    }
     if (!canChat || activeUploadCount > 0) {
         setQuickGridOpen(false);
         setAttachmentMenuOpen(false);
@@ -3914,53 +3937,15 @@ function updateReplyPreviewUi() {
     replyPreviewTextEl.textContent = replyTarget.preview || 'Message';
 }
 
-function updateForwardPreviewUi() {
-    if (!(forwardImageButton instanceof HTMLButtonElement) || !forwardPreviewEl || !forwardPreviewTextEl) {
-        return;
-    }
-
-    if (!forwardTarget) {
-        forwardImageButton.hidden = true;
-        forwardPreviewEl.hidden = true;
-        forwardPreviewTextEl.textContent = '';
-        updateComposerClearance();
-        return;
-    }
-
-    forwardImageButton.hidden = false;
-    forwardPreviewEl.hidden = false;
-    forwardPreviewTextEl.textContent = String(forwardTarget.fileName || 'Photo');
-    updateComposerClearance();
-}
-
-function clearForwardTarget() {
-    forwardTarget = null;
-    updateForwardPreviewUi();
-    updateFriendshipUi();
-    updateActionButton();
-}
-
-function setForwardTargetByMessage(message) {
+function openForwardPickerByMessage(message) {
     const messageId = Number(message?.id || 0);
-    const imagePath = String(message?.image_path || '').trim();
-    if (!messageId || imagePath === '') {
-        showError('Only images can be forwarded right now.');
+    if (!messageId) {
+        showError('Unable to forward this message right now.');
         return;
     }
-
-    if (editTarget) {
-        clearEditTarget(false);
-    }
-
-    forwardTarget = {
-        id: messageId,
-        imagePath,
-        fileName: String(message?.file_name || 'forwarded-image.jpg').trim() || 'forwarded-image.jpg',
-    };
-    updateForwardPreviewUi();
-    updateFriendshipUi();
-    updateActionButton();
-    keepComposerFocused(true);
+    pendingForwardMessage = message;
+    memberPickerMode = 'forward';
+    setMemberPickerOpen(true);
 }
 
 function setReplyTargetByMessage(message) {
@@ -3972,9 +3957,6 @@ function setReplyTargetByMessage(message) {
     }
     if (editTarget) {
         clearEditTarget(false);
-    }
-    if (forwardTarget) {
-        clearForwardTarget();
     }
     replyTarget = {
         id: messageId,
@@ -4012,9 +3994,6 @@ function setEditTargetByMessage(message) {
     }
     if (replyTarget) {
         clearReplyTarget();
-    }
-    if (forwardTarget) {
-        clearForwardTarget();
     }
     editTarget = {
         id: messageId,
@@ -4665,7 +4644,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         ? ''
         : '<button type="button" class="reaction-action" data-action="copy" aria-label="Copy message" title="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
     const forwardButton = actionOptions.forward
-        ? '<button type="button" class="reaction-action" data-action="forward" aria-label="Forward image" title="Forward"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m14 6 6 6-6 6"></path><path d="M4 12h16"></path></svg></button>'
+        ? '<button type="button" class="reaction-action" data-action="forward" aria-label="Forward message" title="Forward"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 14-5-5 5-5"></path><path d="M5 9h8a6 6 0 0 1 6 6v1"></path><path d="m14 14-5-5 5-5"></path><path d="M9 9h4"></path></svg></button>'
         : '';
     const editButton = actionOptions.edit
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
@@ -4726,7 +4705,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     picker.querySelector('button[data-action="forward"]')?.addEventListener('click', () => {
         const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
         if (message) {
-            setForwardTargetByMessage(message);
+            openForwardPickerByMessage(message);
         }
         hideReactionPicker();
     });
@@ -4998,7 +4977,7 @@ function openImageLightbox(src, filename, messageId = 0) {
         lightboxReply.disabled = lightboxActiveMessageId <= 0;
     }
     if (lightboxForward instanceof HTMLButtonElement) {
-        lightboxForward.disabled = lightboxActiveMessageId <= 0 || !canChat;
+        lightboxForward.disabled = lightboxActiveMessageId <= 0;
     }
     imageLightbox.hidden = false;
     imageLightbox.setAttribute('aria-hidden', 'false');
@@ -5351,7 +5330,7 @@ function renderMessages(messages) {
             }
 
             return `
-                <article id="message-${Number(message.id)}" class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}" data-has-image="${message.image_path ? '1' : '0'}">
+                <article id="message-${Number(message.id)}" class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
                         ${replyReference}
@@ -5378,7 +5357,6 @@ function renderMessages(messages) {
 
         setupVoiceNotePlayers(messagesEl);
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
-            const hasImageMessage = () => rowEl.getAttribute('data-has-image') === '1';
             const canReactToRow = () => {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
@@ -5416,7 +5394,7 @@ function renderMessages(messages) {
                     if (isOwnMessage()) {
                         showReactionPicker(rowEl, messageId, '', false, {
                             reply: false,
-                            forward: hasImageMessage(),
+                            forward: true,
                             pin: true,
                             pinned: isMessagePinned(messageId),
                             edit: true,
@@ -5433,7 +5411,7 @@ function renderMessages(messages) {
                     longPressHandled = true;
                     showReactionPicker(rowEl, messageId, existingEmoji, true, {
                         reply: true,
-                        forward: hasImageMessage(),
+                        forward: true,
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: false,
@@ -5453,7 +5431,7 @@ function renderMessages(messages) {
                 if (isOwnMessage()) {
                     showReactionPicker(rowEl, messageId, '', false, {
                         reply: false,
-                        forward: hasImageMessage(),
+                        forward: true,
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: true,
@@ -5464,7 +5442,7 @@ function renderMessages(messages) {
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                 showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
-                    forward: hasImageMessage(),
+                    forward: true,
                     pin: true,
                     pinned: isMessagePinned(messageId),
                     delete: true,
@@ -5518,13 +5496,10 @@ function updateActionButton() {
     }
 
     const hasText = editTarget !== null || bodyEl.value.trim() !== '';
-    const hasForward = forwardTarget !== null;
-    actionButton.innerHTML = (hasText || hasForward) ? buttonIcons.send : buttonIcons.mic;
+    actionButton.innerHTML = hasText ? buttonIcons.send : buttonIcons.mic;
     actionButton.classList.remove('recording');
     if (hasText) {
         actionButton.setAttribute('aria-label', 'Send message');
-    } else if (hasForward) {
-        actionButton.setAttribute('aria-label', 'Forward selected image');
     } else if (supportsInlineVoiceRecording()) {
         actionButton.setAttribute('aria-label', 'Start voice recording');
     } else {
@@ -6274,47 +6249,123 @@ async function sendSelectedImageFile(file) {
     }
 }
 
-async function imageFileFromPath(imagePath, filename) {
-    const normalizedPath = String(imagePath || '').trim();
-    if (normalizedPath === '') {
-        throw new Error('Image is unavailable for forwarding.');
-    }
+function forwardApiUrlForUser(targetUserId) {
+    return `chat_api.php?user=${Number(targetUserId)}`;
+}
 
-    const response = await fetch(normalizedPath, {
+async function forwardAttachmentAsFile(message, fallbackName) {
+    const messageId = Number(message?.id || 0);
+    if (messageId <= 0 || message?.attachment_expired) {
+        throw new Error('This attachment is no longer available to forward.');
+    }
+    const response = await fetch(mediaUrlForMessage(messageId), {
         method: 'GET',
         credentials: 'same-origin',
     });
     if (!response.ok) {
-        throw new Error('Could not load image to forward.');
+        throw new Error('Could not load attachment to forward.');
     }
     const blob = await response.blob();
     if (!(blob instanceof Blob) || blob.size === 0) {
-        throw new Error('Could not load image to forward.');
+        throw new Error('Could not load attachment to forward.');
     }
-    const safeName = String(filename || 'forwarded-image.jpg').trim() || 'forwarded-image.jpg';
-    return new File([blob], safeName, { type: blob.type || 'image/jpeg', lastModified: Date.now() });
+    const fileName = String(message?.file_name || fallbackName || `forwarded-${messageId}`).trim() || `forwarded-${messageId}`;
+    return new File([blob], fileName, { type: blob.type || 'application/octet-stream', lastModified: Date.now() });
 }
 
-async function sendForwardedImage() {
-    if (!canChat) {
-        showError('Friendship revoked. You cannot send new messages until you are friends again.');
-        return;
+async function forwardMessageToUser(message, targetUserId) {
+    const targetId = Number(targetUserId || 0);
+    if (!message || targetId <= 0) {
+        throw new Error('Please choose who to forward this message to.');
     }
-    if (!forwardTarget || isSending) {
+
+    const hasImage = Boolean(String(message?.image_path || '').trim());
+    const hasFile = Boolean(String(message?.file_path || '').trim());
+    const hasAudio = Boolean(String(message?.audio_path || '').trim());
+    const body = String(message?.body || '').trim();
+    let response;
+
+    if (hasImage) {
+        const imageFile = await forwardAttachmentAsFile(message, `forwarded-image-${Number(message.id || 0)}.jpg`);
+        const formData = new FormData();
+        formData.append('action', 'send_image');
+        formData.append('csrf_token', csrfToken);
+        formData.append('image_file', imageFile, imageFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (hasFile) {
+        const sharedFile = await forwardAttachmentAsFile(message, `forwarded-file-${Number(message.id || 0)}`);
+        const formData = new FormData();
+        formData.append('action', 'send_file');
+        formData.append('csrf_token', csrfToken);
+        formData.append('shared_file', sharedFile, sharedFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (hasAudio) {
+        const voiceFile = await forwardAttachmentAsFile(message, `forwarded-voice-${Number(message.id || 0)}.webm`);
+        const formData = new FormData();
+        formData.append('action', 'send_voice');
+        formData.append('csrf_token', csrfToken);
+        formData.append('voice_note', voiceFile, voiceFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (body !== '') {
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: new URLSearchParams({
+                action: 'send_text',
+                body,
+                csrf_token: csrfToken,
+            }),
+        });
+    } else {
+        throw new Error('This message type cannot be forwarded.');
+    }
+
+    const payload = await response.json();
+    if (!response.ok || payload?.error) {
+        throw new Error(payload?.error || 'Could not forward message.');
+    }
+
+    if (!isGroupConversation && targetId === conversationUserId) {
+        applyConversationPayload(payload);
+        scrollMessagesToEnd();
+    }
+    return payload;
+}
+
+async function submitForwardToUser(targetUserId, targetUsername = '') {
+    if (!pendingForwardMessage) {
+        showError('Choose a message to forward first.');
         return;
     }
 
-    showHint('Forwarding image…');
+    showHint('Forwarding message…');
     activeUploadCount += 1;
     isSending = true;
     updateFriendshipUi();
 
     try {
-        const imageFile = await imageFileFromPath(forwardTarget.imagePath, forwardTarget.fileName);
-        await uploadImageFile(imageFile);
-        clearForwardTarget();
+        await forwardMessageToUser(pendingForwardMessage, targetUserId);
+        const label = String(targetUsername || `User #${Number(targetUserId || 0)}`);
+        showHint(`Forwarded to ${label}.`);
+        setMemberPickerOpen(false);
     } catch (error) {
-        showError(error instanceof Error ? error.message : 'Could not forward image right now.');
+        showError(error instanceof Error ? error.message : 'Could not forward message right now.');
     } finally {
         activeUploadCount = Math.max(0, activeUploadCount - 1);
         isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
@@ -6578,13 +6629,6 @@ attachmentGalleryOption.addEventListener('click', () => {
     setAttachmentMenuOpen(false);
     imageFileInput.click();
 });
-forwardImageButton?.addEventListener('click', async () => {
-    markUserInteraction();
-    if (!forwardTarget || isSending || forwardImageButton.disabled) {
-        return;
-    }
-    await sendForwardedImage();
-});
 
 imageFileInput.addEventListener('change', async () => {
     markUserInteraction();
@@ -6619,9 +6663,6 @@ attachmentGalleryOption.addEventListener('mousedown', preserveComposerFocus);
 attachmentButton.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 attachmentDocumentOption.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 attachmentGalleryOption.addEventListener('touchstart', preserveComposerFocus, { passive: false });
-forwardImageButton?.addEventListener('pointerdown', preserveComposerFocus);
-forwardImageButton?.addEventListener('mousedown', preserveComposerFocus);
-forwardImageButton?.addEventListener('touchstart', preserveComposerFocus, { passive: false });
 
 window.visualViewport?.addEventListener('resize', updateKeyboardOffset);
 window.visualViewport?.addEventListener('scroll', updateKeyboardOffset);
@@ -6695,10 +6736,6 @@ replyPreviewCancelEl?.addEventListener('click', () => {
 });
 editPreviewCancelEl?.addEventListener('click', () => {
     clearEditTarget();
-});
-forwardPreviewCancelEl?.addEventListener('click', () => {
-    clearForwardTarget();
-    keepComposerFocused(true);
 });
 
 headerMenuButton?.addEventListener('click', (event) => {
@@ -6942,6 +6979,7 @@ messageDeliveryModal?.addEventListener('click', (event) => {
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
     setHeaderMenuOpen(false);
+    memberPickerMode = 'group-invite';
     setMemberPickerOpen(true);
 });
 
@@ -6955,6 +6993,24 @@ memberPickerSearchInput?.addEventListener('input', () => {
     renderMemberPicker();
 });
 memberPickerListEl?.addEventListener('click', async (event) => {
+    if (memberPickerMode === 'forward') {
+        const target = event.target instanceof Element ? event.target.closest('[data-forward-user-id]') : null;
+        if (!target) {
+            return;
+        }
+
+        const userId = Number(target.getAttribute('data-forward-user-id') || 0);
+        const candidate = directoryUsersState.find((entry) => Number(entry.id) === userId);
+        if (!candidate || userId <= 0) {
+            return;
+        }
+
+        target.setAttribute('disabled', 'disabled');
+        await submitForwardToUser(candidate.id, candidate.username || '');
+        target.removeAttribute('disabled');
+        return;
+    }
+
     const target = event.target instanceof Element ? event.target.closest('[data-group-invite-user-id]') : null;
     if (!target) {
         return;
@@ -7196,11 +7252,6 @@ actionButton.addEventListener('click', async (event) => {
         }
         return;
     }
-    if (forwardTarget) {
-        await sendForwardedImage();
-        return;
-    }
-
     if (isSending) {
         return;
     }
@@ -7259,9 +7310,8 @@ lightboxForward?.addEventListener('click', () => {
     }
     const message = (window.__messagesState || []).find((item) => Number(item.id) === lightboxActiveMessageId);
     if (message) {
-        setForwardTargetByMessage(message);
+        openForwardPickerByMessage(message);
         closeImageLightbox();
-        keepComposerFocused(true);
     }
 });
 
@@ -7467,7 +7517,6 @@ autoResizeComposer();
 updateComposerClearance();
 updateKeyboardOffset();
 updateComposerDirection();
-updateForwardPreviewUi();
 updateActionButton();
 renderMessages(initialMessages);
 updateScrollToEndButton();
