@@ -836,7 +836,7 @@ if ($isGroupConversation) {
         .message-reactions {
             position: absolute;
             bottom: -10px;
-            left: 10px;
+            right: 10px;
             display: inline-flex;
             flex-direction: column;
             align-items: flex-start;
@@ -869,8 +869,8 @@ if ($isGroupConversation) {
             white-space: nowrap;
         }
         .message-row.mine .message-reactions {
-            right: 10px;
-            left: auto;
+            left: 10px;
+            right: auto;
             background: rgba(220, 248, 198, 0.95);
         }
         .reaction-picker {
@@ -2581,9 +2581,15 @@ const themeStorageKey = 'localchat:theme';
 const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localchat:mute:${Math.min(currentUserId, conversationUserId)}:${Math.max(currentUserId, conversationUserId)}` : '';
 const rootEl = document.documentElement;
 const backLink = document.querySelector('.back-link');
+const chatShellEl = document.querySelector('.chat-shell');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null;
+const SWIPE_BACK_START_EDGE_PX = 36;
+const SWIPE_BACK_MIN_DISTANCE_PX = 90;
+const SWIPE_BACK_MAX_VERTICAL_DRIFT_PX = 72;
+const SWIPE_BACK_MAX_DURATION_MS = 650;
+let swipeBackStart = null;
 
 function prefersReducedMotion() {
     return Boolean(reducedMotionQuery && reducedMotionQuery.matches);
@@ -2630,6 +2636,78 @@ function navigateWithTransition(url) {
     }
 
     navigate();
+}
+
+function shouldIgnoreSwipeBack(target) {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return Boolean(target.closest('a, button, input, textarea, select, label, .reaction-picker, .member-picker, .lightbox, .message-menu, .attachment-menu'));
+}
+
+function resetSwipeBackState() {
+    swipeBackStart = null;
+}
+
+function handleSwipeBackTouchStart(event) {
+    if (!backLink || event.touches.length !== 1) {
+        resetSwipeBackState();
+        return;
+    }
+    if (imageLightbox && !imageLightbox.hidden) {
+        resetSwipeBackState();
+        return;
+    }
+    const touch = event.touches[0];
+    if (touch.clientX > SWIPE_BACK_START_EDGE_PX || shouldIgnoreSwipeBack(event.target)) {
+        resetSwipeBackState();
+        return;
+    }
+    swipeBackStart = {
+        x: touch.clientX,
+        y: touch.clientY,
+        at: Date.now(),
+        engaged: false,
+    };
+}
+
+function handleSwipeBackTouchMove(event) {
+    if (!swipeBackStart || event.touches.length !== 1) {
+        return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - swipeBackStart.x;
+    const deltaY = Math.abs(touch.clientY - swipeBackStart.y);
+
+    if (deltaX > 12 && deltaX > deltaY * 1.2) {
+        swipeBackStart.engaged = true;
+        event.preventDefault();
+        return;
+    }
+    if (deltaY > SWIPE_BACK_MAX_VERTICAL_DRIFT_PX) {
+        resetSwipeBackState();
+    }
+}
+
+function handleSwipeBackTouchEnd(event) {
+    if (!swipeBackStart || event.changedTouches.length !== 1) {
+        resetSwipeBackState();
+        return;
+    }
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - swipeBackStart.x;
+    const deltaY = Math.abs(touch.clientY - swipeBackStart.y);
+    const elapsedMs = Date.now() - swipeBackStart.at;
+
+    const shouldNavigateBack = swipeBackStart.engaged
+        && deltaX >= SWIPE_BACK_MIN_DISTANCE_PX
+        && deltaY <= SWIPE_BACK_MAX_VERTICAL_DRIFT_PX
+        && elapsedMs <= SWIPE_BACK_MAX_DURATION_MS;
+    resetSwipeBackState();
+    if (!shouldNavigateBack) {
+        return;
+    }
+    navigateWithTransition(backLink.getAttribute('href') || './');
 }
 
 function applyTheme(theme) {
@@ -6436,6 +6514,10 @@ backLink?.addEventListener('click', (event) => {
     event.preventDefault();
     navigateWithTransition(backLink.getAttribute('href') || './');
 });
+chatShellEl?.addEventListener('touchstart', handleSwipeBackTouchStart, { passive: true });
+chatShellEl?.addEventListener('touchmove', handleSwipeBackTouchMove, { passive: false });
+chatShellEl?.addEventListener('touchend', handleSwipeBackTouchEnd, { passive: true });
+chatShellEl?.addEventListener('touchcancel', resetSwipeBackState, { passive: true });
 
 scrollToEndButton?.addEventListener('click', () => {
     scrollMessagesToEnd('smooth');
