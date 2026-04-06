@@ -1032,6 +1032,27 @@ if ($isGroupConversation) {
         .message-row.mine .message-sender {
             color: #0b5d54;
         }
+        .message-forwarded {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin: 0 0 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .message-forwarded svg {
+            width: 12px;
+            height: 12px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
         .message-text {
             white-space: pre-wrap;
             line-height: 1.45;
@@ -4090,6 +4111,7 @@ function createPendingMessage(body, type, nextReplyTarget = null) {
         body,
         audio_path: null,
         image_path: null,
+        is_forwarded: false,
         delivered_at: null,
         read_at: null,
         group_delivery: {
@@ -5259,6 +5281,7 @@ function renderMessages(messages) {
         message.image_path || '',
         message.file_path || '',
         message.file_name || '',
+        Boolean(message.is_forwarded),
         Number(message.reply_to_message_id || message.reply_reference?.id || 0),
         String(message.reply_reference?.body || ''),
         Boolean(message.attachment_expired),
@@ -5308,6 +5331,9 @@ function renderMessages(messages) {
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
+            const forwardedLabel = message.is_forwarded
+                ? '<div class="message-forwarded"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 14-5-5 5-5"></path><path d="M5 9h8a6 6 0 0 1 6 6v1"></path><path d="m14 14-5-5 5-5"></path><path d="M9 9h4"></path></svg><span>Forwarded</span></div>'
+                : '';
             const hasEditedTimestamp = Boolean(message.edited_at);
             const timeLabel = formatHumanTimestamp(hasEditedTimestamp ? message.edited_at : message.created_at);
             const editedLabel = hasEditedTimestamp ? ' · edited' : '';
@@ -5333,6 +5359,7 @@ function renderMessages(messages) {
                 <article id="message-${Number(message.id)}" class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
+                        ${forwardedLabel}
                         ${replyReference}
                         ${body}
                         ${image}
@@ -6290,6 +6317,7 @@ async function forwardMessageToUser(message, targetUserId) {
         const formData = new FormData();
         formData.append('action', 'send_image');
         formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
         formData.append('image_file', imageFile, imageFile.name);
         response = await fetch(forwardApiUrlForUser(targetId), {
             method: 'POST',
@@ -6302,6 +6330,7 @@ async function forwardMessageToUser(message, targetUserId) {
         const formData = new FormData();
         formData.append('action', 'send_file');
         formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
         formData.append('shared_file', sharedFile, sharedFile.name);
         response = await fetch(forwardApiUrlForUser(targetId), {
             method: 'POST',
@@ -6314,6 +6343,7 @@ async function forwardMessageToUser(message, targetUserId) {
         const formData = new FormData();
         formData.append('action', 'send_voice');
         formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
         formData.append('voice_note', voiceFile, voiceFile.name);
         response = await fetch(forwardApiUrlForUser(targetId), {
             method: 'POST',
@@ -6329,6 +6359,7 @@ async function forwardMessageToUser(message, targetUserId) {
             body: new URLSearchParams({
                 action: 'send_text',
                 body,
+                forwarded: 'true',
                 csrf_token: csrfToken,
             }),
         });

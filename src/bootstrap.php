@@ -582,6 +582,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             file_path TEXT,
             file_name TEXT,
             attachment_expired INTEGER NOT NULL DEFAULT 0,
+            is_forwarded INTEGER NOT NULL DEFAULT 0,
             reply_to_message_id INTEGER,
             delivered_at TEXT,
             read_at TEXT,
@@ -611,6 +612,9 @@ function initializeSqliteDatabase(PDO $pdo): void
 
     if (!in_array('attachment_expired', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!in_array('is_forwarded', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN is_forwarded INTEGER NOT NULL DEFAULT 0');
     }
 
     if (!in_array('reply_to_message_id', $columns, true)) {
@@ -859,6 +863,7 @@ function initializeSqliteDatabase(PDO $pdo): void
             image_path TEXT,
             file_path TEXT,
             file_name TEXT,
+            is_forwarded INTEGER NOT NULL DEFAULT 0,
             reply_to_message_id INTEGER,
             edited_at TEXT,
             created_at TEXT NOT NULL,
@@ -879,6 +884,9 @@ function initializeSqliteDatabase(PDO $pdo): void
     }
     if (!in_array('file_name', $groupMessageColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name TEXT');
+    }
+    if (!in_array('is_forwarded', $groupMessageColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN is_forwarded INTEGER NOT NULL DEFAULT 0');
     }
     if (!in_array('edited_at', $groupMessageColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN edited_at TEXT');
@@ -1098,6 +1106,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             file_path VARCHAR(255) NULL,
             file_name VARCHAR(255) NULL,
             attachment_expired TINYINT(1) NOT NULL DEFAULT 0,
+            is_forwarded TINYINT(1) NOT NULL DEFAULT 0,
             reply_to_message_id BIGINT UNSIGNED NULL,
             delivered_at DATETIME NULL,
             read_at DATETIME NULL,
@@ -1127,9 +1136,12 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('attachment_expired', $columns, true)) {
         $pdo->exec('ALTER TABLE messages ADD COLUMN attachment_expired TINYINT(1) NOT NULL DEFAULT 0 AFTER file_name');
     }
+    if (!in_array('is_forwarded', $columns, true)) {
+        $pdo->exec('ALTER TABLE messages ADD COLUMN is_forwarded TINYINT(1) NOT NULL DEFAULT 0 AFTER attachment_expired');
+    }
 
     if (!in_array('reply_to_message_id', $columns, true)) {
-        $pdo->exec('ALTER TABLE messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER attachment_expired');
+        $pdo->exec('ALTER TABLE messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER is_forwarded');
     }
 
     if (!in_array('delivered_at', $columns, true)) {
@@ -1303,6 +1315,7 @@ function initializeMysqlDatabase(PDO $pdo): void
             image_path VARCHAR(255) NULL,
             file_path VARCHAR(255) NULL,
             file_name VARCHAR(255) NULL,
+            is_forwarded TINYINT(1) NOT NULL DEFAULT 0,
             reply_to_message_id BIGINT UNSIGNED NULL,
             edited_at DATETIME NULL,
             created_at DATETIME NOT NULL,
@@ -1321,6 +1334,9 @@ function initializeMysqlDatabase(PDO $pdo): void
     }
     if (!in_array('file_name', $groupColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path');
+    }
+    if (!in_array('is_forwarded', $groupColumns, true)) {
+        $pdo->exec('ALTER TABLE group_messages ADD COLUMN is_forwarded TINYINT(1) NOT NULL DEFAULT 0 AFTER file_name');
     }
     if (!in_array('edited_at', $groupColumns, true)) {
         $pdo->exec('ALTER TABLE group_messages ADD COLUMN edited_at DATETIME NULL AFTER reply_to_message_id');
@@ -3561,6 +3577,7 @@ function formatMessage(array $message): array
         'file_path' => $message['file_path'] ?? null,
         'file_name' => $message['file_name'] ?? null,
         'attachment_expired' => messageHasExpiredAttachment($message),
+        'is_forwarded' => !empty($message['is_forwarded']),
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
         'reply_reference' => $replyReference,
         'delivered_at' => $message['delivered_at'] ?? null,
@@ -3853,7 +3870,7 @@ function normalizePrivateReplyTargetId(int $senderId, int $recipientId, ?int $re
     return $stmt->fetchColumn() ? $messageId : null;
 }
 
-function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $replyToMessageId = null): array|string|null
+function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $replyToMessageId = null, bool $isForwarded = false): array|string|null
 {
     purgeExpiredMessages();
 
@@ -3873,13 +3890,14 @@ function sendTextMessage(int $senderId, int $recipientId, string $body, ?int $re
     $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, reply_to_message_id, created_at)
-         VALUES (:sender_id, :recipient_id, :body, NULL, 0, :reply_to_message_id, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, :body, NULL, 0, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'body' => encryptStoredMessageText($body),
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -4587,7 +4605,7 @@ function updateGroupAvatar(int $groupId, int $actorUserId, array $file): ?string
 
     return null;
 }
-function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
+function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string|null
 {
     purgeExpiredMessages();
 
@@ -4614,13 +4632,14 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
     $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, attachment_expired, reply_to_message_id, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, 0, :reply_to_message_id, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, attachment_expired, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, :image_path, 0, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'image_path' => $relativePath,
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -4631,7 +4650,7 @@ function sendImageMessage(int $senderId, int $recipientId, array $file, ?int $re
     return findMessageById((int) db()->lastInsertId());
 }
 
-function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
+function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string|null
 {
     purgeExpiredMessages();
 
@@ -4668,13 +4687,14 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
     $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, reply_to_message_id, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, :audio_path, 0, :reply_to_message_id, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, attachment_expired, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, :audio_path, 0, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'audio_path' => $relativePath,
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -4685,7 +4705,7 @@ function sendVoiceMessage(int $senderId, int $recipientId, array $file, ?int $re
     return findMessageById((int) db()->lastInsertId());
 }
 
-function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null): array|string|null
+function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string|null
 {
     purgeExpiredMessages();
 
@@ -4726,14 +4746,15 @@ function sendFileMessage(int $senderId, int $recipientId, array $file, ?int $rep
     $replyToMessageId = normalizePrivateReplyTargetId($senderId, $recipientId, $replyToMessageId);
 
     $stmt = db()->prepare(
-        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, attachment_expired, reply_to_message_id, created_at)
-         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, 0, :reply_to_message_id, :created_at)'
+        'INSERT INTO messages (sender_id, recipient_id, body, audio_path, image_path, file_path, file_name, attachment_expired, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:sender_id, :recipient_id, NULL, NULL, NULL, :file_path, :file_name, 0, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'sender_id' => $senderId,
         'recipient_id' => $recipientId,
         'file_path' => $relativePath,
         'file_name' => mb_substr($sanitizedName, 0, 255),
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -5526,6 +5547,7 @@ function formatGroupMessage(array $message): array
         'image_path' => $message['image_path'],
         'file_path' => $message['file_path'] ?? null,
         'file_name' => $message['file_name'] ?? null,
+        'is_forwarded' => !empty($message['is_forwarded']),
         'reply_to_message_id' => $replyMessageId > 0 ? $replyMessageId : null,
         'reply_reference' => $replyReference,
         'reactions' => is_array($message['reactions'] ?? null) ? $message['reactions'] : [],
@@ -5886,7 +5908,7 @@ function normalizeGroupReplyTargetId(int $groupId, ?int $replyToMessageId): ?int
     return $stmt->fetchColumn() ? $messageId : null;
 }
 
-function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $replyToMessageId = null): array|string
+function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $replyToMessageId = null, bool $isForwarded = false): array|string
 {
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
@@ -5899,14 +5921,15 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
-         VALUES (:group_id, :sender_id, :body, NULL, NULL, NULL, NULL, :reply_to_message_id, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, :body, NULL, NULL, NULL, NULL, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $createdAt = gmdate('c');
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
         'body' => encryptStoredMessageText($trimmedBody),
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => $createdAt,
     ]);
@@ -5944,7 +5967,7 @@ function sendGroupTextMessage(int $groupId, int $userId, string $body, ?int $rep
     return $withReactions[0] ?? $formatted;
 }
 
-function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string
 {
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
@@ -5968,13 +5991,14 @@ function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $rep
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
-         VALUES (:group_id, :sender_id, NULL, :audio_path, NULL, NULL, NULL, :reply_to_message_id, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, :audio_path, NULL, NULL, NULL, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
         'audio_path' => 'storage/uploads/' . $filename,
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -5987,7 +6011,7 @@ function sendGroupVoiceMessage(int $groupId, int $userId, array $file, ?int $rep
     return $messages !== [] ? $messages[count($messages) - 1] : 'Could not send message right now.';
 }
 
-function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string
 {
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
@@ -6004,13 +6028,14 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
-         VALUES (:group_id, :sender_id, NULL, NULL, :image_path, NULL, NULL, :reply_to_message_id, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, NULL, :image_path, NULL, NULL, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
         'image_path' => (string) ($storedImage['path'] ?? ''),
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
@@ -6023,7 +6048,7 @@ function sendGroupImageMessage(int $groupId, int $userId, array $file, ?int $rep
     return $messages !== [] ? $messages[count($messages) - 1] : 'Could not send message right now.';
 }
 
-function sendGroupFileMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null): array|string
+function sendGroupFileMessage(int $groupId, int $userId, array $file, ?int $replyToMessageId = null, bool $isForwarded = false): array|string
 {
     if (!canAccessGroupConversation($groupId, $userId)) {
         return 'Group not found.';
@@ -6050,14 +6075,15 @@ function sendGroupFileMessage(int $groupId, int $userId, array $file, ?int $repl
 
     $replyToMessageId = normalizeGroupReplyTargetId($groupId, $replyToMessageId);
     $stmt = db()->prepare(
-        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, reply_to_message_id, created_at)
-         VALUES (:group_id, :sender_id, NULL, NULL, NULL, :file_path, :file_name, :reply_to_message_id, :created_at)'
+        'INSERT INTO group_messages (group_id, sender_id, body, audio_path, image_path, file_path, file_name, is_forwarded, reply_to_message_id, created_at)
+         VALUES (:group_id, :sender_id, NULL, NULL, NULL, :file_path, :file_name, :is_forwarded, :reply_to_message_id, :created_at)'
     );
     $stmt->execute([
         'group_id' => $groupId,
         'sender_id' => $userId,
         'file_path' => 'storage/uploads/' . $filename,
         'file_name' => mb_substr($sanitizedName, 0, 255),
+        'is_forwarded' => $isForwarded ? 1 : 0,
         'reply_to_message_id' => $replyToMessageId,
         'created_at' => gmdate('c'),
     ]);
