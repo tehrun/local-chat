@@ -1032,6 +1032,27 @@ if ($isGroupConversation) {
         .message-row.mine .message-sender {
             color: #0b5d54;
         }
+        .message-forwarded {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin: 0 0 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .message-forwarded svg {
+            width: 12px;
+            height: 12px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
         .message-text {
             white-space: pre-wrap;
             line-height: 1.45;
@@ -2240,6 +2261,14 @@ if ($isGroupConversation) {
                             <path d="M4 9h9a7 7 0 0 1 7 7v1"></path>
                         </svg>
                     </button>
+                    <button id="lightbox-forward" class="lightbox-button" type="button" aria-label="Forward image">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m10 14-5-5 5-5"></path>
+                            <path d="M5 9h8a6 6 0 0 1 6 6v1"></path>
+                            <path d="m14 14-5-5 5-5"></path>
+                            <path d="M9 9h4"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
@@ -2582,6 +2611,7 @@ const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localch
 const rootEl = document.documentElement;
 const backLink = document.querySelector('.back-link');
 const chatShellEl = document.querySelector('.chat-shell');
+const topbarEl = document.querySelector('.topbar');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null;
@@ -2800,6 +2830,7 @@ async function toggleMessagePin(messageId) {
 })();
 const memberPickerEl = document.getElementById('member-picker');
 const memberPickerClose = document.getElementById('member-picker-close');
+const memberPickerTitleEl = document.getElementById('member-picker-title');
 const memberPickerListEl = document.getElementById('member-picker-list');
 const memberPickerSearchInput = document.getElementById('member-picker-search-input');
 const memberPickerEmptyEl = document.getElementById('member-picker-empty');
@@ -2831,6 +2862,7 @@ const lightboxMenu = document.getElementById('lightbox-menu');
 const lightboxSave = document.getElementById('lightbox-save');
 const lightboxReact = document.getElementById('lightbox-react');
 const lightboxReply = document.getElementById('lightbox-reply');
+const lightboxForward = document.getElementById('lightbox-forward');
 const scrollToEndButton = document.getElementById('scroll-to-end-button');
 let lastFocusedElement = null;
 let renderedSignature = '';
@@ -2851,6 +2883,8 @@ let longPressTimer = null;
 let longPressHandled = false;
 let replyTarget = null;
 let editTarget = null;
+let pendingForwardMessage = null;
+let memberPickerMode = 'group-invite';
 let textSendInFlight = false;
 let textSendRetryTimer = null;
 let mediaRecorder = null;
@@ -3057,7 +3091,13 @@ function jumpToMessage(messageId, behavior = 'smooth') {
         window.location.hash = `message-${targetId}`;
         return false;
     }
-    targetRow.scrollIntoView({ block: 'center', behavior });
+    const topbarHeight = topbarEl instanceof HTMLElement ? topbarEl.offsetHeight : 0;
+    const extraTopOffset = 12;
+    const targetTop = targetRow.offsetTop - topbarHeight - extraTopOffset;
+    messagesEl.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior,
+    });
     targetRow.classList.add('reply-target-highlight');
     window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
     window.location.hash = `message-${targetId}`;
@@ -3178,8 +3218,41 @@ function availableGroupInviteCandidates() {
     });
 }
 
+function availableForwardCandidates() {
+    const query = String(memberPickerSearchInput?.value || '').trim().toLowerCase();
+    return directoryUsersState.filter((user) => {
+        if (!user || !user.can_chat || Number(user.id) === currentUserId) {
+            return false;
+        }
+        if (query === '') {
+            return true;
+        }
+        return String(user.username || '').toLowerCase().includes(query);
+    });
+}
+
 function renderMemberPicker() {
     if (!memberPickerListEl || !memberPickerEmptyEl) {
+        return;
+    }
+
+    if (memberPickerMode === 'forward') {
+        const candidates = availableForwardCandidates();
+        memberPickerListEl.innerHTML = candidates.map((user) => `
+            <button class="member-picker-item" type="button" data-forward-user-id="${Number(user.id)}">
+                <div class="member-picker-copy">
+                    <strong>${escapeHtml(user.username || '')}</strong>
+                    <span>${escapeHtml(user.presence_label || 'Friend')}</span>
+                </div>
+                <span class="mini-button primary">Send</span>
+            </button>
+        `).join('');
+
+        const query = String(memberPickerSearchInput?.value || '').trim();
+        memberPickerEmptyEl.textContent = query === ''
+            ? 'Pick a friend to forward this message.'
+            : 'No friends match your search.';
+        memberPickerEmptyEl.hidden = candidates.length > 0;
         return;
     }
 
@@ -3266,10 +3339,19 @@ function setMemberPickerOpen(isOpen) {
     document.body.style.overflow = isOpen ? 'hidden' : '';
 
     if (isOpen) {
+        if (memberPickerTitleEl) {
+            memberPickerTitleEl.textContent = memberPickerMode === 'forward' ? 'Forward to' : 'Add friends';
+        }
+        if (memberPickerSearchInput) {
+            memberPickerSearchInput.placeholder = memberPickerMode === 'forward' ? 'Search friends by name' : 'Search friends by name';
+            memberPickerSearchInput.setAttribute('aria-label', memberPickerSearchInput.placeholder);
+        }
         renderMemberPicker();
         memberPickerSearchInput?.focus();
     } else if (memberPickerSearchInput) {
         memberPickerSearchInput.value = '';
+        memberPickerMode = 'group-invite';
+        pendingForwardMessage = null;
     }
 }
 
@@ -3883,6 +3965,17 @@ function updateReplyPreviewUi() {
     replyPreviewTextEl.textContent = replyTarget.preview || 'Message';
 }
 
+function openForwardPickerByMessage(message) {
+    const messageId = Number(message?.id || 0);
+    if (!messageId) {
+        showError('Unable to forward this message right now.');
+        return;
+    }
+    pendingForwardMessage = message;
+    memberPickerMode = 'forward';
+    setMemberPickerOpen(true);
+}
+
 function setReplyTargetByMessage(message) {
     const messageId = Number(message?.id || 0);
     if (!messageId) {
@@ -4025,6 +4118,7 @@ function createPendingMessage(body, type, nextReplyTarget = null) {
         body,
         audio_path: null,
         image_path: null,
+        is_forwarded: false,
         delivered_at: null,
         read_at: null,
         group_delivery: {
@@ -4578,6 +4672,9 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     const copyButton = actionOptions.copy === false
         ? ''
         : '<button type="button" class="reaction-action" data-action="copy" aria-label="Copy message" title="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
+    const forwardButton = actionOptions.forward
+        ? '<button type="button" class="reaction-action" data-action="forward" aria-label="Forward message" title="Forward"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 14-5-5 5-5"></path><path d="M5 9h8a6 6 0 0 1 6 6v1"></path><path d="m14 14-5-5 5-5"></path><path d="M9 9h4"></path></svg></button>'
+        : '';
     const editButton = actionOptions.edit
         ? '<button type="button" class="reaction-action" data-action="edit" aria-label="Edit message" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg></button>'
         : '';
@@ -4593,7 +4690,7 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
         ? ''
         : `<button type="button" class="reaction-action" data-action="pin" aria-label="${actionOptions.pinned ? 'Unpin message' : 'Pin message'}" title="${actionOptions.pinned ? 'Unpin' : 'Pin'}">${actionOptions.pinned ? unpinIcon : pinIcon}</button>`;
     const reactionsRow = reactionButtons + removeButton;
-    const actionsRow = replyButton + copyButton + pinButton + editButton + deliveryDetailsButton + deleteButton;
+    const actionsRow = replyButton + copyButton + forwardButton + pinButton + editButton + deliveryDetailsButton + deleteButton;
     const actionRowClasses = reactionsRow !== ''
         ? 'reaction-picker-row reaction-picker-actions with-reaction-row'
         : 'reaction-picker-row reaction-picker-actions';
@@ -4633,6 +4730,13 @@ function showReactionPicker(anchorEl, messageId, existingEmoji = '', allowReacti
     picker.querySelector('button[data-action="copy"]')?.addEventListener('click', async () => {
         hideReactionPicker();
         await copyMessageById(messageId);
+    });
+    picker.querySelector('button[data-action="forward"]')?.addEventListener('click', () => {
+        const message = (window.__messagesState || []).find((item) => Number(item.id) === Number(messageId));
+        if (message) {
+            openForwardPickerByMessage(message);
+        }
+        hideReactionPicker();
     });
     picker.querySelector('button[data-action="edit"]')?.addEventListener('click', async () => {
         hideReactionPicker();
@@ -4900,6 +5004,9 @@ function openImageLightbox(src, filename, messageId = 0) {
     }
     if (lightboxReply instanceof HTMLButtonElement) {
         lightboxReply.disabled = lightboxActiveMessageId <= 0;
+    }
+    if (lightboxForward instanceof HTMLButtonElement) {
+        lightboxForward.disabled = lightboxActiveMessageId <= 0;
     }
     imageLightbox.hidden = false;
     imageLightbox.setAttribute('aria-hidden', 'false');
@@ -5181,6 +5288,7 @@ function renderMessages(messages) {
         message.image_path || '',
         message.file_path || '',
         message.file_name || '',
+        Boolean(message.is_forwarded),
         Number(message.reply_to_message_id || message.reply_reference?.id || 0),
         String(message.reply_reference?.body || ''),
         Boolean(message.attachment_expired),
@@ -5230,6 +5338,9 @@ function renderMessages(messages) {
             const senderLabel = shouldShowSender
                 ? `<div class="message-sender">${escapeHtml(message.sender_name)}</div>`
                 : '';
+            const forwardedLabel = message.is_forwarded
+                ? '<div class="message-forwarded"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 14-5-5 5-5"></path><path d="M5 9h8a6 6 0 0 1 6 6v1"></path><path d="m14 14-5-5 5-5"></path><path d="M9 9h4"></path></svg><span>Forwarded</span></div>'
+                : '';
             const hasEditedTimestamp = Boolean(message.edited_at);
             const timeLabel = formatHumanTimestamp(hasEditedTimestamp ? message.edited_at : message.created_at);
             const editedLabel = hasEditedTimestamp ? ' · edited' : '';
@@ -5255,6 +5366,7 @@ function renderMessages(messages) {
                 <article id="message-${Number(message.id)}" class="${rowClasses.join(' ')}" data-message-id="${Number(message.id)}" data-sender-id="${Number(message.sender_id)}" data-my-reaction="${escapeHtml(myReaction)}">
                     <div class="message">
                         ${senderLabel}
+                        ${forwardedLabel}
                         ${replyReference}
                         ${body}
                         ${image}
@@ -5279,6 +5391,14 @@ function renderMessages(messages) {
 
         setupVoiceNotePlayers(messagesEl);
         messagesEl.querySelectorAll('.message-row[data-message-id]').forEach((rowEl) => {
+            const messageForRow = () => {
+                const messageId = Number(rowEl.getAttribute('data-message-id') || 0);
+                if (!messageId) {
+                    return null;
+                }
+                return (window.__messagesState || []).find((item) => Number(item.id) === messageId) || null;
+            };
+            const hasImageMessage = () => Boolean(messageForRow()?.image_path);
             const canReactToRow = () => {
                 const senderId = Number(rowEl.getAttribute('data-sender-id') || 0);
                 return senderId > 0 && senderId !== currentUserId;
@@ -5316,9 +5436,11 @@ function renderMessages(messages) {
                     if (isOwnMessage()) {
                         showReactionPicker(rowEl, messageId, '', false, {
                             reply: false,
+                            forward: true,
                             pin: true,
                             pinned: isMessagePinned(messageId),
-                            edit: true,
+                            copy: !hasImageMessage(),
+                            edit: !hasImageMessage(),
                             deliveryDetails: isGroupConversation,
                             delete: true,
                         });
@@ -5332,6 +5454,8 @@ function renderMessages(messages) {
                     longPressHandled = true;
                     showReactionPicker(rowEl, messageId, existingEmoji, true, {
                         reply: true,
+                        forward: true,
+                        copy: !hasImageMessage(),
                         pin: true,
                         pinned: isMessagePinned(messageId),
                         edit: false,
@@ -5351,9 +5475,11 @@ function renderMessages(messages) {
                 if (isOwnMessage()) {
                     showReactionPicker(rowEl, messageId, '', false, {
                         reply: false,
+                        forward: true,
                         pin: true,
                         pinned: isMessagePinned(messageId),
-                        edit: true,
+                        copy: !hasImageMessage(),
+                        edit: !hasImageMessage(),
                         deliveryDetails: isGroupConversation,
                         delete: true,
                     });
@@ -5361,6 +5487,8 @@ function renderMessages(messages) {
                 }
                 const existingEmoji = String(rowEl.getAttribute('data-my-reaction') || '');
                 showReactionPicker(rowEl, messageId, existingEmoji, canReactToRow(), {
+                    forward: true,
+                    copy: !hasImageMessage(),
                     pin: true,
                     pinned: isMessagePinned(messageId),
                     delete: true,
@@ -6167,6 +6295,140 @@ async function sendSelectedImageFile(file) {
     }
 }
 
+function forwardApiUrlForUser(targetUserId) {
+    return `chat_api.php?user=${Number(targetUserId)}`;
+}
+
+async function forwardAttachmentAsFile(message, fallbackName) {
+    const messageId = Number(message?.id || 0);
+    if (messageId <= 0 || message?.attachment_expired) {
+        throw new Error('This attachment is no longer available to forward.');
+    }
+    const response = await fetch(mediaUrlForMessage(messageId), {
+        method: 'GET',
+        credentials: 'same-origin',
+    });
+    if (!response.ok) {
+        throw new Error('Could not load attachment to forward.');
+    }
+    const blob = await response.blob();
+    if (!(blob instanceof Blob) || blob.size === 0) {
+        throw new Error('Could not load attachment to forward.');
+    }
+    const fileName = String(message?.file_name || fallbackName || `forwarded-${messageId}`).trim() || `forwarded-${messageId}`;
+    return new File([blob], fileName, { type: blob.type || 'application/octet-stream', lastModified: Date.now() });
+}
+
+async function forwardMessageToUser(message, targetUserId) {
+    const targetId = Number(targetUserId || 0);
+    if (!message || targetId <= 0) {
+        throw new Error('Please choose who to forward this message to.');
+    }
+
+    const hasImage = Boolean(String(message?.image_path || '').trim());
+    const hasFile = Boolean(String(message?.file_path || '').trim());
+    const hasAudio = Boolean(String(message?.audio_path || '').trim());
+    const body = String(message?.body || '').trim();
+    let response;
+
+    if (hasImage) {
+        const imageFile = await forwardAttachmentAsFile(message, `forwarded-image-${Number(message.id || 0)}.jpg`);
+        const formData = new FormData();
+        formData.append('action', 'send_image');
+        formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
+        formData.append('image_file', imageFile, imageFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (hasFile) {
+        const sharedFile = await forwardAttachmentAsFile(message, `forwarded-file-${Number(message.id || 0)}`);
+        const formData = new FormData();
+        formData.append('action', 'send_file');
+        formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
+        formData.append('shared_file', sharedFile, sharedFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (hasAudio) {
+        const voiceFile = await forwardAttachmentAsFile(message, `forwarded-voice-${Number(message.id || 0)}.webm`);
+        const formData = new FormData();
+        formData.append('action', 'send_voice');
+        formData.append('csrf_token', csrfToken);
+        formData.append('forwarded', 'true');
+        formData.append('voice_note', voiceFile, voiceFile.name);
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: formData,
+        });
+    } else if (body !== '') {
+        response = await fetch(forwardApiUrlForUser(targetId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-CSRF-Token': csrfToken },
+            credentials: 'same-origin',
+            body: new URLSearchParams({
+                action: 'send_text',
+                body,
+                forwarded: 'true',
+                csrf_token: csrfToken,
+            }),
+        });
+    } else {
+        throw new Error('This message type cannot be forwarded.');
+    }
+
+    const payload = await response.json();
+    if (!response.ok || payload?.error) {
+        throw new Error(payload?.error || 'Could not forward message.');
+    }
+
+    if (!isGroupConversation && targetId === conversationUserId) {
+        applyConversationPayload(payload);
+        scrollMessagesToEnd();
+    }
+    return payload;
+}
+
+async function submitForwardToUser(targetUserId, targetUsername = '') {
+    if (!pendingForwardMessage) {
+        showError('Choose a message to forward first.');
+        return;
+    }
+
+    showHint('Forwarding message…');
+    activeUploadCount += 1;
+    isSending = true;
+    updateFriendshipUi();
+
+    try {
+        const normalizedTargetUserId = Number(targetUserId || 0);
+        await forwardMessageToUser(pendingForwardMessage, normalizedTargetUserId);
+        const label = String(targetUsername || `User #${Number(targetUserId || 0)}`);
+        showHint(`Forwarded to ${label}.`);
+        setMemberPickerOpen(false);
+        if (normalizedTargetUserId > 0 && (isGroupConversation || normalizedTargetUserId !== conversationUserId)) {
+            navigateWithTransition(`chat.php?user=${normalizedTargetUserId}`);
+            return;
+        }
+    } catch (error) {
+        showError(error instanceof Error ? error.message : 'Could not forward message right now.');
+    } finally {
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        isSending = textSendInFlight || pendingTextQueue.length > 0 || activeUploadCount > 0;
+        updateFriendshipUi();
+        updateActionButton();
+    }
+}
+
 async function uploadSharedFile(file) {
     if (!(file instanceof File) || file.size === 0) {
         showError('Please choose a file to share.');
@@ -6772,6 +7034,7 @@ messageDeliveryModal?.addEventListener('click', (event) => {
 addGroupMemberButton?.addEventListener('click', async () => {
     markUserInteraction();
     setHeaderMenuOpen(false);
+    memberPickerMode = 'group-invite';
     setMemberPickerOpen(true);
 });
 
@@ -6785,6 +7048,24 @@ memberPickerSearchInput?.addEventListener('input', () => {
     renderMemberPicker();
 });
 memberPickerListEl?.addEventListener('click', async (event) => {
+    if (memberPickerMode === 'forward') {
+        const target = event.target instanceof Element ? event.target.closest('[data-forward-user-id]') : null;
+        if (!target) {
+            return;
+        }
+
+        const userId = Number(target.getAttribute('data-forward-user-id') || 0);
+        const candidate = directoryUsersState.find((entry) => Number(entry.id) === userId);
+        if (!candidate || userId <= 0) {
+            return;
+        }
+
+        target.setAttribute('disabled', 'disabled');
+        await submitForwardToUser(candidate.id, candidate.username || '');
+        target.removeAttribute('disabled');
+        return;
+    }
+
     const target = event.target instanceof Element ? event.target.closest('[data-group-invite-user-id]') : null;
     if (!target) {
         return;
@@ -7026,7 +7307,6 @@ actionButton.addEventListener('click', async (event) => {
         }
         return;
     }
-
     if (isSending) {
         return;
     }
@@ -7077,6 +7357,16 @@ lightboxReply?.addEventListener('click', () => {
         setReplyTargetByMessage(message);
         closeImageLightbox();
         keepComposerFocused(true);
+    }
+});
+lightboxForward?.addEventListener('click', () => {
+    if (!lightboxActiveMessageId) {
+        return;
+    }
+    const message = (window.__messagesState || []).find((item) => Number(item.id) === lightboxActiveMessageId);
+    if (message) {
+        openForwardPickerByMessage(message);
+        closeImageLightbox();
     }
 });
 
