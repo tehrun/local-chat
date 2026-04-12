@@ -2611,6 +2611,7 @@ const muteStorageKey = !isGroupConversation && conversationUserId > 0 ? `localch
 const rootEl = document.documentElement;
 const backLink = document.querySelector('.back-link');
 const chatShellEl = document.querySelector('.chat-shell');
+const topbarEl = document.querySelector('.topbar');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null;
@@ -3090,7 +3091,13 @@ function jumpToMessage(messageId, behavior = 'smooth') {
         window.location.hash = `message-${targetId}`;
         return false;
     }
-    targetRow.scrollIntoView({ block: 'center', behavior });
+    const topbarHeight = topbarEl instanceof HTMLElement ? topbarEl.offsetHeight : 0;
+    const extraTopOffset = 12;
+    const targetTop = targetRow.offsetTop - topbarHeight - extraTopOffset;
+    messagesEl.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior,
+    });
     targetRow.classList.add('reply-target-highlight');
     window.setTimeout(() => targetRow.classList.remove('reply-target-highlight'), 1100);
     window.location.hash = `message-${targetId}`;
