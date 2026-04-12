@@ -1254,7 +1254,7 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                             <strong class="chat-name"><?= e((string) ($chatUser['name'] ?? $chatUser['username'])) ?></strong>
                                             <?php if (!empty($chatUser['is_group'])): ?>
                                                 <span class="chat-type-chip">Group</span>
-                                            <?php elseif (!empty($chatUser['blocked_by_me'])): ?>
+                                            <?php elseif (!empty($chatUser['blocked_by_me']) || !empty($chatUser['blocked_me'])): ?>
                                                 <span class="chat-type-chip blocked">Blocked</span>
                                             <?php endif; ?>
                                         </span>
@@ -1870,7 +1870,7 @@ function renderChatListEntries(users) {
                             <strong class="chat-name">${username}</strong>
                             ${chatUser.is_group
                                 ? '<span class="chat-type-chip">Group</span>'
-                                : (chatUser.blocked_by_me ? '<span class="chat-type-chip blocked">Blocked</span>' : '')}
+                                : ((chatUser.blocked_by_me || chatUser.blocked_me) ? '<span class="chat-type-chip blocked">Blocked</span>' : '')}
                         </span>
                         <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
                     </div>
