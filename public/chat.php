@@ -6403,10 +6403,15 @@ async function submitForwardToUser(targetUserId, targetUsername = '') {
     updateFriendshipUi();
 
     try {
-        await forwardMessageToUser(pendingForwardMessage, targetUserId);
+        const normalizedTargetUserId = Number(targetUserId || 0);
+        await forwardMessageToUser(pendingForwardMessage, normalizedTargetUserId);
         const label = String(targetUsername || `User #${Number(targetUserId || 0)}`);
         showHint(`Forwarded to ${label}.`);
         setMemberPickerOpen(false);
+        if (normalizedTargetUserId > 0 && (isGroupConversation || normalizedTargetUserId !== conversationUserId)) {
+            navigateWithTransition(`chat.php?user=${normalizedTargetUserId}`);
+            return;
+        }
     } catch (error) {
         showError(error instanceof Error ? error.message : 'Could not forward message right now.');
     } finally {
