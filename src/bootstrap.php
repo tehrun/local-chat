@@ -2482,8 +2482,8 @@ function unblockUser(int $blockerId, int $blockedId): ?string
 
     $stmt = db()->prepare(
         'DELETE FROM blocked_users
-         WHERE blocker_id = :blocker_id
-           AND blocked_id = :blocked_id'
+         WHERE (blocker_id = :blocker_id AND blocked_id = :blocked_id)
+            OR (blocker_id = :blocked_id AND blocked_id = :blocker_id)'
     );
     $stmt->execute([
         'blocker_id' => $blockerId,
