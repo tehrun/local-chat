@@ -815,6 +815,10 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
             letter-spacing: 0.02em;
             flex-shrink: 0;
         }
+        .chat-type-chip.blocked {
+            background: #fee4e2;
+            color: #912018;
+        }
         .chat-last-time {
             flex-shrink: 0;
             font-size: 12px;
@@ -1250,6 +1254,8 @@ $loginRequired = isset($_GET['login']) && $_GET['login'] === 'required';
                                             <strong class="chat-name"><?= e((string) ($chatUser['name'] ?? $chatUser['username'])) ?></strong>
                                             <?php if (!empty($chatUser['is_group'])): ?>
                                                 <span class="chat-type-chip">Group</span>
+                                            <?php elseif (!empty($chatUser['blocked_by_me'])): ?>
+                                                <span class="chat-type-chip blocked">Blocked</span>
                                             <?php endif; ?>
                                         </span>
                                         <span class="chat-last-time<?= ($chatUser['chat_list_time'] ?? '') !== '' ? '' : ' is-empty' ?>" data-role="chat-time"><?= e($chatUser['chat_list_time'] ?? '') ?></span>
@@ -1862,7 +1868,9 @@ function renderChatListEntries(users) {
                     <div class="chat-copy-head">
                         <span class="chat-name-row">
                             <strong class="chat-name">${username}</strong>
-                            ${chatUser.is_group ? '<span class="chat-type-chip">Group</span>' : ''}
+                            ${chatUser.is_group
+                                ? '<span class="chat-type-chip">Group</span>'
+                                : (chatUser.blocked_by_me ? '<span class="chat-type-chip blocked">Blocked</span>' : '')}
                         </span>
                         <span class="chat-last-time${chatTime ? '' : ' is-empty'}" data-role="chat-time">${chatTime}</span>
                     </div>
