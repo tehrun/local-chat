@@ -33,9 +33,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  const keepCaches = new Set([CACHE_NAME, PUSH_STATE_CACHE]);
+
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      keys.filter((key) => !keepCaches.has(key)).map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
 });
