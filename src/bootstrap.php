@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+use LocalChat\Http\Json;
+use LocalChat\Http\Request;
+use LocalChat\Infrastructure\Database;
+use LocalChat\Infrastructure\Encryption;
+use LocalChat\Infrastructure\Environment;
+use LocalChat\Infrastructure\Paths;
+use LocalChat\Security\Csrf;
+use LocalChat\Security\Headers;
+use LocalChat\Security\Session;
+
 define('BASE_PATH', dirname(__DIR__));
 define('STORAGE_PATH', BASE_PATH . '/storage');
 define('UPLOAD_PATH', STORAGE_PATH . '/uploads');
@@ -23,511 +33,44 @@ define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
 define('IMAGE_UPLOAD_TARGET_MAX_BYTES', 5 * 1024 * 1024);
 
+require_once __DIR__ . '/Infrastructure/Environment.php';
+require_once __DIR__ . '/Infrastructure/Paths.php';
+require_once __DIR__ . '/Infrastructure/Database.php';
+require_once __DIR__ . '/Infrastructure/Encryption.php';
+require_once __DIR__ . '/Security/Session.php';
+require_once __DIR__ . '/Security/Csrf.php';
+require_once __DIR__ . '/Security/Headers.php';
+require_once __DIR__ . '/Http/Json.php';
+require_once __DIR__ . '/Http/Request.php';
+
+// Temporary compatibility layer while routes migrate to module classes.
+function ensureStorageDirectories(): void { Paths::ensureStorageDirectories(); }
+function configureSession(): void { Session::configure(); }
+function installSessionHandler(): void { Session::installHandler(); }
+function sessionDiagnostics(): array { return Session::diagnostics(); }
+function applySecurityHeaders(): void { Headers::apply(); }
+function jsonEncodeFlags(): int { return Json::encodeFlags(); }
+function encodeJson(mixed $value): string { return Json::encode($value); }
+function jsonScriptValue(mixed $value): string { return Json::scriptValue($value); }
+function requirePositiveInt(array $source, string $key): int { return Request::requirePositiveInt($source, $key); }
+function isSafeStorageRelativePath(?string $relativePath): bool { return Paths::isSafeStorageRelativePath($relativePath); }
+function deleteStorageFileIfExists(?string $relativePath): void { Paths::deleteStorageFileIfExists($relativePath); }
+function csrfToken(): string { return Csrf::token(); }
+function verifyCsrfToken(?string $token): bool { return Csrf::verify($token); }
+function requireCsrfToken(): void { Csrf::require(); }
+function db(): PDO { return Database::connection(); }
+function dbConfig(): array { return Database::config(); }
+function envValue(string $key, string $default = ''): string { return Environment::value($key, $default); }
+function messageEncryptionKey(): string { return Encryption::messageEncryptionKey(); }
+function encryptStoredMessageText(string $plaintext): string { return Encryption::encryptStoredMessageText($plaintext); }
+function decryptStoredMessageText(?string $ciphertext): ?string { return Encryption::decryptStoredMessageText($ciphertext); }
+function dbDriver(): string { return Database::driver(); }
+
 ensureStorageDirectories();
 configureSession();
 installSessionHandler();
 session_start();
-
 applySecurityHeaders();
-
-
-function ensureStorageDirectories(): void
-{
-    if (!is_dir(dirname(DB_PATH))) {
-        mkdir(dirname(DB_PATH), 0777, true);
-    }
-
-    if (!is_dir(UPLOAD_PATH)) {
-        mkdir(UPLOAD_PATH, 0777, true);
-    }
-
-    if (!is_dir(TMP_UPLOAD_PATH)) {
-        mkdir(TMP_UPLOAD_PATH, 0777, true);
-    }
-
-    if (!is_dir(AVATAR_UPLOAD_PATH)) {
-        mkdir(AVATAR_UPLOAD_PATH, 0777, true);
-    }
-
-    if (!is_dir(WEB_PUSH_KEY_PATH)) {
-        mkdir(WEB_PUSH_KEY_PATH, 0777, true);
-    }
-}
-
-function configureSession(): void
-{
-    if (session_status() !== PHP_SESSION_NONE) {
-        return;
-    }
-
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || ((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
-
-    session_set_cookie_params([
-        'lifetime' => SESSION_TTL_SECONDS,
-        'httponly' => true,
-        'samesite' => 'Lax',
-        'secure' => $isHttps,
-        'path' => '/',
-    ]);
-
-    ini_set('session.use_strict_mode', '1');
-    ini_set('session.use_only_cookies', '1');
-    ini_set('session.gc_probability', '0');
-    ini_set('session.gc_divisor', '1000');
-    ini_set('session.gc_maxlifetime', (string) SESSION_TTL_SECONDS);
-    ini_set('session.cookie_lifetime', (string) SESSION_TTL_SECONDS);
-    ini_set('session.cookie_httponly', '1');
-    ini_set('session.cookie_samesite', 'Lax');
-
-    if ($isHttps) {
-        ini_set('session.cookie_secure', '1');
-    }
-}
-
-
-function installSessionHandler(): void
-{
-    static $installed = false;
-
-    if ($installed) {
-        return;
-    }
-
-    $handler = new class () implements SessionHandlerInterface {
-        public function open(string $path, string $name): bool
-        {
-            return true;
-        }
-
-        public function close(): bool
-        {
-            $this->gc(SESSION_TTL_SECONDS);
-
-            return true;
-        }
-
-        public function read(string $id): string|false
-        {
-            $this->deleteExpiredSession($id);
-
-            $stmt = db()->prepare(
-                'SELECT payload, expires_at
-                 FROM sessions
-                 WHERE id = :id
-                 LIMIT 1'
-            );
-            $stmt->execute(['id' => $id]);
-            $session = $stmt->fetch();
-
-            if (!is_array($session)) {
-                return '';
-            }
-
-            $expiresAt = strtotime((string) ($session['expires_at'] ?? ''));
-            if ($expiresAt === false || $expiresAt <= time()) {
-                $this->destroy($id);
-
-                return '';
-            }
-
-            return is_string($session['payload'] ?? null) ? $session['payload'] : '';
-        }
-
-        public function write(string $id, string $data): bool
-        {
-            $now = gmdate('c');
-            $expiresAt = gmdate('c', time() + SESSION_TTL_SECONDS);
-
-            if (dbDriver() === 'mysql') {
-                $stmt = db()->prepare(
-                    'INSERT INTO sessions (id, payload, created_at, last_seen_at, expires_at)
-                     VALUES (:id, :payload, :created_at, :last_seen_at, :expires_at)
-                     ON DUPLICATE KEY UPDATE
-                        payload = VALUES(payload),
-                        last_seen_at = VALUES(last_seen_at),
-                        expires_at = VALUES(expires_at)'
-                );
-            } else {
-                $stmt = db()->prepare(
-                    'INSERT INTO sessions (id, payload, created_at, last_seen_at, expires_at)
-                     VALUES (:id, :payload, :created_at, :last_seen_at, :expires_at)
-                     ON CONFLICT(id) DO UPDATE SET
-                        payload = excluded.payload,
-                        last_seen_at = excluded.last_seen_at,
-                        expires_at = excluded.expires_at'
-                );
-            }
-
-            $stmt->execute([
-                'id' => $id,
-                'payload' => $data,
-                'created_at' => $now,
-                'last_seen_at' => $now,
-                'expires_at' => $expiresAt,
-            ]);
-
-            return true;
-        }
-
-        public function destroy(string $id): bool
-        {
-            $stmt = db()->prepare('DELETE FROM sessions WHERE id = :id');
-            $stmt->execute(['id' => $id]);
-
-            return true;
-        }
-
-        public function gc(int $max_lifetime): int|false
-        {
-            $stmt = db()->prepare('DELETE FROM sessions WHERE expires_at <= :now');
-            $stmt->execute(['now' => gmdate('c')]);
-
-            return $stmt->rowCount();
-        }
-
-        private function deleteExpiredSession(string $id): void
-        {
-            $stmt = db()->prepare('DELETE FROM sessions WHERE id = :id AND expires_at <= :now');
-            $stmt->execute([
-                'id' => $id,
-                'now' => gmdate('c'),
-            ]);
-        }
-    };
-
-    session_set_save_handler($handler, true);
-    $installed = true;
-}
-
-function sessionDiagnostics(): array
-{
-    $sessionId = session_id();
-    $sessionRecord = null;
-
-    if ($sessionId !== '') {
-        $stmt = db()->prepare(
-            'SELECT id, created_at, last_seen_at, expires_at
-             FROM sessions
-             WHERE id = :id
-             LIMIT 1'
-        );
-        $stmt->execute(['id' => $sessionId]);
-        $row = $stmt->fetch();
-        $sessionRecord = is_array($row) ? $row : null;
-    }
-
-    return [
-        'backend' => SESSION_BACKEND_NAME,
-        'ttl_seconds' => SESSION_TTL_SECONDS,
-        'php_session_name' => session_name(),
-        'session_id' => $sessionId !== '' ? $sessionId : null,
-        'session_status' => session_status(),
-        'effective_expires_at' => $sessionRecord['expires_at'] ?? ($sessionId !== '' ? gmdate('c', time() + SESSION_TTL_SECONDS) : null),
-        'created_at' => $sessionRecord['created_at'] ?? null,
-        'last_seen_at' => $sessionRecord['last_seen_at'] ?? null,
-    ];
-}
-
-function applySecurityHeaders(): void
-{
-    header_remove('X-Powered-By');
-    header('X-Frame-Options: DENY');
-    header('X-Content-Type-Options: nosniff');
-    header('Referrer-Policy: same-origin');
-    header('Cross-Origin-Resource-Policy: same-origin');
-    header('Cross-Origin-Opener-Policy: same-origin');
-    header('Permissions-Policy: geolocation=(), camera=(), payment=(), usb=(), autoplay=(self)');
-    header('X-Permitted-Cross-Domain-Policies: none');
-    header('X-Download-Options: noopen');
-    if ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || ((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
-    ) {
-        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
-    }
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
-}
-
-
-function jsonEncodeFlags(): int
-{
-    return JSON_THROW_ON_ERROR
-        | JSON_HEX_TAG
-        | JSON_HEX_AMP
-        | JSON_HEX_APOS
-        | JSON_HEX_QUOT;
-}
-
-function encodeJson(mixed $value): string
-{
-    return json_encode($value, jsonEncodeFlags());
-}
-
-function jsonScriptValue(mixed $value): string
-{
-    return encodeJson($value);
-}
-
-function requirePositiveInt(array $source, string $key): int
-{
-    $value = $source[$key] ?? null;
-
-    if (is_int($value)) {
-        return $value > 0 ? $value : 0;
-    }
-
-    if (!is_string($value) || $value === '' || !ctype_digit($value)) {
-        return 0;
-    }
-
-    $parsed = (int) $value;
-
-    return $parsed > 0 ? $parsed : 0;
-}
-
-function isSafeStorageRelativePath(?string $relativePath): bool
-{
-    if (!is_string($relativePath) || $relativePath === '') {
-        return false;
-    }
-
-    if (str_contains($relativePath, "\0") || str_contains($relativePath, '..')) {
-        return false;
-    }
-
-    return str_starts_with($relativePath, 'storage/uploads/') || str_starts_with($relativePath, 'storage/tmp/');
-}
-
-function deleteStorageFileIfExists(?string $relativePath): void
-{
-    if (!isSafeStorageRelativePath($relativePath)) {
-        return;
-    }
-
-    $absolutePath = BASE_PATH . '/' . ltrim((string) $relativePath, '/');
-    if (!is_file($absolutePath)) {
-        return;
-    }
-
-    @unlink($absolutePath);
-}
-
-function csrfToken(): string
-{
-    if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    }
-
-    return $_SESSION['csrf_token'];
-}
-
-function verifyCsrfToken(?string $token): bool
-{
-    $sessionToken = $_SESSION['csrf_token'] ?? null;
-
-    return is_string($sessionToken)
-        && is_string($token)
-        && $sessionToken !== ''
-        && hash_equals($sessionToken, $token);
-}
-
-function requireCsrfToken(): void
-{
-    $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
-
-    if (!verifyCsrfToken(is_string($token) ? $token : null)) {
-        jsonResponse(['error' => 'Invalid CSRF token.'], 419);
-    }
-}
-
-function db(): PDO
-{
-    static $pdo = null;
-
-    if ($pdo instanceof PDO) {
-        return $pdo;
-    }
-
-    $config = dbConfig();
-
-    if ($config['driver'] === 'mysql') {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-            $config['host'],
-            $config['port'],
-            $config['name']
-        );
-        $pdo = new PDO($dsn, $config['username'], $config['password'], [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-        $pdo->exec('SET NAMES utf8mb4');
-    } else {
-        $pdo = new PDO('sqlite:' . DB_PATH);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $pdo->exec('PRAGMA busy_timeout = 5000');
-        $pdo->exec('PRAGMA journal_mode = WAL');
-        $pdo->exec('PRAGMA synchronous = NORMAL');
-    }
-
-    initializeDatabase($pdo);
-
-    return $pdo;
-}
-
-function dbConfig(): array
-{
-    $driver = strtolower(trim((string) envValue('CHAT_DB_DRIVER', 'sqlite')));
-
-    if ($driver === 'mysql') {
-        return [
-            'driver' => 'mysql',
-            'host' => trim((string) envValue('CHAT_DB_HOST', DEFAULT_DB_HOST)),
-            'port' => trim((string) envValue('CHAT_DB_PORT', DEFAULT_DB_PORT)),
-            'name' => trim((string) envValue('CHAT_DB_NAME', '')),
-            'username' => trim((string) envValue('CHAT_DB_USER', '')),
-            'password' => (string) envValue('CHAT_DB_PASS', ''),
-        ];
-    }
-
-    return ['driver' => 'sqlite'];
-}
-
-function envValue(string $key, string $default = ''): string
-{
-    $value = getenv($key);
-
-    return $value === false ? $default : $value;
-}
-
-function messageEncryptionKey(): string
-{
-    static $key = null;
-
-    if (is_string($key)) {
-        return $key;
-    }
-
-    $configured = trim((string) envValue('CHAT_MESSAGE_ENCRYPTION_KEY', ''));
-    if ($configured !== '') {
-        $decoded = base64_decode($configured, true);
-        if (is_string($decoded) && strlen($decoded) >= 32) {
-            $key = substr($decoded, 0, 32);
-            return $key;
-        }
-
-        if (strlen($configured) >= 32) {
-            $key = substr($configured, 0, 32);
-            return $key;
-        }
-    }
-
-    if (is_file(MESSAGE_ENCRYPTION_KEY_PATH)) {
-        $stored = trim((string) file_get_contents(MESSAGE_ENCRYPTION_KEY_PATH));
-        $decoded = base64_decode($stored, true);
-        if (is_string($decoded) && strlen($decoded) >= 32) {
-            $key = substr($decoded, 0, 32);
-            return $key;
-        }
-    }
-
-    $generated = random_bytes(32);
-    file_put_contents(MESSAGE_ENCRYPTION_KEY_PATH, base64_encode($generated), LOCK_EX);
-    @chmod(MESSAGE_ENCRYPTION_KEY_PATH, 0600);
-    $key = $generated;
-
-    return $key;
-}
-
-function encryptStoredMessageText(string $plaintext): string
-{
-    if ($plaintext === '') {
-        return '';
-    }
-
-    $key = messageEncryptionKey();
-
-    if (function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_encrypt')) {
-        $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-        $ciphertext = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($plaintext, '', $nonce, $key);
-
-        return 'enc::xchacha20:' . base64_encode($nonce . $ciphertext);
-    }
-
-    $nonce = random_bytes(12);
-    $tag = '';
-    $ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $nonce, $tag);
-    if (!is_string($ciphertext) || strlen($tag) !== 16) {
-        return $plaintext;
-    }
-
-    return 'enc::aes256gcm:' . base64_encode($nonce . $tag . $ciphertext);
-}
-
-function decryptStoredMessageText(?string $ciphertext): ?string
-{
-    if (!is_string($ciphertext) || $ciphertext === '') {
-        return $ciphertext;
-    }
-
-    if (!str_starts_with($ciphertext, 'enc::')) {
-        return $ciphertext;
-    }
-
-    $parts = explode(':', $ciphertext, 4);
-    if (count($parts) !== 4) {
-        return '[encrypted message]';
-    }
-
-    $algorithm = $parts[2];
-    $payload = base64_decode($parts[3], true);
-    if (!is_string($payload)) {
-        return '[encrypted message]';
-    }
-
-    $key = messageEncryptionKey();
-
-    if ($algorithm === 'xchacha20' && function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_decrypt')) {
-        $nonceLength = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
-        if (strlen($payload) <= $nonceLength) {
-            return '[encrypted message]';
-        }
-        $nonce = substr($payload, 0, $nonceLength);
-        $encrypted = substr($payload, $nonceLength);
-        $plaintext = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt($encrypted, '', $nonce, $key);
-
-        return is_string($plaintext) ? $plaintext : '[encrypted message]';
-    }
-
-    if ($algorithm === 'aes256gcm') {
-        if (strlen($payload) <= 28) {
-            return '[encrypted message]';
-        }
-        $nonce = substr($payload, 0, 12);
-        $tag = substr($payload, 12, 16);
-        $encrypted = substr($payload, 28);
-        $plaintext = openssl_decrypt($encrypted, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $nonce, $tag);
-
-        return is_string($plaintext) ? $plaintext : '[encrypted message]';
-    }
-
-    return '[encrypted message]';
-}
-
-function dbDriver(): string
-{
-    static $driver = null;
-
-    if (is_string($driver)) {
-        return $driver;
-    }
-
-    $driver = dbConfig()['driver'];
-
-    return $driver;
-}
 
 function initializeDatabase(PDO $pdo): void
 {
