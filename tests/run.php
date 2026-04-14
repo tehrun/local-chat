@@ -2,14 +2,22 @@
 
 declare(strict_types=1);
 
-$testFiles = [
-    ...glob(__DIR__ . '/unit/Security/*.php') ?: [],
-    ...glob(__DIR__ . '/unit/Infrastructure/*.php') ?: [],
-    ...glob(__DIR__ . '/unit/Domain/*.php') ?: [],
-    ...glob(__DIR__ . '/integration/*.php') ?: [],
-];
+$unitSecurityFiles = glob(__DIR__ . '/unit/Security/*.php') ?: [];
+$unitInfrastructureFiles = glob(__DIR__ . '/unit/Infrastructure/*.php') ?: [];
+$unitDomainFiles = glob(__DIR__ . '/unit/Domain/*.php') ?: [];
+$integrationFiles = glob(__DIR__ . '/integration/*.php') ?: [];
 
-sort($testFiles);
+sort($unitSecurityFiles);
+sort($unitInfrastructureFiles);
+sort($unitDomainFiles);
+sort($integrationFiles);
+
+$testFiles = [
+    ...$unitSecurityFiles,
+    ...$unitInfrastructureFiles,
+    ...$unitDomainFiles,
+    ...$integrationFiles,
+];
 
 $tests = [];
 
@@ -25,7 +33,12 @@ foreach ($testFiles as $testFile) {
             throw new RuntimeException(sprintf('Test "%s" in %s is not callable.', (string) $name, $testFile));
         }
 
-        $tests[(string) $name] = $test;
+        $testName = (string) $name;
+        if (isset($tests[$testName])) {
+            throw new RuntimeException(sprintf('Duplicate test name "%s" detected in %s.', $testName, $testFile));
+        }
+
+        $tests[$testName] = $test;
     }
 }
 

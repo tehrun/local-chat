@@ -25,6 +25,7 @@ return [
     'deleteStorageFileIfExists deletes safe files and ignores unsafe paths' => static function (): void {
         $safeRelative = 'storage/uploads/test-delete-' . bin2hex(random_bytes(4)) . '.txt';
         $safeAbsolute = BASE_PATH . '/' . $safeRelative;
+        @mkdir(dirname($safeAbsolute), 0777, true);
         file_put_contents($safeAbsolute, 'temporary data');
         assertTrue(is_file($safeAbsolute));
 
@@ -127,6 +128,8 @@ return [
     },
 
     'message encryption round-trips plaintext and leaves empty untouched' => static function (): void {
+        putenv('CHAT_MESSAGE_ENCRYPTION_KEY=' . base64_encode(random_bytes(32)));
+
         assertSameValue(encryptStoredMessageText(''), '');
 
         $plain = 'secret message ' . bin2hex(random_bytes(4));
@@ -136,6 +139,8 @@ return [
 
         assertSameValue(decryptStoredMessageText($encrypted), $plain);
         assertSameValue(decryptStoredMessageText('plain text'), 'plain text');
+
+        putenv('CHAT_MESSAGE_ENCRYPTION_KEY');
     },
 
     'decryptStoredMessageText handles malformed encrypted payloads' => static function (): void {
