@@ -42,6 +42,7 @@ require_once __DIR__ . '/Security/Csrf.php';
 require_once __DIR__ . '/Security/Headers.php';
 require_once __DIR__ . '/Http/Json.php';
 require_once __DIR__ . '/Http/Request.php';
+require_once __DIR__ . '/Http/Api/ChatApiDispatcher.php';
 require_once __DIR__ . '/Http/View.php';
 require_once __DIR__ . '/Http/Controller/HomeController.php';
 require_once __DIR__ . '/Http/Controller/ChatController.php';
