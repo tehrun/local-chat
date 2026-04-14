@@ -2,7 +2,10 @@
   "name": "local-chat-frontend-tooling",
   "private": true,
   "scripts": {
-    "lint:js": "./scripts/frontend_syntax_check.sh",
+    "lint:js": "eslint \"public/assets/js/**/*.js\"",
     "lint:frontend": "npm run lint:js"
+  },
+  "devDependencies": {
+    "eslint": "^9.25.1"
   }
 }

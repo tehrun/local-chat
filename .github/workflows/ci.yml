@@ -71,6 +71,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install frontend tooling dependencies
+        run: npm install
+
       - name: Lint frontend assets
         run: npm run lint:frontend
 
