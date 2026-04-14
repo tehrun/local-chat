@@ -5,6 +5,8 @@ const APP_SHELL = [
   'icons/icon.svg',
 ];
 const PUSH_CONFIG_URL = './__push_config__';
+const PUSH_STATE_CACHE = 'local-chat-push-state-v1';
+const PUSH_STATE_URL = './__push_state__';
 
 function shouldHandleRequest(request) {
   if (request.method !== 'GET') {
@@ -133,59 +135,143 @@ async function fetchPushNotificationPayload() {
   }
 
   const data = await response.json();
-  return data?.payload || { chat_users: [] };
+  const payload = data?.payload || {};
+
+  return {
+    chat_users: Array.isArray(payload.chat_users) ? payload.chat_users : [],
+    incoming_requests: Array.isArray(payload.incoming_requests) ? payload.incoming_requests : [],
+    outgoing_request_updates: Array.isArray(payload.outgoing_request_updates) ? payload.outgoing_request_updates : [],
+  };
 }
 
-async function showBackgroundMessageNotifications() {
+async function readPushNotificationState() {
+  try {
+    const cache = await caches.open(PUSH_STATE_CACHE);
+    const response = await cache.match(PUSH_STATE_URL);
+    if (!response) {
+      return {
+        chat_users: [],
+        incoming_requests: [],
+        outgoing_request_updates: [],
+      };
+    }
+
+    const payload = await response.json();
+    return {
+      chat_users: Array.isArray(payload?.chat_users) ? payload.chat_users : [],
+      incoming_requests: Array.isArray(payload?.incoming_requests) ? payload.incoming_requests : [],
+      outgoing_request_updates: Array.isArray(payload?.outgoing_request_updates) ? payload.outgoing_request_updates : [],
+    };
+  } catch (error) {
+    return {
+      chat_users: [],
+      incoming_requests: [],
+      outgoing_request_updates: [],
+    };
+  }
+}
+
+async function writePushNotificationState(payload) {
+  const cache = await caches.open(PUSH_STATE_CACHE);
+  await cache.put(PUSH_STATE_URL, new Response(JSON.stringify(payload), {
+    headers: { 'Content-Type': 'application/json' },
+  }));
+}
+
+async function showBackgroundActivityNotifications() {
   const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
   if (clientList.length > 0) {
     return;
   }
 
+  let payload;
   try {
-    const payload = await fetchPushNotificationPayload();
-    const chatUsers = Array.isArray(payload?.chat_users) ? payload.chat_users : [];
-
-    if (chatUsers.length === 0) {
-      await self.registration.showNotification('New message', {
-        body: 'You have a new message in Local Chat.',
-        icon: 'icons/icon.svg',
-        tag: 'chat-message-generic',
-        renotify: true,
-        data: { url: './' },
-      });
-      return;
-    }
-
-    await Promise.all(chatUsers.map((chatUser) => {
-      const userId = Number(chatUser?.id || 0);
-      const username = String(chatUser?.username || 'Someone');
-      const unseenCount = Number(chatUser?.unseen_count || 0);
-      const body = unseenCount === 1
-        ? `${username} sent you a new message.`
-        : `${username} sent you ${unseenCount} new messages.`;
-
-      return self.registration.showNotification('New message', {
-        body,
-        icon: 'icons/icon.svg',
-        tag: userId > 0 ? `chat-message-${userId}` : 'chat-message-generic',
-        renotify: true,
-        data: { url: userId > 0 ? `chat.php?user=${userId}` : './' },
-      });
-    }));
+    payload = await fetchPushNotificationPayload();
   } catch (error) {
-    await self.registration.showNotification('New message', {
-      body: 'Open Local Chat to view your latest messages.',
+    await self.registration.showNotification('New activity', {
+      body: 'Open Local Chat to view your latest updates.',
       icon: 'icons/icon.svg',
-      tag: 'chat-message-generic',
+      tag: 'local-chat-activity',
       renotify: true,
       data: { url: './' },
     });
+    return;
   }
+
+  const previousState = await readPushNotificationState();
+  const previousMessageCounts = new Map((previousState.chat_users || []).map((chatUser) => [String(chatUser?.id || ''), Number(chatUser?.unseen_count || 0)]));
+  const previousIncomingIds = new Set((previousState.incoming_requests || []).map((request) => String(request?.id || request?.sender_id || '')));
+  const previousResponseKeys = new Set((previousState.outgoing_request_updates || []).map((update) => `${update?.id || ''}:${update?.status || ''}:${update?.responded_at || ''}`));
+  const notificationTasks = [];
+
+  for (const chatUser of payload.chat_users) {
+    const userId = Number(chatUser?.id || 0);
+    const username = String(chatUser?.username || 'Someone');
+    const unseenCount = Number(chatUser?.unseen_count || 0);
+    const previousUnseenCount = previousMessageCounts.get(String(userId)) || 0;
+    const increaseCount = unseenCount - previousUnseenCount;
+
+    if (increaseCount <= 0) {
+      continue;
+    }
+
+    const body = increaseCount === 1
+      ? `${username} sent you a new message.`
+      : `${username} sent you ${increaseCount} new messages.`;
+
+    notificationTasks.push(self.registration.showNotification('New message', {
+      body,
+      icon: 'icons/icon.svg',
+      tag: userId > 0 ? `chat-message-${userId}` : 'chat-message-generic',
+      renotify: true,
+      data: { url: userId > 0 ? `chat.php?user=${userId}` : './' },
+    }));
+  }
+
+  for (const request of payload.incoming_requests) {
+    const requestId = String(request?.id || request?.sender_id || '');
+    if (!requestId || previousIncomingIds.has(requestId)) {
+      continue;
+    }
+
+    const senderName = String(request?.sender_name || 'Someone');
+    notificationTasks.push(self.registration.showNotification('New friend request', {
+      body: `${senderName} wants to add you as a friend.`,
+      icon: 'icons/icon.svg',
+      tag: `friend-request-${requestId}`,
+      renotify: true,
+      data: { url: './' },
+    }));
+  }
+
+  for (const update of payload.outgoing_request_updates) {
+    const status = String(update?.status || '');
+    const responseKey = `${update?.id || ''}:${status}:${update?.responded_at || ''}`;
+    if (!responseKey || previousResponseKeys.has(responseKey) || (status !== 'accepted' && status !== 'rejected')) {
+      continue;
+    }
+
+    const recipientName = String(update?.recipient_name || 'Someone');
+    const accepted = status === 'accepted';
+    const recipientId = Number(update?.recipient_id || 0);
+
+    notificationTasks.push(self.registration.showNotification(accepted ? 'Friend request accepted' : 'Friend request rejected', {
+      body: accepted
+        ? `${recipientName} accepted your friend request.`
+        : `${recipientName} rejected your friend request.`,
+      icon: 'icons/icon.svg',
+      tag: `friend-request-response-${update?.id || recipientId || recipientName}`,
+      renotify: true,
+      data: { url: accepted && recipientId > 0 ? `./chat.php?user=${recipientId}` : './' },
+    }));
+  }
+
+  await Promise.all(notificationTasks);
+  await writePushNotificationState(payload);
 }
 
 self.addEventListener('push', (event) => {
-  event.waitUntil(showBackgroundMessageNotifications());
+  event.waitUntil(showBackgroundActivityNotifications());
 });
 
 async function refreshPushSubscription(event) {

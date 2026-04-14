@@ -26,6 +26,9 @@ jobs:
             -not -path './storage/*' \
             -print0 | xargs -0 -n1 php -l
 
+      - name: Verify static asset copies are synchronized
+        run: ./scripts/sync_static_assets.sh check
+
   tests:
     runs-on: ubuntu-latest
     needs: lint
