@@ -42,6 +42,9 @@ require_once __DIR__ . '/Security/Csrf.php';
 require_once __DIR__ . '/Security/Headers.php';
 require_once __DIR__ . '/Http/Json.php';
 require_once __DIR__ . '/Http/Request.php';
+require_once __DIR__ . '/Http/View.php';
+require_once __DIR__ . '/Http/Controller/HomeController.php';
+require_once __DIR__ . '/Http/Controller/ChatController.php';
 
 // Temporary compatibility layer while routes migrate to module classes.
 function ensureStorageDirectories(): void { Paths::ensureStorageDirectories(); }
@@ -53,6 +56,7 @@ function jsonEncodeFlags(): int { return Json::encodeFlags(); }
 function encodeJson(mixed $value): string { return Json::encode($value); }
 function jsonScriptValue(mixed $value): string { return Json::scriptValue($value); }
 function requirePositiveInt(array $source, string $key): int { return Request::requirePositiveInt($source, $key); }
+function render(string $template, array $viewModel = []): void { \LocalChat\Http\View::render($template, $viewModel); }
 function isSafeStorageRelativePath(?string $relativePath): bool { return Paths::isSafeStorageRelativePath($relativePath); }
 function deleteStorageFileIfExists(?string $relativePath): void { Paths::deleteStorageFileIfExists($relativePath); }
 function csrfToken(): string { return Csrf::token(); }
