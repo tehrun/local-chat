@@ -1,0 +1,8 @@
+{
+  "name": "local-chat-frontend-tooling",
+  "private": true,
+  "scripts": {
+    "lint:js": "./scripts/frontend_syntax_check.sh",
+    "lint:frontend": "npm run lint:js"
+  }
+}
