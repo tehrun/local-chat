@@ -33,9 +33,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  const keepCaches = new Set([CACHE_NAME, PUSH_STATE_CACHE]);
+
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      keys.filter((key) => !keepCaches.has(key)).map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
 });
@@ -180,21 +182,27 @@ async function writePushNotificationState(payload) {
 
 async function showBackgroundActivityNotifications() {
   const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-  if (clientList.length > 0) {
-    return;
-  }
+  const hasActiveClients = clientList.length > 0;
 
   let payload;
   try {
     payload = await fetchPushNotificationPayload();
   } catch (error) {
-    await self.registration.showNotification('New activity', {
-      body: 'Open Local Chat to view your latest updates.',
-      icon: 'icons/icon.svg',
-      tag: 'local-chat-activity',
-      renotify: true,
-      data: { url: './' },
-    });
+    if (!hasActiveClients) {
+      await self.registration.showNotification('New activity', {
+        body: 'Open Local Chat to view your latest updates.',
+        icon: 'icons/icon.svg',
+        tag: 'local-chat-activity',
+        renotify: true,
+        data: { url: './' },
+      });
+    }
+
+    return;
+  }
+
+  if (hasActiveClients) {
+    await writePushNotificationState(payload);
     return;
   }
 

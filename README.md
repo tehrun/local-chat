@@ -58,7 +58,21 @@ If `CHAT_DB_DRIVER` is omitted, the app continues using SQLite at `storage/db/ch
 
 ## cPanel deployment
 
-To host the project from a subdirectory such as `https://example.com/chat`, upload the repository so the repository root is served from that `/chat` folder. The root now includes wrapper entry points (`index.php`, `chat.php`, API endpoints, `manifest.json`, `sw.js`, and `icons/`) that forward to the existing `public/` implementation while keeping URLs relative to the current directory.
+This project uses `public/` as the canonical static asset directory. `public/sw.js` and `public/manifest.json` are the source-of-truth files. Root-level `sw.js` and `manifest.json` are generated deployment copies for hosts that serve the repository root directly (for example, cPanel subdirectory installs like `https://example.com/chat`).
+
+Before packaging or deploying, regenerate those root copies from canonical files:
+
+```bash
+./scripts/sync_static_assets.sh sync
+```
+
+CI also enforces that generated root copies match `public/*` exactly:
+
+```bash
+./scripts/sync_static_assets.sh check
+```
+
+For subdirectory deployment (`/chat`), upload the repository so the repository root is served from that `/chat` folder. Keep PHP wrappers at the root (`index.php`, `chat.php`, API endpoints, etc.) and generated `sw.js`/`manifest.json` in place so service worker and PWA URLs remain consistent for clients installed from the subdirectory path.
 
 ## Testing
 
@@ -66,6 +80,7 @@ Run the local checks:
 
 ```bash
 find . -type f -name '*.php' -not -path './storage/*' -print0 | xargs -0 -n1 php -l
+./scripts/sync_static_assets.sh check
 php tests/run.php
 mkdir -p build && tar -czf build/local-chat.tar.gz --exclude-vcs --exclude='./storage/*' --exclude='./build/*' .
 ```
