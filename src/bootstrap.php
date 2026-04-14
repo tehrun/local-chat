@@ -71,11 +71,13 @@ function encryptStoredMessageText(string $plaintext): string { return Encryption
 function decryptStoredMessageText(?string $ciphertext): ?string { return Encryption::decryptStoredMessageText($ciphertext); }
 function dbDriver(): string { return Database::driver(); }
 
-ensureStorageDirectories();
-configureSession();
-installSessionHandler();
-session_start();
-applySecurityHeaders();
+if (!defined('LOCAL_CHAT_SKIP_APP_INIT') || LOCAL_CHAT_SKIP_APP_INIT !== true) {
+    ensureStorageDirectories();
+    configureSession();
+    installSessionHandler();
+    session_start();
+    applySecurityHeaders();
+}
 
 function initializeDatabase(PDO $pdo): void
 {
