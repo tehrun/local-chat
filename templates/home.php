@@ -287,6 +287,7 @@
             <form method="post" class="profile-modal-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                <input type="hidden" id="profile-remove-avatar-input" name="remove_avatar" value="0">
                 <div class="profile-avatar-upload">
                     <div class="profile-avatar-preview" id="profile-avatar-preview" aria-hidden="true">
                         <?php if (!empty($user['avatar_path'])): ?>
@@ -298,13 +299,17 @@
                     <div class="profile-avatar-copy">
                         <div>
                             <button class="mini-button secondary" id="profile-avatar-choose" type="button">Choose photo</button>
-                            <button class="mini-button danger" id="profile-avatar-remove" type="button"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>Remove photo</button>
+                            <button class="mini-button danger icon-button" id="profile-avatar-remove" type="button" aria-label="Remove photo" title="Remove photo"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                    <path d="M3 6h18"></path>
+                                    <path d="M8 6V4h8v2"></path>
+                                    <path d="m7 6 1 14h8l1-14"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                </svg>
+                            </button>
                             <input id="profile-avatar-file-input" type="file" name="avatar_file" accept="image/*" hidden>
                         </div>
-                        <label class="profile-avatar-remove-toggle"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>
-                            <input id="profile-remove-avatar-input" type="checkbox" name="remove_avatar" value="1">
-                            Remove current photo when saving
-                        </label>
                         <p class="profile-avatar-file" id="profile-avatar-file-name">JPG, PNG, GIF, WEBP, HEIC/HEIF • up to 8MB.</p>
                     </div>
                 </div>

@@ -51,7 +51,6 @@ const profileAvatarFileName = document.getElementById('profile-avatar-file-name'
 const profileModalSaveButton = document.getElementById('profile-modal-save');
 const profileAvatarRemoveButton = document.getElementById('profile-avatar-remove');
 const profileRemoveAvatarInput = document.getElementById('profile-remove-avatar-input');
-const profileAvatarRemoveToggle = profileRemoveAvatarInput?.closest('.profile-avatar-remove-toggle') || null;
 const avatarLightbox = document.getElementById('avatar-lightbox');
 const avatarLightboxImage = document.getElementById('avatar-lightbox-image');
 const avatarLightboxCloseButton = document.getElementById('avatar-lightbox-close');
@@ -142,9 +141,8 @@ function updateProfileAvatarPreview(file) {
     profileAvatarPreview.innerHTML = `<img src="${objectUrl}" alt="">`;
     profileAvatarFileName.textContent = `${file.name} • ${(file.size / (1024 * 1024)).toFixed(2)}MB`;
     profileAvatarRemoveButton?.removeAttribute('hidden');
-    profileAvatarRemoveToggle?.removeAttribute('hidden');
     if (profileRemoveAvatarInput instanceof HTMLInputElement) {
-        profileRemoveAvatarInput.checked = false;
+        profileRemoveAvatarInput.value = '0';
     }
     window.setTimeout(() => {
         profileAvatarPreview.classList.remove('is-updating');
@@ -1137,11 +1135,10 @@ profileAvatarRemoveButton?.addEventListener('click', () => {
         profileAvatarFileInput.value = '';
     }
     if (profileRemoveAvatarInput instanceof HTMLInputElement) {
-        profileRemoveAvatarInput.checked = true;
+        profileRemoveAvatarInput.value = '1';
     }
     clearProfileAvatarPreviewToInitials();
     profileAvatarRemoveButton.setAttribute('hidden', 'hidden');
-    profileAvatarRemoveToggle?.setAttribute('hidden', 'hidden');
 });
 profileModalForm?.addEventListener('submit', () => {
     if (profileModalSaveButton) {
