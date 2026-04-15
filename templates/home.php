@@ -287,7 +287,6 @@
             <form method="post" class="profile-modal-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
-                <input type="hidden" id="profile-remove-avatar-input" name="remove_avatar" value="0">
                 <div class="profile-avatar-upload">
                     <div class="profile-avatar-preview" id="profile-avatar-preview" aria-hidden="true">
                         <?php if (!empty($user['avatar_path'])): ?>
@@ -302,6 +301,10 @@
                             <button class="mini-button danger" id="profile-avatar-remove" type="button"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>Remove photo</button>
                             <input id="profile-avatar-file-input" type="file" name="avatar_file" accept="image/*" hidden>
                         </div>
+                        <label class="profile-avatar-remove-toggle"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>
+                            <input id="profile-remove-avatar-input" type="checkbox" name="remove_avatar" value="1">
+                            Remove current photo when saving
+                        </label>
                         <p class="profile-avatar-file" id="profile-avatar-file-name">JPG, PNG, GIF, WEBP, HEIC/HEIF • up to 8MB.</p>
                     </div>
                 </div>

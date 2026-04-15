@@ -51,6 +51,7 @@ const profileAvatarFileName = document.getElementById('profile-avatar-file-name'
 const profileModalSaveButton = document.getElementById('profile-modal-save');
 const profileAvatarRemoveButton = document.getElementById('profile-avatar-remove');
 const profileRemoveAvatarInput = document.getElementById('profile-remove-avatar-input');
+const profileAvatarRemoveToggle = profileRemoveAvatarInput?.closest('.profile-avatar-remove-toggle') || null;
 const avatarLightbox = document.getElementById('avatar-lightbox');
 const avatarLightboxImage = document.getElementById('avatar-lightbox-image');
 const avatarLightboxCloseButton = document.getElementById('avatar-lightbox-close');
@@ -141,8 +142,9 @@ function updateProfileAvatarPreview(file) {
     profileAvatarPreview.innerHTML = `<img src="${objectUrl}" alt="">`;
     profileAvatarFileName.textContent = `${file.name} • ${(file.size / (1024 * 1024)).toFixed(2)}MB`;
     profileAvatarRemoveButton?.removeAttribute('hidden');
-    if (profileRemoveAvatarInput) {
-        profileRemoveAvatarInput.value = '0';
+    profileAvatarRemoveToggle?.removeAttribute('hidden');
+    if (profileRemoveAvatarInput instanceof HTMLInputElement) {
+        profileRemoveAvatarInput.checked = false;
     }
     window.setTimeout(() => {
         profileAvatarPreview.classList.remove('is-updating');
@@ -1134,11 +1136,12 @@ profileAvatarRemoveButton?.addEventListener('click', () => {
     if (profileAvatarFileInput) {
         profileAvatarFileInput.value = '';
     }
-    if (profileRemoveAvatarInput) {
-        profileRemoveAvatarInput.value = '1';
+    if (profileRemoveAvatarInput instanceof HTMLInputElement) {
+        profileRemoveAvatarInput.checked = true;
     }
     clearProfileAvatarPreviewToInitials();
     profileAvatarRemoveButton.setAttribute('hidden', 'hidden');
+    profileAvatarRemoveToggle?.setAttribute('hidden', 'hidden');
 });
 profileModalForm?.addEventListener('submit', () => {
     if (profileModalSaveButton) {
@@ -1153,34 +1156,21 @@ profileModal?.querySelectorAll('input').forEach((input) => {
         }, 80);
     });
 });
-chatListEl?.addEventListener('click', (event) => {
+document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
         return;
     }
 
-    const avatarImage = target.closest('.avatar img');
+    const avatarImage = target.closest('.avatar img, .topbar-peer-avatar img');
     if (!(avatarImage instanceof HTMLImageElement)) {
         return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-    setAvatarLightboxOpen(avatarImage.currentSrc || avatarImage.src || '');
-});
-friendRequestListEl?.addEventListener('click', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-        return;
+    if (avatarImage.closest('a, button')) {
+        event.preventDefault();
+        event.stopPropagation();
     }
-
-    const avatarImage = target.closest('.avatar img');
-    if (!(avatarImage instanceof HTMLImageElement)) {
-        return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
     setAvatarLightboxOpen(avatarImage.currentSrc || avatarImage.src || '');
 });
 avatarLightboxCloseButton?.addEventListener('click', closeAvatarLightbox);
