@@ -75,8 +75,7 @@ final class HomeController
                     (string) ($_POST['username'] ?? ''),
                     isset($_POST['name']) ? (string) $_POST['name'] : null,
                     isset($_POST['family_name']) ? (string) $_POST['family_name'] : null,
-                    $_FILES['avatar_file'] ?? null,
-                    (string) ($_POST['remove_avatar'] ?? '0') === '1'
+                    $_FILES['avatar_file'] ?? null
                 );
 
                 if ($error !== null) {

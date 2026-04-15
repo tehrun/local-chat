@@ -407,12 +407,6 @@
             flex-direction: column;
             gap: 6px;
         }
-        .profile-avatar-copy > div {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
         .profile-avatar-copy p {
             margin: 0;
             font-size: 12px;
@@ -437,44 +431,6 @@
         }
         .profile-modal[hidden] {
             display: none !important;
-        }
-        .avatar-lightbox {
-            position: fixed;
-            inset: 0;
-            z-index: 40;
-            background: rgba(0, 0, 0, 0.88);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 18px;
-        }
-        .avatar-lightbox[hidden] {
-            display: none !important;
-        }
-        .avatar-lightbox-image {
-            width: min(90vw, 460px);
-            max-height: min(85vh, 620px);
-            border-radius: 20px;
-            object-fit: contain;
-            background: rgba(255, 255, 255, 0.06);
-            box-shadow: var(--shadow);
-        }
-        .avatar-lightbox-close {
-            position: absolute;
-            top: max(env(safe-area-inset-top), 10px);
-            right: max(env(safe-area-inset-right), 10px);
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
-            border: 0;
-            background: rgba(255, 255, 255, 0.12);
-            color: #fff;
-            font-size: 30px;
-            line-height: 1;
-            cursor: pointer;
-        }
-        .avatar-lightbox-close:hover {
-            background: rgba(255, 255, 255, 0.22);
         }
         .theme-switch {
             appearance: none;
@@ -685,7 +641,6 @@
             height: 100%;
             object-fit: cover;
             display: block;
-            cursor: zoom-in;
         }
         .presence-badge {
             display: inline-flex;

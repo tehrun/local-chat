@@ -2796,14 +2796,7 @@ function userDisplayName(array $user): string
     return trim((string) ($user['username'] ?? ''));
 }
 
-function updateUserProfile(
-    int $userId,
-    string $username,
-    ?string $name,
-    ?string $familyName,
-    ?array $avatarFile = null,
-    bool $removeAvatar = false
-): ?string
+function updateUserProfile(int $userId, string $username, ?string $name, ?string $familyName, ?array $avatarFile = null): ?string
 {
     $normalizedUsername = trim($username);
     if ($normalizedUsername === '' || strlen($normalizedUsername) < 3) {
@@ -2833,24 +2826,13 @@ function updateUserProfile(
         return 'Family name must be 100 characters or fewer.';
     }
 
-    $currentUser = findUserById($userId);
-    if ($currentUser === null) {
-        return 'Account not found.';
-    }
-
-    $hasNewAvatarUpload = $avatarFile !== null && ($avatarFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
     $avatarPath = null;
-    $shouldUpdateAvatarPath = false;
-    if ($hasNewAvatarUpload) {
+    if ($avatarFile !== null && ($avatarFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
         $avatarUpload = saveUploadedAvatar($avatarFile, 'user', $userId);
         if (isset($avatarUpload['error'])) {
             return (string) $avatarUpload['error'];
         }
         $avatarPath = (string) ($avatarUpload['path'] ?? '');
-        $shouldUpdateAvatarPath = true;
-    } elseif ($removeAvatar) {
-        $avatarPath = null;
-        $shouldUpdateAvatarPath = true;
     }
 
     $sql = 'UPDATE users
@@ -2865,30 +2847,15 @@ function updateUserProfile(
         'family_name' => $normalizedFamilyName,
     ];
 
-    if ($shouldUpdateAvatarPath) {
-        if ($avatarPath === null) {
-            $sql .= ', avatar_path = NULL';
-        } else {
-            $sql .= ', avatar_path = :avatar_path';
-            $params['avatar_path'] = $avatarPath;
-        }
+    if ($avatarPath !== null) {
+        $sql .= ', avatar_path = :avatar_path';
+        $params['avatar_path'] = $avatarPath;
     }
 
     $sql .= ' WHERE id = :id';
 
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
-
-    if ($shouldUpdateAvatarPath) {
-        $previousAvatarPath = isset($currentUser['avatar_path']) ? (string) $currentUser['avatar_path'] : '';
-        if (
-            $previousAvatarPath !== ''
-            && $previousAvatarPath !== $avatarPath
-            && str_starts_with($previousAvatarPath, 'storage/avatars/')
-        ) {
-            @unlink(BASE_PATH . '/' . ltrim($previousAvatarPath, '/'));
-        }
-    }
 
     return null;
 }
