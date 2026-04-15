@@ -343,6 +343,13 @@
             object-fit: cover;
             display: block;
         }
+        .topbar-peer-avatar.is-clickable {
+            cursor: zoom-in;
+        }
+        .topbar-peer-avatar.is-clickable:focus-visible {
+            outline: 2px solid rgba(255, 255, 255, 0.9);
+            outline-offset: 2px;
+        }
         .topbar-meta h1 {
             margin: 0;
             font-size: 18px;

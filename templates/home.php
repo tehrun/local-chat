@@ -287,6 +287,7 @@
             <form method="post" class="profile-modal-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
                 <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                <input type="hidden" id="profile-remove-avatar-input" name="remove_avatar" value="0">
                 <div class="profile-avatar-upload">
                     <div class="profile-avatar-preview" id="profile-avatar-preview" aria-hidden="true">
                         <?php if (!empty($user['avatar_path'])): ?>
@@ -298,6 +299,7 @@
                     <div class="profile-avatar-copy">
                         <div>
                             <button class="mini-button secondary" id="profile-avatar-choose" type="button">Choose photo</button>
+                            <button class="mini-button danger" id="profile-avatar-remove" type="button"<?= empty($user['avatar_path']) ? ' hidden' : '' ?>>Remove photo</button>
                             <input id="profile-avatar-file-input" type="file" name="avatar_file" accept="image/*" hidden>
                         </div>
                         <p class="profile-avatar-file" id="profile-avatar-file-name">JPG, PNG, GIF, WEBP, HEIC/HEIF • up to 8MB.</p>
@@ -321,6 +323,10 @@
                 </div>
             </form>
         </div>
+    </div>
+    <div class="avatar-lightbox" id="avatar-lightbox" hidden aria-hidden="true">
+        <button class="avatar-lightbox-close" id="avatar-lightbox-close" type="button" aria-label="Close profile photo preview">×</button>
+        <img id="avatar-lightbox-image" class="avatar-lightbox-image" src="" alt="Profile photo preview">
     </div>
 <?php endif; ?>
 <script type="application/json" id="home-bootstrap-data"><?= jsonScriptValue($bootstrapData) ?></script>

@@ -33,7 +33,11 @@
                     </button>
                 <?php else: ?>
                     <div class="topbar-peer-profile">
-                        <div class="topbar-peer-avatar" aria-hidden="true">
+                        <div
+                            class="topbar-peer-avatar<?= !empty($otherUser['avatar_path']) ? ' is-clickable' : '' ?>"
+                            id="topbar-peer-avatar"
+                            <?= !empty($otherUser['avatar_path']) ? 'role="button" tabindex="0" aria-label="Open profile photo"' : 'aria-hidden="true"' ?>
+                        >
                             <?php if (!empty($otherUser['avatar_path'])): ?>
                                 <img src="avatar.php?user=<?= (int) $otherUser['id'] ?>" alt="">
                             <?php else: ?>

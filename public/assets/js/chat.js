@@ -78,6 +78,7 @@ const rootEl = document.documentElement;
 const backLink = document.querySelector('.back-link');
 const chatShellEl = document.querySelector('.chat-shell');
 const topbarEl = document.querySelector('.topbar');
+const topbarPeerAvatar = document.getElementById('topbar-peer-avatar');
 const reducedMotionQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null;
@@ -4782,6 +4783,24 @@ actionButton.addEventListener('click', async (event) => {
 
 lightboxBack?.addEventListener('click', () => {
     closeImageLightbox();
+});
+topbarPeerAvatar?.addEventListener('click', () => {
+    const avatarImage = topbarPeerAvatar.querySelector('img');
+    if (!(avatarImage instanceof HTMLImageElement)) {
+        return;
+    }
+    openImageLightbox(avatarImage.currentSrc || avatarImage.src || '', 'profile-photo', 0);
+});
+topbarPeerAvatar?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+    event.preventDefault();
+    const avatarImage = topbarPeerAvatar.querySelector('img');
+    if (!(avatarImage instanceof HTMLImageElement)) {
+        return;
+    }
+    openImageLightbox(avatarImage.currentSrc || avatarImage.src || '', 'profile-photo', 0);
 });
 lightboxMenuButton?.addEventListener('click', (event) => {
     event.preventDefault();
