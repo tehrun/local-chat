@@ -80,4 +80,29 @@ return [
         $newLoginError = loginUser($username, $newPassword, '7');
         assertSameValue($newLoginError, null);
     },
+
+    'email verification issues a code and confirms user email' => static function (): void {
+        $username = 'email_verify_' . bin2hex(random_bytes(4));
+        $userId = createAuthTestUser($username, 'ValidPassword123');
+        $email = 'verify+' . bin2hex(random_bytes(3)) . '@example.com';
+
+        updateUserProfile($userId, $username, null, null, $email, null);
+        issueEmailVerificationCode($userId, $email);
+
+        $logPath = STORAGE_PATH . '/tmp/email-verification.log';
+        $log = is_file($logPath) ? (string) file_get_contents($logPath) : '';
+        assertTrue($log !== '');
+
+        preg_match_all('/verification code: ([0-9]{6})/', $log, $matches);
+        $codes = $matches[1] ?? [];
+        $code = $codes !== [] ? (string) end($codes) : '';
+        assertTrue($code !== '');
+
+        $error = confirmEmailAddressVerification($userId, $code);
+        assertSameValue($error, null);
+
+        $user = findUserById($userId);
+        assertSameValue((string) ($user['email'] ?? ''), $email);
+        assertTrue(!empty($user['email_verified_at']));
+    },
 ];

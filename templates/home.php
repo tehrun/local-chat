@@ -373,11 +373,34 @@
                     Family name (optional)
                     <input type="text" name="family_name" maxlength="100" value="<?= e((string) ($user['family_name'] ?? '')) ?>">
                 </label>
+                <label>
+                    Email
+                    <input type="email" name="email" maxlength="255" value="<?= e((string) ($user['email'] ?? '')) ?>" placeholder="name@example.com">
+                </label>
+                <?php if (!empty($user['email'])): ?>
+                    <p class="panel-text">
+                        Email status:
+                        <strong><?= !empty($user['email_verified_at']) ? 'Verified' : 'Pending verification' ?></strong>
+                    </p>
+                <?php endif; ?>
                 <div class="profile-modal-form-actions">
                     <button class="mini-button secondary" id="profile-modal-cancel" type="button">Cancel</button>
                     <button class="mini-button primary" id="profile-modal-save" type="submit">Save</button>
                 </div>
             </form>
+            <?php if (!empty($user['email']) && empty($user['email_verified_at'])): ?>
+                <form method="post" class="profile-modal-form">
+                    <input type="hidden" name="action" value="confirm_email">
+                    <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                    <label>
+                        Email verification code
+                        <input type="text" name="verification_code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+                    </label>
+                    <div class="profile-modal-form-actions">
+                        <button class="mini-button primary" type="submit">Confirm email</button>
+                    </div>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
     <div class="profile-modal" id="change-password-modal" hidden>

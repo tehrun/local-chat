@@ -143,18 +143,43 @@ final class HomeController
             }
 
             if ($action === 'update_profile' && $user !== null) {
+                $submittedEmail = isset($_POST['email']) ? (string) $_POST['email'] : null;
+                $previousEmail = isset($user['email']) && is_string($user['email']) ? strtolower(trim($user['email'])) : '';
                 $error = updateUserProfile(
                     (int) $user['id'],
                     (string) ($_POST['username'] ?? ''),
                     isset($_POST['name']) ? (string) $_POST['name'] : null,
                     isset($_POST['family_name']) ? (string) $_POST['family_name'] : null,
+                    $submittedEmail,
                     $_FILES['avatar_file'] ?? null
                 );
 
                 if ($error !== null) {
                     $_SESSION['flash_errors'] = [$error];
                 } else {
-                    $_SESSION['flash_notice'] = 'Settings updated.';
+                    $normalizedSubmittedEmail = $submittedEmail === null ? '' : strtolower(trim($submittedEmail));
+                    if ($normalizedSubmittedEmail !== '' && $normalizedSubmittedEmail !== $previousEmail) {
+                        issueEmailVerificationCode((int) $user['id'], $normalizedSubmittedEmail);
+                        $_SESSION['flash_notice'] = 'Settings updated. A 6-digit verification code was sent to your email.';
+                    } else {
+                        $_SESSION['flash_notice'] = 'Settings updated.';
+                    }
+                }
+
+                header('Location: ./');
+                exit;
+            }
+
+            if ($action === 'confirm_email' && $user !== null) {
+                $error = confirmEmailAddressVerification(
+                    (int) $user['id'],
+                    (string) ($_POST['verification_code'] ?? '')
+                );
+
+                if ($error !== null) {
+                    $_SESSION['flash_errors'] = [$error];
+                } else {
+                    $_SESSION['flash_notice'] = 'Email verified.';
                 }
 
                 header('Location: ./');
