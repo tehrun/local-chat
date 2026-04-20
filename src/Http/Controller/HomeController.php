@@ -159,8 +159,12 @@ final class HomeController
                 } else {
                     $normalizedSubmittedEmail = $submittedEmail === null ? '' : strtolower(trim($submittedEmail));
                     if ($normalizedSubmittedEmail !== '' && $normalizedSubmittedEmail !== $previousEmail) {
-                        issueEmailVerificationCode((int) $user['id'], $normalizedSubmittedEmail);
-                        $_SESSION['flash_notice'] = 'Settings updated. A 6-digit verification code was sent to your email.';
+                        $mailSent = issueEmailVerificationCode((int) $user['id'], $normalizedSubmittedEmail);
+                        if ($mailSent) {
+                            $_SESSION['flash_notice'] = 'Settings updated. A 6-digit verification code was sent to your email.';
+                        } else {
+                            $_SESSION['flash_notice'] = 'Settings updated, but email delivery failed. Please check mail server settings for verify@chat.bsharp.one.';
+                        }
                     } else {
                         $_SESSION['flash_notice'] = 'Settings updated.';
                     }

@@ -34,6 +34,7 @@ define('SESSION_BACKEND_NAME', 'database');
 define('IMAGE_UPLOAD_TARGET_MAX_BYTES', 5 * 1024 * 1024);
 define('PASSWORD_RESET_TOKEN_TTL_SECONDS', 60 * 60);
 define('EMAIL_VERIFICATION_CODE_TTL_SECONDS', 15 * 60);
+define('DEFAULT_VERIFY_FROM_EMAIL', 'verify@chat.bsharp.one');
 
 require_once __DIR__ . '/Infrastructure/Environment.php';
 require_once __DIR__ . '/Infrastructure/Paths.php';
@@ -2965,20 +2966,40 @@ function updateUserProfile(
     return null;
 }
 
-function sendVerificationCodeEmail(string $email, string $code): void
+function sendVerificationCodeEmail(string $email, string $code): bool
 {
+    $fromEmail = trim(envValue('CHAT_VERIFY_FROM_EMAIL', DEFAULT_VERIFY_FROM_EMAIL));
+    if ($fromEmail === '' || !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+        $fromEmail = DEFAULT_VERIFY_FROM_EMAIL;
+    }
+
+    $subject = 'Your Local Chat verification code';
+    $message = "Your Local Chat verification code is: {$code}\n\nThis code expires in 15 minutes.";
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: Local Chat Verify <' . $fromEmail . '>',
+        'Reply-To: ' . $fromEmail,
+        'X-Mailer: PHP/' . phpversion(),
+    ];
+    $sent = @mail($email, $subject, $message, implode("\r\n", $headers));
+
     $logPath = STORAGE_PATH . '/tmp/email-verification.log';
     @mkdir(dirname($logPath), 0777, true);
     $line = sprintf(
-        "[%s] To: %s | Local Chat verification code: %s\n",
+        "[%s] To: %s | From: %s | Local Chat verification code: %s | mail_sent=%s\n",
         gmdate('c'),
         $email,
-        $code
+        $fromEmail,
+        $code,
+        $sent ? '1' : '0'
     );
     @file_put_contents($logPath, $line, FILE_APPEND);
+
+    return $sent;
 }
 
-function issueEmailVerificationCode(int $userId, string $email): void
+function issueEmailVerificationCode(int $userId, string $email): bool
 {
     $code = (string) random_int(100000, 999999);
     $stmt = db()->prepare(
@@ -2993,7 +3014,7 @@ function issueEmailVerificationCode(int $userId, string $email): void
         'created_at' => gmdate('c'),
     ]);
 
-    sendVerificationCodeEmail($email, $code);
+    return sendVerificationCodeEmail($email, $code);
 }
 
 function validateEmailVerificationCode(int $userId, string $code): ?array
