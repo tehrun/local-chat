@@ -32,6 +32,9 @@ define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
 define('IMAGE_UPLOAD_TARGET_MAX_BYTES', 5 * 1024 * 1024);
+define('PASSWORD_RESET_TOKEN_TTL_SECONDS', 60 * 60);
+define('EMAIL_VERIFICATION_CODE_TTL_SECONDS', 15 * 60);
+define('DEFAULT_VERIFY_FROM_EMAIL', 'verify@chat.bsharp.one');
 
 require_once __DIR__ . '/Infrastructure/Environment.php';
 require_once __DIR__ . '/Infrastructure/Paths.php';
@@ -99,6 +102,8 @@ function initializeSqliteDatabase(PDO $pdo): void
             name TEXT,
             family_name TEXT,
             avatar_path TEXT,
+            email TEXT,
+            email_verified_at TEXT,
             password_hash TEXT NOT NULL,
             created_at TEXT NOT NULL
         )'
@@ -120,6 +125,45 @@ function initializeSqliteDatabase(PDO $pdo): void
     if (!in_array('avatar_path', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path TEXT');
     }
+    if (!in_array('email', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN email TEXT');
+    }
+    if (!in_array('email_verified_at', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
+    }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS email_verification_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            email TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_email_verification_codes_lookup
+         ON email_verification_codes (user_id, email, expires_at, consumed_at, created_at)'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_lookup
+         ON password_reset_tokens (user_id, expires_at, consumed_at, created_at)'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -629,6 +673,8 @@ function initializeMysqlDatabase(PDO $pdo): void
             name VARCHAR(255) NULL,
             family_name VARCHAR(255) NULL,
             avatar_path VARCHAR(255) NULL,
+            email VARCHAR(255) NULL,
+            email_verified_at DATETIME NULL,
             password_hash VARCHAR(255) NOT NULL,
             created_at DATETIME NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
@@ -644,6 +690,38 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('avatar_path', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL AFTER family_name');
     }
+    if (!in_array('email', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL AFTER avatar_path');
+    }
+    if (!in_array('email_verified_at', $userColumns, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER email');
+    }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            token_hash VARCHAR(255) NOT NULL UNIQUE,
+            expires_at DATETIME NOT NULL,
+            consumed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_password_reset_tokens_lookup (user_id, expires_at, consumed_at, created_at),
+            CONSTRAINT fk_password_reset_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS email_verification_codes (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            code_hash VARCHAR(255) NOT NULL,
+            expires_at DATETIME NOT NULL,
+            consumed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_email_verification_codes_lookup (user_id, email, expires_at, consumed_at, created_at),
+            CONSTRAINT fk_email_verification_codes_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -1722,7 +1800,7 @@ function currentUser(): ?array
         return null;
     }
 
-    $stmt = db()->prepare('SELECT id, username, name, family_name, avatar_path, created_at FROM users WHERE id = :id');
+    $stmt = db()->prepare('SELECT id, username, name, family_name, avatar_path, email, email_verified_at, created_at FROM users WHERE id = :id');
     $stmt->execute(['id' => $_SESSION['user_id']]);
 
     $user = $stmt->fetch() ?: null;
@@ -2585,7 +2663,7 @@ function findUserByUsername(string $username): ?array
 function findUserById(int $id): ?array
 {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.name, u.family_name, u.avatar_path, u.created_at, up.updated_at AS presence_updated_at
+        'SELECT u.id, u.username, u.name, u.family_name, u.avatar_path, u.email, u.email_verified_at, u.created_at, up.updated_at AS presence_updated_at
          FROM users u
          LEFT JOIN user_presence up ON up.user_id = u.id
          WHERE u.id = :id
@@ -2796,7 +2874,14 @@ function userDisplayName(array $user): string
     return trim((string) ($user['username'] ?? ''));
 }
 
-function updateUserProfile(int $userId, string $username, ?string $name, ?string $familyName, ?array $avatarFile = null): ?string
+function updateUserProfile(
+    int $userId,
+    string $username,
+    ?string $name,
+    ?string $familyName,
+    ?string $email = null,
+    ?array $avatarFile = null
+): ?string
 {
     $normalizedUsername = trim($username);
     if ($normalizedUsername === '' || strlen($normalizedUsername) < 3) {
@@ -2826,6 +2911,14 @@ function updateUserProfile(int $userId, string $username, ?string $name, ?string
         return 'Family name must be 100 characters or fewer.';
     }
 
+    $normalizedEmail = $email === null ? null : trim(strtolower($email));
+    if ($normalizedEmail === '') {
+        $normalizedEmail = null;
+    }
+    if ($normalizedEmail !== null && !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
+        return 'Please enter a valid email address.';
+    }
+
     $avatarPath = null;
     if ($avatarFile !== null && ($avatarFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
         $avatarUpload = saveUploadedAvatar($avatarFile, 'user', $userId);
@@ -2838,14 +2931,27 @@ function updateUserProfile(int $userId, string $username, ?string $name, ?string
     $sql = 'UPDATE users
             SET username = :username,
                 name = :name,
-                family_name = :family_name';
+                family_name = :family_name,
+                email = :email';
 
     $params = [
         'id' => $userId,
         'username' => $normalizedUsername,
         'name' => $normalizedName,
         'family_name' => $normalizedFamilyName,
+        'email' => $normalizedEmail,
     ];
+
+    if ($normalizedEmail === null) {
+        $sql .= ', email_verified_at = NULL';
+    } else {
+        $existingEmailStmt = db()->prepare('SELECT email FROM users WHERE id = :id LIMIT 1');
+        $existingEmailStmt->execute(['id' => $userId]);
+        $existingEmail = $existingEmailStmt->fetchColumn();
+        if (!is_string($existingEmail) || strtolower(trim($existingEmail)) !== $normalizedEmail) {
+            $sql .= ', email_verified_at = NULL';
+        }
+    }
 
     if ($avatarPath !== null) {
         $sql .= ', avatar_path = :avatar_path';
@@ -2856,6 +2962,128 @@ function updateUserProfile(int $userId, string $username, ?string $name, ?string
 
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
+
+    return null;
+}
+
+function sendVerificationCodeEmail(string $email, string $code): bool
+{
+    $fromEmail = trim(envValue('CHAT_VERIFY_FROM_EMAIL', DEFAULT_VERIFY_FROM_EMAIL));
+    if ($fromEmail === '' || !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+        $fromEmail = DEFAULT_VERIFY_FROM_EMAIL;
+    }
+
+    $subject = 'Your Local Chat verification code';
+    $message = "Your Local Chat verification code is: {$code}\n\nThis code expires in 15 minutes.";
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: Local Chat Verify <' . $fromEmail . '>',
+        'Reply-To: ' . $fromEmail,
+        'X-Mailer: PHP/' . phpversion(),
+    ];
+    $sent = @mail($email, $subject, $message, implode("\r\n", $headers));
+
+    $logPath = STORAGE_PATH . '/tmp/email-verification.log';
+    @mkdir(dirname($logPath), 0777, true);
+    $line = sprintf(
+        "[%s] To: %s | From: %s | Local Chat verification code: %s | mail_sent=%s\n",
+        gmdate('c'),
+        $email,
+        $fromEmail,
+        $code,
+        $sent ? '1' : '0'
+    );
+    @file_put_contents($logPath, $line, FILE_APPEND);
+
+    return $sent;
+}
+
+function issueEmailVerificationCode(int $userId, string $email): bool
+{
+    $code = (string) random_int(100000, 999999);
+    $stmt = db()->prepare(
+        'INSERT INTO email_verification_codes (user_id, email, code_hash, expires_at, consumed_at, created_at)
+         VALUES (:user_id, :email, :code_hash, :expires_at, NULL, :created_at)'
+    );
+    $stmt->execute([
+        'user_id' => $userId,
+        'email' => trim(strtolower($email)),
+        'code_hash' => password_hash($code, PASSWORD_DEFAULT),
+        'expires_at' => gmdate('c', time() + EMAIL_VERIFICATION_CODE_TTL_SECONDS),
+        'created_at' => gmdate('c'),
+    ]);
+
+    return sendVerificationCodeEmail($email, $code);
+}
+
+function validateEmailVerificationCode(int $userId, string $code): ?array
+{
+    $normalized = trim($code);
+    if ($normalized === '' || !preg_match('/^\d{6}$/', $normalized)) {
+        return null;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT id, email, code_hash, expires_at, consumed_at, created_at
+         FROM email_verification_codes
+         WHERE user_id = :user_id
+         ORDER BY created_at DESC'
+    );
+    $stmt->execute(['user_id' => $userId]);
+    $rows = $stmt->fetchAll();
+    $nowTs = time();
+
+    foreach ($rows as $row) {
+        if (!is_array($row) || !empty($row['consumed_at'])) {
+            continue;
+        }
+
+        $expiresTs = strtotime((string) ($row['expires_at'] ?? ''));
+        if ($expiresTs === false || $expiresTs < $nowTs) {
+            continue;
+        }
+
+        if (password_verify($normalized, (string) ($row['code_hash'] ?? ''))) {
+            return [
+                'id' => (int) $row['id'],
+                'email' => (string) $row['email'],
+            ];
+        }
+    }
+
+    return null;
+}
+
+function confirmEmailAddressVerification(int $userId, string $code): ?string
+{
+    $verification = validateEmailVerificationCode($userId, $code);
+    if ($verification === null) {
+        return 'Invalid or expired verification code.';
+    }
+
+    $consumeStmt = db()->prepare(
+        'UPDATE email_verification_codes
+         SET consumed_at = :consumed_at
+         WHERE id = :id
+           AND consumed_at IS NULL'
+    );
+    $consumeStmt->execute([
+        'consumed_at' => gmdate('c'),
+        'id' => (int) $verification['id'],
+    ]);
+
+    $userStmt = db()->prepare(
+        'UPDATE users
+         SET email = :email,
+             email_verified_at = :email_verified_at
+         WHERE id = :id'
+    );
+    $userStmt->execute([
+        'email' => (string) $verification['email'],
+        'email_verified_at' => gmdate('c'),
+        'id' => $userId,
+    ]);
 
     return null;
 }
@@ -2903,6 +3131,178 @@ function loginUser(string $username, string $password, string $challengeAnswer):
     csrfToken();
     recordAuthAttempt('login', true);
     refreshAuthChallenge();
+
+    return null;
+}
+
+function issuePasswordResetToken(string $username): ?array
+{
+    $user = findUserByUsername($username);
+    if ($user === null) {
+        return null;
+    }
+
+    $rawToken = base64UrlEncode(random_bytes(32));
+    $createdAt = gmdate('c');
+    $expiresAt = gmdate('c', time() + PASSWORD_RESET_TOKEN_TTL_SECONDS);
+    $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
+
+    $stmt = db()->prepare(
+        'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, consumed_at, created_at)
+         VALUES (:user_id, :token_hash, :expires_at, NULL, :created_at)'
+    );
+    $stmt->execute([
+        'user_id' => (int) $user['id'],
+        'token_hash' => $tokenHash,
+        'expires_at' => $expiresAt,
+        'created_at' => $createdAt,
+    ]);
+
+    return [
+        'token' => $rawToken,
+        'expires_at' => $expiresAt,
+        'user_id' => (int) $user['id'],
+    ];
+}
+
+function validatePasswordResetToken(string $token): ?array
+{
+    $normalized = trim($token);
+    if ($normalized === '') {
+        return null;
+    }
+
+    $stmt = db()->query(
+        'SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+         FROM password_reset_tokens
+         ORDER BY created_at DESC'
+    );
+    $rows = $stmt ? $stmt->fetchAll() : [];
+    $nowTs = time();
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        if (!empty($row['consumed_at'])) {
+            continue;
+        }
+
+        $expiresTs = strtotime((string) ($row['expires_at'] ?? ''));
+        if ($expiresTs === false || $expiresTs < $nowTs) {
+            continue;
+        }
+
+        $tokenHash = (string) ($row['token_hash'] ?? '');
+        if ($tokenHash === '' || !password_verify($normalized, $tokenHash)) {
+            continue;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'user_id' => (int) $row['user_id'],
+            'expires_at' => (string) $row['expires_at'],
+            'created_at' => (string) $row['created_at'],
+        ];
+    }
+
+    return null;
+}
+
+function invalidatePasswordResetToken(int $tokenId): void
+{
+    $stmt = db()->prepare(
+        'UPDATE password_reset_tokens
+         SET consumed_at = :consumed_at
+         WHERE id = :id
+           AND consumed_at IS NULL'
+    );
+    $stmt->execute([
+        'consumed_at' => gmdate('c'),
+        'id' => $tokenId,
+    ]);
+}
+
+function rotateUserPasswordHash(int $userId, string $newPassword): void
+{
+    $stmt = db()->prepare(
+        'UPDATE users
+         SET password_hash = :password_hash
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+        'id' => $userId,
+    ]);
+}
+
+function changeUserPassword(
+    int $userId,
+    string $currentPassword,
+    string $newPassword,
+    string $confirmPassword
+): ?string {
+    $user = findUserById($userId);
+    if ($user === null) {
+        return 'Account not found.';
+    }
+
+    $userRecord = findUserByUsername((string) ($user['username'] ?? ''));
+    if ($userRecord === null) {
+        return 'Account not found.';
+    }
+
+    if (!password_verify($currentPassword, (string) $userRecord['password_hash'])) {
+        return 'Current password is incorrect.';
+    }
+
+    if (strlen($newPassword) < 12) {
+        return 'Password must be at least 12 characters.';
+    }
+
+    if (
+        !preg_match('/[A-Z]/', $newPassword)
+        || !preg_match('/[a-z]/', $newPassword)
+        || !preg_match('/\d/', $newPassword)
+    ) {
+        return 'Password must include upper-case, lower-case, and a number.';
+    }
+
+    if (!hash_equals($newPassword, $confirmPassword)) {
+        return 'Passwords do not match.';
+    }
+
+    rotateUserPasswordHash($userId, $newPassword);
+
+    return null;
+}
+
+function confirmPasswordReset(string $token, string $newPassword, string $confirmPassword): ?string
+{
+    if (strlen($newPassword) < 12) {
+        return 'Password must be at least 12 characters.';
+    }
+
+    if (
+        !preg_match('/[A-Z]/', $newPassword)
+        || !preg_match('/[a-z]/', $newPassword)
+        || !preg_match('/\d/', $newPassword)
+    ) {
+        return 'Password must include upper-case, lower-case, and a number.';
+    }
+
+    if (!hash_equals($newPassword, $confirmPassword)) {
+        return 'Passwords do not match.';
+    }
+
+    $tokenRow = validatePasswordResetToken($token);
+    if ($tokenRow === null) {
+        return 'Invalid or expired password reset token.';
+    }
+
+    rotateUserPasswordHash((int) $tokenRow['user_id'], $newPassword);
+    invalidatePasswordResetToken((int) $tokenRow['id']);
 
     return null;
 }
