@@ -57,6 +57,16 @@
                                     <span>Your account</span>
                                 </span>
                             </button>
+                            <button class="header-menu-item" id="open-change-password-modal-button" type="button" role="menuitem">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <rect x="3" y="11" width="18" height="10" rx="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <span class="header-menu-copy">
+                                    <strong>Change password</strong>
+                                    <span>Update your account password</span>
+                                </span>
+                            </button>
                             <div class="header-menu-label" role="menuitem">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28-.02.57-.02.86A7 7 0 0 0 20.14 12c.29 0 .58-.02.86-.02Z"></path>
@@ -145,6 +155,47 @@
                                 <button class="primary" type="submit">Register</button>
                             </form>
                             <p class="auth-switch">Already have an account? <a href="./">Sign in</a></p>
+                        <?php elseif ($authMode === 'forgot'): ?>
+                            <h2 class="panel-title">Reset password</h2>
+                            <form method="post">
+                                <input type="hidden" name="action" value="request_password_reset">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <label>
+                                    Username
+                                    <input type="text" name="username" required>
+                                </label>
+                                <label>
+                                    Verification: solve <?= e($authChallengePrompt) ?>
+                                    <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
+                                </label>
+                                <button class="secondary" type="submit">Request reset link</button>
+                            </form>
+                            <p class="auth-switch">Remembered it? <a href="./">Sign in</a></p>
+                        <?php elseif ($authMode === 'reset'): ?>
+                            <h2 class="panel-title">Choose new password</h2>
+                            <form method="post">
+                                <input type="hidden" name="action" value="confirm_password_reset">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <input type="hidden" name="token" value="<?= e((string) ($resetToken ?? '')) ?>">
+                                <label>
+                                    Reset token
+                                    <input type="text" name="token_visible" value="<?= e((string) ($resetToken ?? '')) ?>" disabled>
+                                </label>
+                                <label>
+                                    New password
+                                    <input type="password" name="password" minlength="12" required>
+                                </label>
+                                <label>
+                                    Confirm new password
+                                    <input type="password" name="confirm_password" minlength="12" required>
+                                </label>
+                                <label>
+                                    Verification: solve <?= e($authChallengePrompt) ?>
+                                    <input type="text" name="verification_answer" inputmode="numeric" pattern="-?[0-9]+" autocomplete="off" required>
+                                </label>
+                                <button class="secondary" type="submit">Reset password</button>
+                            </form>
+                            <p class="auth-switch"><a href="./?auth=forgot">Need a new reset link?</a></p>
                         <?php else: ?>
                             <h2 class="panel-title">Sign in</h2>
                             <form method="post" id="login-form">
@@ -164,6 +215,7 @@
                                 </label>
                                 <button class="secondary" id="login-submit" type="submit">Login</button>
                             </form>
+                            <p class="auth-switch"><a href="./?auth=forgot">Forgot password?</a></p>
                             <p class="auth-switch">Don&apos;t have an account? <a href="./?auth=register">Create one</a></p>
                         <?php endif; ?>
                     </div>
@@ -318,6 +370,34 @@
                 <div class="profile-modal-form-actions">
                     <button class="mini-button secondary" id="profile-modal-cancel" type="button">Cancel</button>
                     <button class="mini-button primary" id="profile-modal-save" type="submit">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="profile-modal" id="change-password-modal" hidden>
+        <div class="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+            <div class="profile-modal-header">
+                <h3 id="change-password-title">Change password</h3>
+                <button class="chat-switcher-close" id="change-password-close" type="button" aria-label="Close password form">×</button>
+            </div>
+            <form method="post" class="profile-modal-form">
+                <input type="hidden" name="action" value="change_password">
+                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                <label>
+                    Current password
+                    <input type="password" name="current_password" required>
+                </label>
+                <label>
+                    New password
+                    <input type="password" name="password" minlength="12" required>
+                </label>
+                <label>
+                    Confirm new password
+                    <input type="password" name="confirm_password" minlength="12" required>
+                </label>
+                <div class="profile-modal-form-actions">
+                    <button class="mini-button secondary" id="change-password-cancel" type="button">Cancel</button>
+                    <button class="mini-button primary" type="submit">Save</button>
                 </div>
             </form>
         </div>

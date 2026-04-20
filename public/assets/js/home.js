@@ -40,9 +40,13 @@ const rootEl = document.documentElement;
 const settingsMenuButton = document.getElementById('settings-menu-button');
 const settingsMenuPanel = document.getElementById('settings-menu-panel');
 const openProfileModalButton = document.getElementById('open-profile-modal-button');
+const openChangePasswordModalButton = document.getElementById('open-change-password-modal-button');
 const profileModal = document.getElementById('profile-modal');
+const changePasswordModal = document.getElementById('change-password-modal');
 const profileModalCloseButton = document.getElementById('profile-modal-close');
 const profileModalCancelButton = document.getElementById('profile-modal-cancel');
+const changePasswordCloseButton = document.getElementById('change-password-close');
+const changePasswordCancelButton = document.getElementById('change-password-cancel');
 const profileModalForm = profileModal?.querySelector('form') || null;
 const profileAvatarChooseButton = document.getElementById('profile-avatar-choose');
 const profileAvatarFileInput = document.getElementById('profile-avatar-file-input');
@@ -122,6 +126,21 @@ function setProfileModalOpen(isOpen) {
         window.setTimeout(() => {
             usernameInput?.focus();
             usernameInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 60);
+    }
+}
+
+function setChangePasswordModalOpen(isOpen) {
+    if (!changePasswordModal) {
+        return;
+    }
+
+    changePasswordModal.hidden = !isOpen;
+    if (isOpen) {
+        const currentPasswordInput = changePasswordModal.querySelector('input[name="current_password"]');
+        window.setTimeout(() => {
+            currentPasswordInput?.focus();
+            currentPasswordInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }, 60);
     }
 }
@@ -1043,6 +1062,10 @@ openProfileModalButton?.addEventListener('click', () => {
     setSettingsMenuOpen(false);
     setProfileModalOpen(true);
 });
+openChangePasswordModalButton?.addEventListener('click', () => {
+    setSettingsMenuOpen(false);
+    setChangePasswordModalOpen(true);
+});
 
 themeToggle?.addEventListener('change', () => {
     const nextTheme = themeToggle.checked ? 'dark' : 'light';
@@ -1072,9 +1095,16 @@ profileModal?.addEventListener('click', (event) => {
         setProfileModalOpen(false);
     }
 });
+changePasswordModal?.addEventListener('click', (event) => {
+    if (event.target === changePasswordModal) {
+        setChangePasswordModalOpen(false);
+    }
+});
 
 profileModalCloseButton?.addEventListener('click', () => setProfileModalOpen(false));
 profileModalCancelButton?.addEventListener('click', () => setProfileModalOpen(false));
+changePasswordCloseButton?.addEventListener('click', () => setChangePasswordModalOpen(false));
+changePasswordCancelButton?.addEventListener('click', () => setChangePasswordModalOpen(false));
 profileAvatarChooseButton?.addEventListener('click', () => profileAvatarFileInput?.click());
 profileAvatarFileInput?.addEventListener('change', () => {
     const [file] = profileAvatarFileInput.files || [];
@@ -1116,6 +1146,10 @@ profileModal?.querySelectorAll('input').forEach((input) => {
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && profileModal && !profileModal.hidden) {
         setProfileModalOpen(false);
+        return;
+    }
+    if (event.key === 'Escape' && changePasswordModal && !changePasswordModal.hidden) {
+        setChangePasswordModalOpen(false);
         return;
     }
 

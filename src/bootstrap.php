@@ -32,6 +32,7 @@ define('MESSAGE_ENCRYPTION_KEY_PATH', STORAGE_PATH . '/message-encryption.key');
 define('WEB_PUSH_AUDIENCE_TTL_SECONDS', 12 * 60 * 60);
 define('SESSION_BACKEND_NAME', 'database');
 define('IMAGE_UPLOAD_TARGET_MAX_BYTES', 5 * 1024 * 1024);
+define('PASSWORD_RESET_TOKEN_TTL_SECONDS', 60 * 60);
 
 require_once __DIR__ . '/Infrastructure/Environment.php';
 require_once __DIR__ . '/Infrastructure/Paths.php';
@@ -120,6 +121,22 @@ function initializeSqliteDatabase(PDO $pdo): void
     if (!in_array('avatar_path', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path TEXT');
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_lookup
+         ON password_reset_tokens (user_id, expires_at, consumed_at, created_at)'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -644,6 +661,19 @@ function initializeMysqlDatabase(PDO $pdo): void
     if (!in_array('avatar_path', $userColumns, true)) {
         $pdo->exec('ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL AFTER family_name');
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            token_hash VARCHAR(255) NOT NULL UNIQUE,
+            expires_at DATETIME NOT NULL,
+            consumed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            INDEX idx_password_reset_tokens_lookup (user_id, expires_at, consumed_at, created_at),
+            CONSTRAINT fk_password_reset_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS messages (
@@ -2903,6 +2933,178 @@ function loginUser(string $username, string $password, string $challengeAnswer):
     csrfToken();
     recordAuthAttempt('login', true);
     refreshAuthChallenge();
+
+    return null;
+}
+
+function issuePasswordResetToken(string $username): ?array
+{
+    $user = findUserByUsername($username);
+    if ($user === null) {
+        return null;
+    }
+
+    $rawToken = base64UrlEncode(random_bytes(32));
+    $createdAt = gmdate('c');
+    $expiresAt = gmdate('c', time() + PASSWORD_RESET_TOKEN_TTL_SECONDS);
+    $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
+
+    $stmt = db()->prepare(
+        'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, consumed_at, created_at)
+         VALUES (:user_id, :token_hash, :expires_at, NULL, :created_at)'
+    );
+    $stmt->execute([
+        'user_id' => (int) $user['id'],
+        'token_hash' => $tokenHash,
+        'expires_at' => $expiresAt,
+        'created_at' => $createdAt,
+    ]);
+
+    return [
+        'token' => $rawToken,
+        'expires_at' => $expiresAt,
+        'user_id' => (int) $user['id'],
+    ];
+}
+
+function validatePasswordResetToken(string $token): ?array
+{
+    $normalized = trim($token);
+    if ($normalized === '') {
+        return null;
+    }
+
+    $stmt = db()->query(
+        'SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+         FROM password_reset_tokens
+         ORDER BY created_at DESC'
+    );
+    $rows = $stmt ? $stmt->fetchAll() : [];
+    $nowTs = time();
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        if (!empty($row['consumed_at'])) {
+            continue;
+        }
+
+        $expiresTs = strtotime((string) ($row['expires_at'] ?? ''));
+        if ($expiresTs === false || $expiresTs < $nowTs) {
+            continue;
+        }
+
+        $tokenHash = (string) ($row['token_hash'] ?? '');
+        if ($tokenHash === '' || !password_verify($normalized, $tokenHash)) {
+            continue;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'user_id' => (int) $row['user_id'],
+            'expires_at' => (string) $row['expires_at'],
+            'created_at' => (string) $row['created_at'],
+        ];
+    }
+
+    return null;
+}
+
+function invalidatePasswordResetToken(int $tokenId): void
+{
+    $stmt = db()->prepare(
+        'UPDATE password_reset_tokens
+         SET consumed_at = :consumed_at
+         WHERE id = :id
+           AND consumed_at IS NULL'
+    );
+    $stmt->execute([
+        'consumed_at' => gmdate('c'),
+        'id' => $tokenId,
+    ]);
+}
+
+function rotateUserPasswordHash(int $userId, string $newPassword): void
+{
+    $stmt = db()->prepare(
+        'UPDATE users
+         SET password_hash = :password_hash
+         WHERE id = :id'
+    );
+    $stmt->execute([
+        'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+        'id' => $userId,
+    ]);
+}
+
+function changeUserPassword(
+    int $userId,
+    string $currentPassword,
+    string $newPassword,
+    string $confirmPassword
+): ?string {
+    $user = findUserById($userId);
+    if ($user === null) {
+        return 'Account not found.';
+    }
+
+    $userRecord = findUserByUsername((string) ($user['username'] ?? ''));
+    if ($userRecord === null) {
+        return 'Account not found.';
+    }
+
+    if (!password_verify($currentPassword, (string) $userRecord['password_hash'])) {
+        return 'Current password is incorrect.';
+    }
+
+    if (strlen($newPassword) < 12) {
+        return 'Password must be at least 12 characters.';
+    }
+
+    if (
+        !preg_match('/[A-Z]/', $newPassword)
+        || !preg_match('/[a-z]/', $newPassword)
+        || !preg_match('/\d/', $newPassword)
+    ) {
+        return 'Password must include upper-case, lower-case, and a number.';
+    }
+
+    if (!hash_equals($newPassword, $confirmPassword)) {
+        return 'Passwords do not match.';
+    }
+
+    rotateUserPasswordHash($userId, $newPassword);
+
+    return null;
+}
+
+function confirmPasswordReset(string $token, string $newPassword, string $confirmPassword): ?string
+{
+    if (strlen($newPassword) < 12) {
+        return 'Password must be at least 12 characters.';
+    }
+
+    if (
+        !preg_match('/[A-Z]/', $newPassword)
+        || !preg_match('/[a-z]/', $newPassword)
+        || !preg_match('/\d/', $newPassword)
+    ) {
+        return 'Password must include upper-case, lower-case, and a number.';
+    }
+
+    if (!hash_equals($newPassword, $confirmPassword)) {
+        return 'Passwords do not match.';
+    }
+
+    $tokenRow = validatePasswordResetToken($token);
+    if ($tokenRow === null) {
+        return 'Invalid or expired password reset token.';
+    }
+
+    rotateUserPasswordHash((int) $tokenRow['user_id'], $newPassword);
+    invalidatePasswordResetToken((int) $tokenRow['id']);
 
     return null;
 }
