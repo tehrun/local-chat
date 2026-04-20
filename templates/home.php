@@ -57,7 +57,13 @@
                                     <span>Your account</span>
                                 </span>
                             </button>
-                            <button class="header-menu-item" id="open-change-password-modal-button" type="button" role="menuitem">
+                            <button
+                                class="header-menu-item"
+                                id="open-change-password-modal-button"
+                                type="button"
+                                role="menuitem"
+                                onclick="document.getElementById('settings-menu-panel').hidden = true; document.getElementById('change-password-modal').hidden = false;"
+                            >
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                     <rect x="3" y="11" width="18" height="10" rx="2"></rect>
                                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
@@ -378,7 +384,13 @@
         <div class="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
             <div class="profile-modal-header">
                 <h3 id="change-password-title">Change password</h3>
-                <button class="chat-switcher-close" id="change-password-close" type="button" aria-label="Close password form">×</button>
+                <button
+                    class="chat-switcher-close"
+                    id="change-password-close"
+                    type="button"
+                    aria-label="Close password form"
+                    onclick="document.getElementById('change-password-modal').hidden = true;"
+                >×</button>
             </div>
             <form method="post" class="profile-modal-form">
                 <input type="hidden" name="action" value="change_password">
@@ -396,7 +408,7 @@
                     <input type="password" name="confirm_password" minlength="12" required>
                 </label>
                 <div class="profile-modal-form-actions">
-                    <button class="mini-button secondary" id="change-password-cancel" type="button">Cancel</button>
+                    <button class="mini-button secondary" id="change-password-cancel" type="button" onclick="document.getElementById('change-password-modal').hidden = true;">Cancel</button>
                     <button class="mini-button primary" type="submit">Save</button>
                 </div>
             </form>
